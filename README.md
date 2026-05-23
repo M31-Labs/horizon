@@ -15,6 +15,7 @@ verifier-friendly eBPF programs that lower to readable BPF C.
 
 ```sh
 hzn check ./examples/execwatch
+hzn doctor
 hzn workbench ./examples/execwatch -o dist
 hzn workbench ./examples/execwatch -o dist -compile
 hzn build ./examples/execwatch -o dist
@@ -25,6 +26,9 @@ hzn diagnose dist/exec.verifier.log --map dist/exec.hznmap.json
 BPF C, a source map, typed Go bindings, a capability manifest, and a report.
 Use `-compile` or `hzn build` when the local clang/BPF C toolchain should also
 produce a `.bpf.o`.
+
+`hzn doctor` checks the local eBPF C toolchain: clang BPF support, libbpf
+headers, bpftool/LLVM utilities, kernel BTF, and a usable `vmlinux.h`.
 
 ## Status
 
