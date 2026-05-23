@@ -13,11 +13,17 @@ func Emit(program ir.Program) (Output, error) {
 	b.WriteString("#include \"vmlinux.h\"\n")
 	b.WriteString("#include <bpf/bpf_helpers.h>\n\n")
 	b.WriteString("#include <bpf/bpf_tracing.h>\n\n")
+	if programUsesXDPPacketHelpers(program) {
+		b.WriteString("#include <bpf/bpf_endian.h>\n\n")
+	}
 	if programHasXDP(program) {
 		emitXDPActionFallbacks(&b)
 	}
 	b.WriteString("char LICENSE[] SEC(\"license\") = \"GPL\";\n")
 	emitHelperWrappers(&b)
+	if programUsesXDPPacketHelpers(program) {
+		emitXDPPacketHelpers(&b)
+	}
 	for _, decl := range program.Structs {
 		emitStruct(&b, decl)
 	}
@@ -71,10 +77,45 @@ func newCEnv(program ir.Program) *cEnv {
 	for _, decl := range program.Structs {
 		env.structs[decl.Name] = decl
 	}
+	for _, decl := range xdpPacketStructs() {
+		env.structs[decl.Name] = decl
+	}
 	for _, m := range program.Maps {
 		env.maps[m.Name] = m
 	}
 	return env
+}
+
+func xdpPacketStructs() []ir.Struct {
+	return []ir.Struct{
+		{
+			Name: "xdp.Eth",
+			Fields: []ir.Field{
+				{Name: "dst", Type: fixedArrayType("u8", "6")},
+				{Name: "src", Type: fixedArrayType("u8", "6")},
+				{Name: "proto", Type: ir.Type{Name: "u16"}},
+			},
+		},
+		{
+			Name: "xdp.IPv4",
+			Fields: []ir.Field{
+				{Name: "version_ihl", Type: ir.Type{Name: "u8"}},
+				{Name: "tos", Type: ir.Type{Name: "u8"}},
+				{Name: "total_len", Type: ir.Type{Name: "u16"}},
+				{Name: "id", Type: ir.Type{Name: "u16"}},
+				{Name: "frag_off", Type: ir.Type{Name: "u16"}},
+				{Name: "ttl", Type: ir.Type{Name: "u8"}},
+				{Name: "protocol", Type: ir.Type{Name: "u8"}},
+				{Name: "check", Type: ir.Type{Name: "u16"}},
+				{Name: "src", Type: ir.Type{Name: "u32"}},
+				{Name: "dst", Type: ir.Type{Name: "u32"}},
+			},
+		},
+	}
+}
+
+func fixedArrayType(elem string, len string) ir.Type {
+	return ir.Type{Len: len, Elem: &ir.Type{Name: elem}}
 }
 
 func (e *cEnv) setLocal(name string, typ ir.Type) {
@@ -139,6 +180,127 @@ func programHasXDP(program ir.Program) bool {
 		}
 	}
 	return false
+}
+
+func programUsesXDPPacketHelpers(program ir.Program) bool {
+	for _, fn := range program.Functions {
+		for _, stmt := range functionStatements(fn) {
+			if statementUsesXDPPacketHelpers(stmt) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func statementUsesXDPPacketHelpers(stmt ir.Statement) bool {
+	switch stmt.Kind {
+	case "short_var":
+		return exprUsesXDPPacketHelpers(stmt.Value)
+	case "assign":
+		return exprUsesXDPPacketHelpers(stmt.Target) || exprUsesXDPPacketHelpers(stmt.Value)
+	case "expr":
+		return exprUsesXDPPacketHelpers(stmt.Expr)
+	case "return":
+		return exprUsesXDPPacketHelpers(stmt.Value)
+	case "if":
+		if exprUsesXDPPacketHelpers(stmt.Cond) {
+			return true
+		}
+		for _, child := range stmt.Then {
+			if statementUsesXDPPacketHelpers(child) {
+				return true
+			}
+		}
+	case "for":
+		if stmt.Init != nil && statementUsesXDPPacketHelpers(*stmt.Init) {
+			return true
+		}
+		if exprUsesXDPPacketHelpers(stmt.Cond) {
+			return true
+		}
+		if stmt.Post != nil && statementUsesXDPPacketHelpers(*stmt.Post) {
+			return true
+		}
+		for _, child := range stmt.Body {
+			if statementUsesXDPPacketHelpers(child) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func exprUsesXDPPacketHelpers(expr *ir.Expr) bool {
+	if expr == nil {
+		return false
+	}
+	if _, ok := xdpPacketCall(expr); ok {
+		return true
+	}
+	if exprUsesXDPPacketHelpers(expr.Operand) || exprUsesXDPPacketHelpers(expr.Left) || exprUsesXDPPacketHelpers(expr.Right) || exprUsesXDPPacketHelpers(expr.Func) {
+		return true
+	}
+	for i := range expr.Args {
+		if exprUsesXDPPacketHelpers(&expr.Args[i]) {
+			return true
+		}
+	}
+	for i := range expr.Fields {
+		if exprUsesXDPPacketHelpers(&expr.Fields[i].Value) {
+			return true
+		}
+	}
+	return false
+}
+
+func emitXDPPacketHelpers(b *strings.Builder) {
+	b.WriteString(`
+struct hzn_xdp_eth {
+    __u8 dst[6];
+    __u8 src[6];
+    __u16 proto;
+} __attribute__((packed));
+
+struct hzn_xdp_ipv4 {
+    __u8 version_ihl;
+    __u8 tos;
+    __u16 total_len;
+    __u16 id;
+    __u16 frag_off;
+    __u8 ttl;
+    __u8 protocol;
+    __u16 check;
+    __u32 src;
+    __u32 dst;
+} __attribute__((packed));
+
+static __always_inline struct hzn_xdp_eth *hzn_xdp_eth(struct xdp_md *ctx) {
+    void *data = (void *)(long)ctx->data;
+    void *data_end = (void *)(long)ctx->data_end;
+
+    if (data + sizeof(struct hzn_xdp_eth) > data_end) {
+        return 0;
+    }
+    return data;
+}
+
+static __always_inline struct hzn_xdp_ipv4 *hzn_xdp_ipv4(struct xdp_md *ctx) {
+    void *data = (void *)(long)ctx->data;
+    void *data_end = (void *)(long)ctx->data_end;
+    struct hzn_xdp_eth *eth = hzn_xdp_eth(ctx);
+
+    if (!eth || eth->proto != bpf_htons(0x0800)) {
+        return 0;
+    }
+
+    void *ip = data + sizeof(struct hzn_xdp_eth);
+    if (ip + sizeof(struct hzn_xdp_ipv4) > data_end) {
+        return 0;
+    }
+    return ip;
+}
+`)
 }
 
 func emitStruct(b *strings.Builder, decl ir.Struct) {
@@ -256,10 +418,28 @@ func cType(t ir.Type) string {
 		return "bool"
 	default:
 		if t.Name != "" {
-			return "struct " + t.Name
+			return cStructType(t.Name)
 		}
 		return "void"
 	}
+}
+
+func cStructType(name string) string {
+	switch name {
+	case "xdp.Eth":
+		return "struct hzn_xdp_eth"
+	case "xdp.IPv4":
+		return "struct hzn_xdp_ipv4"
+	default:
+		return "struct " + name
+	}
+}
+
+func cDecl(t ir.Type, name string) string {
+	if t.Ptr && t.Elem != nil {
+		return fmt.Sprintf("%s *%s", cType(*t.Elem), name)
+	}
+	return fmt.Sprintf("%s %s", cType(t), name)
 }
 
 func cContext(fn ir.Function) string {
@@ -305,7 +485,7 @@ func emitStatement(b *strings.Builder, stmt ir.Statement, program ir.Program, de
 			env.setLocal(stmt.Name, ptrToMapValue(mapName, env))
 		} else {
 			typ := inferredExprType(stmt.Value, env)
-			fmt.Fprintf(b, "%s%s %s = %s;\n", indent, cType(typ), stmt.Name, cExpr(stmt.Value, env))
+			fmt.Fprintf(b, "%s%s = %s;\n", indent, cDecl(typ, stmt.Name), cExpr(stmt.Value, env))
 			env.setLocal(stmt.Name, typ)
 		}
 	case "assign":
@@ -379,7 +559,7 @@ func cForInit(stmt *ir.Statement, program ir.Program, env *cEnv) string {
 	case "short_var":
 		typ := inferredExprType(stmt.Value, env)
 		env.setLocal(stmt.Name, typ)
-		return fmt.Sprintf("%s %s = %s", cType(typ), stmt.Name, cExpr(stmt.Value, env))
+		return fmt.Sprintf("%s = %s", cDecl(typ, stmt.Name), cExpr(stmt.Value, env))
 	case "assign":
 		return fmt.Sprintf("%s = %s", cExpr(stmt.Target, env), cExpr(stmt.Value, env))
 	default:
@@ -431,6 +611,10 @@ func cExprType(expr *ir.Expr, env *cEnv) (ir.Type, bool) {
 				return ir.Type{Name: "u32"}, true
 			case "bpf.current_comm":
 				return ir.Type{Name: "i64"}, true
+			case "xdp.eth":
+				return ptrTo(ir.Type{Name: "xdp.Eth"}), true
+			case "xdp.ipv4":
+				return ptrTo(ir.Type{Name: "xdp.IPv4"}), true
 			}
 		}
 		if mapName, ok := reserveCall(expr); ok {
@@ -443,6 +627,9 @@ func cExprType(expr *ir.Expr, env *cEnv) (ir.Type, bool) {
 		if name := qualifiedName(expr); name != "" {
 			if _, ok := xdpActionC(name); ok {
 				return ir.Type{Name: "i32"}, true
+			}
+			if typ, ok := xdpConstantType(name); ok {
+				return typ, true
 			}
 		}
 		return selectorExprType(expr, env)
@@ -518,6 +705,9 @@ func cExpr(expr *ir.Expr, env *cEnv) string {
 			if action, ok := xdpActionC(name); ok {
 				return action
 			}
+			if constant, ok := xdpConstantC(name); ok {
+				return constant
+			}
 		}
 		if expr.Operand == nil {
 			return expr.Field
@@ -559,6 +749,32 @@ func xdpActionC(name string) (string, bool) {
 	}
 }
 
+func xdpConstantC(name string) (string, bool) {
+	switch name {
+	case "xdp.EtherTypeIPv4":
+		return "bpf_htons(0x0800)", true
+	case "xdp.IPProtoICMP":
+		return "1", true
+	case "xdp.IPProtoTCP":
+		return "6", true
+	case "xdp.IPProtoUDP":
+		return "17", true
+	default:
+		return "", false
+	}
+}
+
+func xdpConstantType(name string) (ir.Type, bool) {
+	switch name {
+	case "xdp.EtherTypeIPv4":
+		return ir.Type{Name: "u16"}, true
+	case "xdp.IPProtoICMP", "xdp.IPProtoTCP", "xdp.IPProtoUDP":
+		return ir.Type{Name: "u8"}, true
+	default:
+		return ir.Type{}, false
+	}
+}
+
 func cExprIsPointer(expr *ir.Expr, env *cEnv) bool {
 	if expr == nil {
 		return false
@@ -575,6 +791,9 @@ func cExprIsPointer(expr *ir.Expr, env *cEnv) bool {
 			return true
 		}
 		if _, ok := lookupCall(expr); ok {
+			return true
+		}
+		if _, ok := xdpPacketCall(expr); ok {
 			return true
 		}
 		return false
@@ -622,6 +841,16 @@ func cCallExpr(expr *ir.Expr, env *cEnv) string {
 			if len(expr.Args) == 1 {
 				arg := expr.Args[0]
 				return fmt.Sprintf("hzn_current_comm(%s, sizeof(%s))", cExpr(&arg, env), sizeofExpr(&arg, env))
+			}
+		case "xdp.eth":
+			if len(expr.Args) == 1 {
+				arg := expr.Args[0]
+				return fmt.Sprintf("hzn_xdp_eth(%s)", cExpr(&arg, env))
+			}
+		case "xdp.ipv4":
+			if len(expr.Args) == 1 {
+				arg := expr.Args[0]
+				return fmt.Sprintf("hzn_xdp_ipv4(%s)", cExpr(&arg, env))
 			}
 		}
 	}
@@ -682,6 +911,21 @@ func reserveCall(expr *ir.Expr) (string, bool) {
 func lookupCall(expr *ir.Expr) (string, bool) {
 	mapName, method, ok := mapMethodCall(expr)
 	return mapName, ok && method == "lookup"
+}
+
+func xdpPacketCall(expr *ir.Expr) (string, bool) {
+	if expr == nil || expr.Kind != "call" || expr.Func == nil || expr.Func.Kind != "selector" {
+		return "", false
+	}
+	if expr.Func.Operand == nil || expr.Func.Operand.Kind != "ident" || expr.Func.Operand.Name != "xdp" {
+		return "", false
+	}
+	switch expr.Func.Field {
+	case "eth", "ipv4":
+		return expr.Func.Field, true
+	default:
+		return "", false
+	}
 }
 
 func mapMethodCall(expr *ir.Expr) (string, string, bool) {

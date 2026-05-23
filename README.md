@@ -84,16 +84,25 @@ func OnExec(ctx tracepoint.Exec) i32 {
 }
 ```
 
-Packet-path programs use explicit section attributes and named action values,
-not raw integer returns.
+Packet-path programs use explicit section attributes, compiler-checked packet
+loads, nil-checked headers, and named action values instead of raw pointer
+arithmetic or integer returns.
 
 ```go
 package probes
 
 @capability("kernel.network.xdp.drop")
 @xdp
-func DropAll(ctx xdp.Context) i32 {
-    return xdp.Drop
+func DropTCP(ctx xdp.Context) i32 {
+    ip := xdp.ipv4(ctx)
+    if ip == nil {
+        return xdp.Pass
+    }
+    if ip.protocol == xdp.IPProtoTCP {
+        return xdp.Drop
+    }
+
+    return xdp.Pass
 }
 ```
 
@@ -132,6 +141,7 @@ Horizon makes verifier-sensitive behavior explicit before clang runs:
 - fixed array fields are address-only; pass `&event.comm` directly to helpers instead of copying arrays
 - only bounded counted loops are accepted
 - helper availability is checked against the program kind
+- packet headers returned by `xdp.eth(ctx)` and `xdp.ipv4(ctx)` must be nil-checked before field access
 - XDP programs return named actions such as `xdp.Pass` and `xdp.Drop`
 - generated C stays readable so clang and verifier logs remain inspectable
 

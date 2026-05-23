@@ -1,2 +1,10 @@
-package invalid
+package probes
 
+@xdp
+func Bad(ctx xdp.Context) i32 {
+    ip := xdp.ipv4(ctx)
+    if ip.protocol == xdp.IPProtoTCP {
+        return xdp.Drop
+    }
+    return xdp.Pass
+}

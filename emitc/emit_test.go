@@ -200,8 +200,15 @@ func TestEmitXDPProgram(t *testing.T) {
 	if err := os.WriteFile(path, []byte(`package probes
 
 @xdp
-func DropAll(ctx xdp.Context) i32 {
-    return xdp.Drop
+func DropTCP(ctx xdp.Context) i32 {
+    ip := xdp.ipv4(ctx)
+    if ip == nil {
+        return xdp.Pass
+    }
+    if ip.protocol == xdp.IPProtoTCP {
+        return xdp.Drop
+    }
+    return xdp.Pass
 }
 `), 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
@@ -215,9 +222,16 @@ func DropAll(ctx xdp.Context) i32 {
 		t.Fatalf("Emit: %v", err)
 	}
 	for _, want := range []string{
+		"#include <bpf/bpf_endian.h>",
 		"#define XDP_DROP 1",
+		"struct hzn_xdp_ipv4 {",
+		"static __always_inline struct hzn_xdp_ipv4 *hzn_xdp_ipv4(struct xdp_md *ctx)",
 		"SEC(\"xdp\")",
-		"int DropAll(struct xdp_md *ctx) {",
+		"int DropTCP(struct xdp_md *ctx) {",
+		"struct hzn_xdp_ipv4 *ip = hzn_xdp_ipv4(ctx);",
+		"if (ip == 0) {",
+		"return XDP_PASS;",
+		"if (ip->protocol == 6) {",
 		"return XDP_DROP;",
 	} {
 		if !strings.Contains(out.Code, want) {

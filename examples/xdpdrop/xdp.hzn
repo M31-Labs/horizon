@@ -2,6 +2,14 @@ package probes
 
 @capability("kernel.network.xdp.drop")
 @xdp
-func DropAll(ctx xdp.Context) i32 {
-    return xdp.Drop
+func DropTCP(ctx xdp.Context) i32 {
+    ip := xdp.ipv4(ctx)
+    if ip == nil {
+        return xdp.Pass
+    }
+    if ip.protocol == xdp.IPProtoTCP {
+        return xdp.Drop
+    }
+
+    return xdp.Pass
 }

@@ -16,7 +16,7 @@ import (
 )
 
 type objects struct {
-	DropAll *ebpf.Program `ebpf:"DropAll"`
+	DropTCP *ebpf.Program `ebpf:"DropTCP"`
 }
 
 func main() {
@@ -51,12 +51,12 @@ func run(objPath string, ifaceName string, timeout time.Duration) error {
 		return fmt.Errorf("load eBPF objects: %w", err)
 	}
 	defer func() {
-		if objs.DropAll != nil {
-			_ = objs.DropAll.Close()
+		if objs.DropTCP != nil {
+			_ = objs.DropTCP.Close()
 		}
 	}()
 
-	l, err := link.AttachXDP(link.XDPOptions{Program: objs.DropAll, Interface: iface.Index})
+	l, err := link.AttachXDP(link.XDPOptions{Program: objs.DropTCP, Interface: iface.Index})
 	if err != nil {
 		return fmt.Errorf("attach XDP to %s: %w", ifaceName, err)
 	}
@@ -69,7 +69,7 @@ func run(objPath string, ifaceName string, timeout time.Duration) error {
 		ctx, cancel = context.WithTimeout(ctx, timeout)
 		defer cancel()
 	}
-	fmt.Printf("dropping packets on %s; press Ctrl-C to detach\n", ifaceName)
+	fmt.Printf("dropping TCP packets on %s; press Ctrl-C to detach\n", ifaceName)
 	<-ctx.Done()
 	return nil
 }

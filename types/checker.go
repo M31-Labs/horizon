@@ -12,7 +12,7 @@ func Check(file ast.File) []diag.Diagnostic {
 	env := NewEnv()
 	var diags []diag.Diagnostic
 	knownTypes := builtinTypes()
-	structs := map[string]ast.TypeDecl{}
+	structs := builtinStructs()
 	maps := map[string]ast.MapDecl{}
 	if file.Package == "" {
 		diags = append(diags, diag.Diagnostic{
@@ -92,7 +92,41 @@ func builtinTypes() map[string]bool {
 		"bool":            true,
 		"tracepoint.Exec": true,
 		"xdp.Context":     true,
+		"xdp.Eth":         true,
+		"xdp.IPv4":        true,
 	}
+}
+
+func builtinStructs() map[string]ast.TypeDecl {
+	return map[string]ast.TypeDecl{
+		"xdp.Eth": {
+			Name: "xdp.Eth",
+			Fields: []ast.Field{
+				{Name: "dst", Type: fixedArrayType("u8", "6")},
+				{Name: "src", Type: fixedArrayType("u8", "6")},
+				{Name: "proto", Type: ast.TypeRef{Name: "u16"}},
+			},
+		},
+		"xdp.IPv4": {
+			Name: "xdp.IPv4",
+			Fields: []ast.Field{
+				{Name: "version_ihl", Type: ast.TypeRef{Name: "u8"}},
+				{Name: "tos", Type: ast.TypeRef{Name: "u8"}},
+				{Name: "total_len", Type: ast.TypeRef{Name: "u16"}},
+				{Name: "id", Type: ast.TypeRef{Name: "u16"}},
+				{Name: "frag_off", Type: ast.TypeRef{Name: "u16"}},
+				{Name: "ttl", Type: ast.TypeRef{Name: "u8"}},
+				{Name: "protocol", Type: ast.TypeRef{Name: "u8"}},
+				{Name: "check", Type: ast.TypeRef{Name: "u16"}},
+				{Name: "src", Type: ast.TypeRef{Name: "u32"}},
+				{Name: "dst", Type: ast.TypeRef{Name: "u32"}},
+			},
+		},
+	}
+}
+
+func fixedArrayType(elem string, len string) ast.TypeRef {
+	return ast.TypeRef{Len: len, Elem: &ast.TypeRef{Name: elem}}
 }
 
 func validateMapDecl(decl ast.MapDecl, known map[string]bool) []diag.Diagnostic {
@@ -464,15 +498,15 @@ func typeOfExpr(expr ast.Expr, locals map[string]valueType, maps map[string]ast.
 			return valueType{Name: "helper:" + field}, nil
 		}
 		if root, field, ok := selectorParts(e); ok && root == "xdp" {
-			if isXDPAction(field) {
-				return valueType{Name: "i32"}, nil
+			if typ, ok := xdpSelectorType(field); ok {
+				return typ, nil
 			}
 			return valueType{}, []diag.Diagnostic{{
 				Code:     "HZN1434",
 				Severity: diag.SeverityError,
-				Message:  fmt.Sprintf("unknown XDP action xdp.%s", field),
+				Message:  fmt.Sprintf("unknown XDP symbol xdp.%s", field),
 				Primary:  e.Span,
-				Suggest:  "use xdp.Pass, xdp.Drop, xdp.Tx, xdp.Redirect, or xdp.Aborted",
+				Suggest:  "use XDP actions such as xdp.Pass or packet constants such as xdp.IPProtoTCP",
 			}}
 		}
 		operand, diags := typeOfExpr(e.Operand, locals, maps, structs)
@@ -603,6 +637,9 @@ func typeOfCall(call ast.CallExpr, locals map[string]valueType, maps map[string]
 	if root == "bpf" {
 		return typeOfHelperCall(method, call, locals, maps, structs)
 	}
+	if root == "xdp" {
+		return typeOfXDPCall(method, call, locals, maps, structs)
+	}
 	if m, ok := maps[root]; ok {
 		switch method {
 		case "lookup":
@@ -728,6 +765,40 @@ func typeOfCall(call ast.CallExpr, locals map[string]valueType, maps map[string]
 	}}
 }
 
+func typeOfXDPCall(name string, call ast.CallExpr, locals map[string]valueType, maps map[string]ast.MapDecl, structs map[string]ast.TypeDecl) (valueType, []diag.Diagnostic) {
+	switch name {
+	case "eth", "ipv4":
+		var header string
+		switch name {
+		case "eth":
+			header = "xdp.Eth"
+		case "ipv4":
+			header = "xdp.IPv4"
+		}
+		if len(call.Args) != 1 {
+			return valueType{Name: header, Ptr: true, MaybeNil: true}, []diag.Diagnostic{argCountDiagnostic(call.Span, "xdp."+name, 1, len(call.Args))}
+		}
+		arg, diags := typeOfExpr(call.Args[0], locals, maps, structs)
+		if !assignable(valueType{Name: "xdp.Context"}, arg) {
+			diags = append(diags, diag.Diagnostic{
+				Code:     "HZN1435",
+				Severity: diag.SeverityError,
+				Message:  fmt.Sprintf("xdp.%s expects xdp.Context, got %s", name, typeName(arg)),
+				Primary:  call.Span,
+			})
+		}
+		return valueType{Name: header, Ptr: true, MaybeNil: true}, diags
+	default:
+		return valueType{}, []diag.Diagnostic{{
+			Code:     "HZN1436",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("unknown XDP packet helper xdp.%s", name),
+			Primary:  call.Span,
+			Suggest:  "use xdp.eth(ctx) or xdp.ipv4(ctx)",
+		}}
+	}
+}
+
 func typeOfHelperCall(name string, call ast.CallExpr, locals map[string]valueType, maps map[string]ast.MapDecl, structs map[string]ast.TypeDecl) (valueType, []diag.Diagnostic) {
 	switch name {
 	case "current_pid", "current_ppid", "current_uid":
@@ -824,12 +895,16 @@ func fixedArrayValueDiagnostic(primary span.Span) diag.Diagnostic {
 	}
 }
 
-func isXDPAction(name string) bool {
+func xdpSelectorType(name string) (valueType, bool) {
 	switch name {
 	case "Aborted", "Drop", "Pass", "Tx", "Redirect":
-		return true
+		return valueType{Name: "i32"}, true
+	case "EtherTypeIPv4":
+		return valueType{Name: "u16"}, true
+	case "IPProtoICMP", "IPProtoTCP", "IPProtoUDP":
+		return valueType{Name: "u8"}, true
 	default:
-		return false
+		return valueType{}, false
 	}
 }
 

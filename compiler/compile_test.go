@@ -36,6 +36,7 @@ func TestAnalyzeInvalidRingbufPrograms(t *testing.T) {
 		"../testdata/invalid/unbounded_loop.hzn":             "HZN2200",
 		"../testdata/invalid/current_comm_bad_arg.hzn":       "HZN1415",
 		"../testdata/invalid/unknown_event_field.hzn":        "HZN1406",
+		"../testdata/invalid/packet_unproven_read.hzn":       "HZN2600",
 	}
 	for path, code := range tests {
 		result, err := AnalyzePath(path)
@@ -269,8 +270,15 @@ func TestAnalyzeXDPProgramPasses(t *testing.T) {
 
 @capability("kernel.network.xdp.drop")
 @xdp
-func DropAll(ctx xdp.Context) i32 {
-    return xdp.Drop
+func DropTCP(ctx xdp.Context) i32 {
+    ip := xdp.ipv4(ctx)
+    if ip == nil {
+        return xdp.Pass
+    }
+    if ip.protocol == xdp.IPProtoTCP {
+        return xdp.Drop
+    }
+    return xdp.Pass
 }
 `)
 	if diag.HasErrors(result.Diagnostics) {
@@ -320,6 +328,21 @@ func DropAll(ctx xdp.Context) i32 {
 }
 `)
 	requireDiagnosticCode(t, result, "HZN1434")
+}
+
+func TestAnalyzeRejectsPacketHeaderDereferenceWithoutNilCheck(t *testing.T) {
+	result := analyzeSource(t, "xdp.hzn", `package probes
+
+@xdp
+func DropTCP(ctx xdp.Context) i32 {
+    ip := xdp.ipv4(ctx)
+    if ip.protocol == xdp.IPProtoTCP {
+        return xdp.Drop
+    }
+    return xdp.Pass
+}
+`)
+	requireDiagnosticCode(t, result, "HZN2600")
 }
 
 func TestAnalyzeRejectsFixedArrayValueCopies(t *testing.T) {

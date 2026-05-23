@@ -41,8 +41,9 @@ func ValidateMaps(program ir.Program) []diag.Diagnostic {
 }
 
 type lookupState struct {
-	Map   string
-	State string
+	Source string
+	Label  string
+	State  string
 }
 
 func validateMapLookups(program ir.Program) []diag.Diagnostic {
@@ -80,16 +81,16 @@ func validateTypedMapLookups(fn ir.Function, lookupMaps map[string]ir.Map) []dia
 			diags = append(diags, diag.Diagnostic{
 				Code:     "HZN2501",
 				Severity: diag.SeverityError,
-				Message:  fmt.Sprintf("nil map lookup result %q cannot be dereferenced", varName),
+				Message:  fmt.Sprintf("nil %s %q cannot be dereferenced", state.Label, varName),
 				Primary:  primary,
 			})
 		default:
 			diags = append(diags, diag.Diagnostic{
 				Code:     "HZN2500",
 				Severity: diag.SeverityError,
-				Message:  fmt.Sprintf("map lookup result %q must be checked against nil before dereference", varName),
+				Message:  fmt.Sprintf("%s %q must be checked against nil before dereference", state.Label, varName),
 				Primary:  primary,
-				Suggest:  fmt.Sprintf("guard %s with `if %s == nil { return 0 }` before reading or writing it", varName, varName),
+				Suggest:  fmt.Sprintf("guard %s with `%s` before reading or writing it", varName, nilGuardSuggestion(fn, varName)),
 			})
 		}
 	}
@@ -124,7 +125,7 @@ func validateTypedMapLookups(fn ir.Function, lookupMaps map[string]ir.Map) []dia
 				checkExpr(stmt.Value)
 				if mapName, ok := mapLookupCall(stmt.Value); ok {
 					if _, ok := lookupMaps[mapName]; ok {
-						states[stmt.Name] = lookupState{Map: mapName, State: "maybe_nil"}
+						states[stmt.Name] = lookupState{Source: mapName, Label: "map lookup result", State: "maybe_nil"}
 					}
 				}
 			case "assign":
@@ -181,6 +182,13 @@ func validateTypedMapLookups(fn ir.Function, lookupMaps map[string]ir.Map) []dia
 	}
 	walk(functionStatements(fn))
 	return diags
+}
+
+func nilGuardSuggestion(fn ir.Function, varName string) string {
+	if fn.Section.Kind == ir.ProgramXDP {
+		return fmt.Sprintf("if %s == nil { return xdp.Pass }", varName)
+	}
+	return fmt.Sprintf("if %s == nil { return 0 }", varName)
 }
 
 func mapLookupCall(expr *ir.Expr) (string, bool) {
