@@ -26,6 +26,8 @@ func run(args []string) error {
 		return runEmitC(rest)
 	case "build":
 		return runBuild(rest)
+	case "workbench":
+		return runWorkbench(rest)
 	case "bindgen":
 		return runBindgen(rest)
 	case "diagnose":
@@ -39,7 +41,7 @@ func run(args []string) error {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "Usage: hzn <check|emit-c|build|bindgen|diagnose|capabilities> [path] [flags]")
+	fmt.Fprintln(os.Stderr, "Usage: hzn <check|workbench|emit-c|build|bindgen|diagnose|capabilities> [path] [flags]")
 }
 
 func pathArg(fs *flag.FlagSet) string {
