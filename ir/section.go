@@ -4,6 +4,7 @@ type ProgramKind string
 
 const (
 	ProgramTracepoint ProgramKind = "tracepoint"
+	ProgramXDP        ProgramKind = "xdp"
 )
 
 type Section struct {

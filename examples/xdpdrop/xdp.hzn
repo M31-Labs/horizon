@@ -1,2 +1,7 @@
 package probes
 
+@capability("kernel.network.xdp.drop")
+@xdp
+func DropAll(ctx xdp.Context) i32 {
+    return xdp.Drop
+}

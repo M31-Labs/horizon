@@ -264,6 +264,64 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	}
 }
 
+func TestAnalyzeXDPProgramPasses(t *testing.T) {
+	result := analyzeSource(t, "xdp.hzn", `package probes
+
+@capability("kernel.network.xdp.drop")
+@xdp
+func DropAll(ctx xdp.Context) i32 {
+    return xdp.Drop
+}
+`)
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+	if len(result.Program.Functions) != 1 || result.Program.Functions[0].Section.Kind != ir.ProgramXDP {
+		t.Fatalf("functions = %#v, want one XDP function", result.Program.Functions)
+	}
+	manifest := capability.FromIR(result.Program)
+	if len(manifest.Programs) != 1 || manifest.Programs[0].Section != "xdp" || manifest.Programs[0].Kind != "xdp" {
+		t.Fatalf("program manifest = %#v, want xdp section", manifest.Programs)
+	}
+	if len(manifest.Capabilities) != 1 || manifest.Capabilities[0].Section != "xdp" || manifest.Capabilities[0].Danger != "drop" {
+		t.Fatalf("capability manifest = %#v, want xdp drop capability section", manifest.Capabilities)
+	}
+}
+
+func TestAnalyzeRejectsXDPHelperUnavailable(t *testing.T) {
+	result := analyzeSource(t, "xdp.hzn", `package probes
+
+@xdp
+func DropAll(ctx xdp.Context) i32 {
+    bpf.current_pid()
+    return xdp.Pass
+}
+`)
+	requireDiagnosticCode(t, result, "HZN2300")
+}
+
+func TestAnalyzeRejectsXDPWrongContext(t *testing.T) {
+	result := analyzeSource(t, "xdp.hzn", `package probes
+
+@xdp
+func DropAll(ctx tracepoint.Exec) i32 {
+    return xdp.Pass
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1308")
+}
+
+func TestAnalyzeRejectsUnknownXDPAction(t *testing.T) {
+	result := analyzeSource(t, "xdp.hzn", `package probes
+
+@xdp
+func DropAll(ctx xdp.Context) i32 {
+    return xdp.Unknown
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1434")
+}
+
 func TestAnalyzeRejectsFixedArrayValueCopies(t *testing.T) {
 	tests := map[string]string{
 		"local copy": `package probes

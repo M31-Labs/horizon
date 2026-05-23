@@ -13,6 +13,9 @@ func Emit(program ir.Program) (Output, error) {
 	b.WriteString("#include \"vmlinux.h\"\n")
 	b.WriteString("#include <bpf/bpf_helpers.h>\n\n")
 	b.WriteString("#include <bpf/bpf_tracing.h>\n\n")
+	if programHasXDP(program) {
+		emitXDPActionFallbacks(&b)
+	}
 	b.WriteString("char LICENSE[] SEC(\"license\") = \"GPL\";\n")
 	emitHelperWrappers(&b)
 	for _, decl := range program.Structs {
@@ -115,6 +118,27 @@ static __always_inline long hzn_current_comm(void *dst, __u32 size) {
     return bpf_get_current_comm(dst, size);
 }
 `)
+}
+
+func emitXDPActionFallbacks(b *strings.Builder) {
+	b.WriteString(`#ifndef XDP_ABORTED
+#define XDP_ABORTED 0
+#define XDP_DROP 1
+#define XDP_PASS 2
+#define XDP_TX 3
+#define XDP_REDIRECT 4
+#endif
+
+`)
+}
+
+func programHasXDP(program ir.Program) bool {
+	for _, fn := range program.Functions {
+		if fn.Section.Kind == ir.ProgramXDP {
+			return true
+		}
+	}
+	return false
 }
 
 func emitStruct(b *strings.Builder, decl ir.Struct) {
@@ -239,14 +263,21 @@ func cType(t ir.Type) string {
 }
 
 func cContext(fn ir.Function) string {
-	if fn.Section.Kind != ir.ProgramTracepoint || fn.Section.Attach == "" {
+	switch fn.Section.Kind {
+	case ir.ProgramTracepoint:
+		if fn.Section.Attach == "" {
+			return "void *ctx"
+		}
+		event := fn.Section.Attach
+		if idx := strings.IndexByte(event, ':'); idx >= 0 {
+			event = event[idx+1:]
+		}
+		return "struct trace_event_raw_" + cIdent(event) + " *ctx"
+	case ir.ProgramXDP:
+		return "struct xdp_md *ctx"
+	default:
 		return "void *ctx"
 	}
-	event := fn.Section.Attach
-	if idx := strings.IndexByte(event, ':'); idx >= 0 {
-		event = event[idx+1:]
-	}
-	return "struct trace_event_raw_" + cIdent(event) + " *ctx"
 }
 
 func cIdent(s string) string {
@@ -409,6 +440,11 @@ func cExprType(expr *ir.Expr, env *cEnv) (ir.Type, bool) {
 			return ptrToMapValue(mapName, env), true
 		}
 	case "selector":
+		if name := qualifiedName(expr); name != "" {
+			if _, ok := xdpActionC(name); ok {
+				return ir.Type{Name: "i32"}, true
+			}
+		}
 		return selectorExprType(expr, env)
 	case "unary":
 		switch expr.Op {
@@ -478,6 +514,11 @@ func cExpr(expr *ir.Expr, env *cEnv) string {
 	case "nil":
 		return "0"
 	case "selector":
+		if name := qualifiedName(expr); name != "" {
+			if action, ok := xdpActionC(name); ok {
+				return action
+			}
+		}
 		if expr.Operand == nil {
 			return expr.Field
 		}
@@ -498,6 +539,23 @@ func cExpr(expr *ir.Expr, env *cEnv) string {
 		return expr.Value
 	default:
 		return "0"
+	}
+}
+
+func xdpActionC(name string) (string, bool) {
+	switch name {
+	case "xdp.Aborted":
+		return "XDP_ABORTED", true
+	case "xdp.Drop":
+		return "XDP_DROP", true
+	case "xdp.Pass":
+		return "XDP_PASS", true
+	case "xdp.Tx":
+		return "XDP_TX", true
+	case "xdp.Redirect":
+		return "XDP_REDIRECT", true
+	default:
+		return "", false
 	}
 }
 

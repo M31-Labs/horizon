@@ -140,6 +140,23 @@ func F(ctx tracepoint.Exec) i32 {
 	}
 }
 
+func TestParseBareAttribute(t *testing.T) {
+	src := SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
+
+@xdp
+func DropAll(ctx xdp.Context) i32 {
+    return xdp.Drop
+}
+`)}
+	file, err := ParseSource(src)
+	if err != nil {
+		t.Fatalf("ParseSource: %v", err)
+	}
+	if countNamedDescendants(file.Tree.RootNode(), file.Lang, "attribute") != 1 {
+		t.Fatalf("attribute count = %d, want 1", countNamedDescendants(file.Tree.RootNode(), file.Lang, "attribute"))
+	}
+}
+
 func countNamedDescendants(n *gotreesitter.Node, lang *gotreesitter.Language, typ string) int {
 	if n == nil {
 		return 0

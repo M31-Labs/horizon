@@ -2,7 +2,6 @@ package types
 
 import (
 	"fmt"
-	"slices"
 
 	"m31labs.dev/horizon/ast"
 	"m31labs.dev/horizon/compiler/diag"
@@ -92,6 +91,7 @@ func builtinTypes() map[string]bool {
 		"i8": true, "i16": true, "i32": true, "i64": true,
 		"bool":            true,
 		"tracepoint.Exec": true,
+		"xdp.Context":     true,
 	}
 }
 
@@ -141,23 +141,50 @@ func validateMapDecl(decl ast.MapDecl, known map[string]bool) []diag.Diagnostic 
 
 func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]ast.MapDecl, structs map[string]ast.TypeDecl) []diag.Diagnostic {
 	var diags []diag.Diagnostic
-	if !hasAttr(decl.Attrs, "tracepoint") {
+	sections := sectionAttrs(decl.Attrs)
+	if len(sections) == 0 {
 		diags = append(diags, diag.Diagnostic{
 			Code:     "HZN1301",
 			Severity: diag.SeverityError,
-			Message:  fmt.Sprintf("function %q is missing a tracepoint section", decl.Name),
+			Message:  fmt.Sprintf("function %q is missing an eBPF program section", decl.Name),
 			Primary:  decl.Span,
-			Suggest:  `add @tracepoint("category:event") above the function`,
+			Suggest:  `add @tracepoint("category:event") or @xdp above the function`,
+		})
+	} else if len(sections) > 1 {
+		diags = append(diags, diag.Diagnostic{
+			Code:     "HZN1306",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("function %q has multiple eBPF program sections", decl.Name),
+			Primary:  decl.Span,
+			Suggest:  "use exactly one section attribute such as @tracepoint(...) or @xdp",
 		})
 	}
 	for _, attr := range decl.Attrs {
 		switch attr.Name {
-		case "tracepoint", "capability":
+		case "tracepoint":
 			if len(attr.Args) != 1 {
 				diags = append(diags, diag.Diagnostic{
 					Code:     "HZN1302",
 					Severity: diag.SeverityError,
-					Message:  fmt.Sprintf("@%s requires one string argument", attr.Name),
+					Message:  "@tracepoint requires one string argument",
+					Primary:  attr.Span,
+				})
+			}
+		case "xdp":
+			if len(attr.Args) != 0 {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1309",
+					Severity: diag.SeverityError,
+					Message:  "@xdp does not take arguments; choose the interface at attach time",
+					Primary:  attr.Span,
+				})
+			}
+		case "capability":
+			if len(attr.Args) != 1 {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1302",
+					Severity: diag.SeverityError,
+					Message:  "@capability requires one string argument",
 					Primary:  attr.Span,
 				})
 			}
@@ -169,6 +196,9 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 				Primary:  attr.Span,
 			})
 		}
+	}
+	if len(sections) == 1 {
+		diags = append(diags, validateSectionSignature(decl, sections[0])...)
 	}
 	for _, param := range decl.Params {
 		diags = append(diags, validateTypeRef(param.Type, known)...)
@@ -217,10 +247,44 @@ func validateTypeRef(ref ast.TypeRef, known map[string]bool) []diag.Diagnostic {
 	})
 }
 
-func hasAttr(attrs []ast.Attr, name string) bool {
-	return slices.ContainsFunc(attrs, func(attr ast.Attr) bool {
-		return attr.Name == name
-	})
+type sectionSpec struct {
+	Attr    ast.Attr
+	Context string
+}
+
+func sectionAttrs(attrs []ast.Attr) []sectionSpec {
+	var out []sectionSpec
+	for _, attr := range attrs {
+		switch attr.Name {
+		case "tracepoint":
+			out = append(out, sectionSpec{Attr: attr, Context: "tracepoint.Exec"})
+		case "xdp":
+			out = append(out, sectionSpec{Attr: attr, Context: "xdp.Context"})
+		}
+	}
+	return out
+}
+
+func validateSectionSignature(decl ast.FuncDecl, section sectionSpec) []diag.Diagnostic {
+	if len(decl.Params) != 1 {
+		return []diag.Diagnostic{{
+			Code:     "HZN1307",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("@%s program %q must accept exactly one context parameter", section.Attr.Name, decl.Name),
+			Primary:  decl.Span,
+			Suggest:  fmt.Sprintf("use `func %s(ctx %s) i32`", decl.Name, section.Context),
+		}}
+	}
+	if decl.Params[0].Type.Name != section.Context {
+		return []diag.Diagnostic{{
+			Code:     "HZN1308",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("@%s program %q must use context type %s", section.Attr.Name, decl.Name, section.Context),
+			Primary:  decl.Params[0].Type.Span,
+			Suggest:  fmt.Sprintf("change the context parameter to `%s %s`", decl.Params[0].Name, section.Context),
+		}}
+	}
+	return nil
 }
 
 type valueType struct {
@@ -398,6 +462,18 @@ func typeOfExpr(expr ast.Expr, locals map[string]valueType, maps map[string]ast.
 	case ast.SelectorExpr:
 		if root, field, ok := selectorParts(e); ok && root == "bpf" {
 			return valueType{Name: "helper:" + field}, nil
+		}
+		if root, field, ok := selectorParts(e); ok && root == "xdp" {
+			if isXDPAction(field) {
+				return valueType{Name: "i32"}, nil
+			}
+			return valueType{}, []diag.Diagnostic{{
+				Code:     "HZN1434",
+				Severity: diag.SeverityError,
+				Message:  fmt.Sprintf("unknown XDP action xdp.%s", field),
+				Primary:  e.Span,
+				Suggest:  "use xdp.Pass, xdp.Drop, xdp.Tx, xdp.Redirect, or xdp.Aborted",
+			}}
 		}
 		operand, diags := typeOfExpr(e.Operand, locals, maps, structs)
 		if operand.Ptr {
@@ -745,6 +821,15 @@ func fixedArrayValueDiagnostic(primary span.Span) diag.Diagnostic {
 		Message:  "fixed array values are address-only in Horizon v0",
 		Primary:  primary,
 		Suggest:  "pass a field address such as &event.comm directly to a compiler-known helper instead of copying the array",
+	}
+}
+
+func isXDPAction(name string) bool {
+	switch name {
+	case "Aborted", "Drop", "Pass", "Tx", "Redirect":
+		return true
+	default:
+		return false
 	}
 }
 

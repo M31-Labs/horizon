@@ -193,3 +193,35 @@ func OnExec(ctx tracepoint.Exec) i32 {
 		}
 	}
 }
+
+func TestEmitXDPProgram(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "xdp.hzn")
+	if err := os.WriteFile(path, []byte(`package probes
+
+@xdp
+func DropAll(ctx xdp.Context) i32 {
+    return xdp.Drop
+}
+`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	result, err := compiler.AnalyzePath(dir)
+	if err != nil {
+		t.Fatalf("AnalyzePath: %v", err)
+	}
+	out, err := Emit(result.Program)
+	if err != nil {
+		t.Fatalf("Emit: %v", err)
+	}
+	for _, want := range []string{
+		"#define XDP_DROP 1",
+		"SEC(\"xdp\")",
+		"int DropAll(struct xdp_md *ctx) {",
+		"return XDP_DROP;",
+	} {
+		if !strings.Contains(out.Code, want) {
+			t.Fatalf("generated C missing %q:\n%s", want, out.Code)
+		}
+	}
+}

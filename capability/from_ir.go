@@ -48,5 +48,8 @@ func manifestSection(section ir.Section) string {
 	if section.Kind == ir.ProgramTracepoint && section.Attach != "" {
 		return "tracepoint/" + section.Attach
 	}
+	if section.Kind == ir.ProgramXDP {
+		return "xdp"
+	}
 	return section.Name
 }

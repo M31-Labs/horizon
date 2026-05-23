@@ -199,7 +199,7 @@ func buildCapabilities(decl ast.FuncDecl, fn Function, maps []Map) []Capability 
 			Section: manifestSection(fn.Section),
 			Emits:   access.Emits,
 			Maps:    access.Maps,
-			Danger:  DangerObserve,
+			Danger:  inferDanger(fn),
 		})
 	}
 	return out
@@ -223,14 +223,19 @@ func buildType(ref ast.TypeRef) Type {
 
 func sectionFromAttrs(attrs []ast.Attr) Section {
 	for _, attr := range attrs {
-		if attr.Name != "tracepoint" {
-			continue
-		}
-		attach := stringArg(attr)
-		return Section{
-			Kind:   ProgramTracepoint,
-			Attach: attach,
-			Name:   "tracepoint/" + strings.ReplaceAll(attach, ":", "/"),
+		switch attr.Name {
+		case "tracepoint":
+			attach := stringArg(attr)
+			return Section{
+				Kind:   ProgramTracepoint,
+				Attach: attach,
+				Name:   "tracepoint/" + strings.ReplaceAll(attach, ":", "/"),
+			}
+		case "xdp":
+			return Section{
+				Kind: ProgramXDP,
+				Name: "xdp",
+			}
 		}
 	}
 	return Section{}
@@ -383,6 +388,63 @@ func addUnique(values *[]string, seen map[string]bool, value string) {
 	*values = append(*values, value)
 }
 
+func inferDanger(fn Function) DangerLevel {
+	if fn.Section.Kind != ProgramXDP {
+		return DangerObserve
+	}
+	danger := DangerObserve
+	var visit func([]Statement)
+	visit = func(stmts []Statement) {
+		for _, stmt := range stmts {
+			switch stmt.Kind {
+			case "return":
+				switch qualifiedName(stmt.Value) {
+				case "xdp.Drop", "xdp.Aborted":
+					danger = moreDangerous(danger, DangerDrop)
+				case "xdp.Tx", "xdp.Redirect":
+					danger = moreDangerous(danger, DangerMutate)
+				}
+			case "if":
+				visit(stmt.Then)
+			case "for":
+				visit(stmt.Body)
+			}
+		}
+	}
+	visit(functionStatements(fn))
+	return danger
+}
+
+func moreDangerous(current DangerLevel, next DangerLevel) DangerLevel {
+	rank := map[DangerLevel]int{
+		DangerObserve: 0,
+		DangerMutate:  1,
+		DangerDrop:    2,
+	}
+	if rank[next] > rank[current] {
+		return next
+	}
+	return current
+}
+
+func qualifiedName(expr *Expr) string {
+	if expr == nil {
+		return ""
+	}
+	switch expr.Kind {
+	case "ident":
+		return expr.Name
+	case "selector":
+		prefix := qualifiedName(expr.Operand)
+		if prefix == "" {
+			return expr.Field
+		}
+		return prefix + "." + expr.Field
+	default:
+		return ""
+	}
+}
+
 func functionStatements(fn Function) []Statement {
 	var out []Statement
 	for _, block := range fn.Body {
@@ -394,6 +456,9 @@ func functionStatements(fn Function) []Statement {
 func manifestSection(section Section) string {
 	if section.Kind == ProgramTracepoint && section.Attach != "" {
 		return "tracepoint/" + section.Attach
+	}
+	if section.Kind == ProgramXDP {
+		return "xdp"
 	}
 	return section.Name
 }

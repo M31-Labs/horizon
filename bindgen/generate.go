@@ -16,19 +16,7 @@ func Generate(program ir.Program, packageName string) (string, error) {
 	}
 	var b bytes.Buffer
 	fmt.Fprintf(&b, "package %s\n\n", packageName)
-	b.WriteString(`import (
-	"bytes"
-	"context"
-	"encoding/binary"
-	"errors"
-	"fmt"
-
-	"github.com/cilium/ebpf"
-	"github.com/cilium/ebpf/link"
-	"github.com/cilium/ebpf/ringbuf"
-)
-
-`)
+	emitImports(&b, program)
 	for _, decl := range program.Structs {
 		emitStruct(&b, decl)
 	}
@@ -81,7 +69,16 @@ func (o *Objects) Close() error {
 }
 
 func emitAttach(b *bytes.Buffer, fn ir.Function) {
-	if fn.Section.Kind != ir.ProgramTracepoint || fn.Section.Attach == "" {
+	switch fn.Section.Kind {
+	case ir.ProgramTracepoint:
+		emitTracepointAttach(b, fn)
+	case ir.ProgramXDP:
+		emitXDPAttach(b, fn)
+	}
+}
+
+func emitTracepointAttach(b *bytes.Buffer, fn ir.Function) {
+	if fn.Section.Attach == "" {
 		return
 	}
 	category, event, ok := strings.Cut(fn.Section.Attach, ":")
@@ -97,6 +94,91 @@ func emitAttach(b *bytes.Buffer, fn ir.Function) {
 }
 
 `, field, field, fn.Name, category, event, field)
+}
+
+func emitXDPAttach(b *bytes.Buffer, fn ir.Function) {
+	field := exported(fn.Name)
+	fmt.Fprintf(b, `func (o *Objects) Attach%s(interfaceIndex int) (link.Link, error) {
+	if o == nil || o.%s == nil {
+		return nil, fmt.Errorf("%s program is not loaded")
+	}
+	return link.AttachXDP(link.XDPOptions{Program: o.%s, Interface: interfaceIndex})
+}
+
+func (o *Objects) Attach%sInterface(name string) (link.Link, error) {
+	iface, err := net.InterfaceByName(name)
+	if err != nil {
+		return nil, err
+	}
+	return o.Attach%s(iface.Index)
+}
+
+`, field, field, fn.Name, field, field, field)
+}
+
+func emitImports(b *bytes.Buffer, program ir.Program) {
+	needsRingbuf := hasRingbuf(program)
+	needsAttach := hasAttach(program)
+	needsXDP := hasXDP(program)
+	var std []string
+	if needsRingbuf {
+		std = append(std, "bytes", "context", "encoding/binary")
+	}
+	if len(program.Maps)+len(program.Functions) > 0 || needsRingbuf {
+		std = append(std, "errors")
+	}
+	if needsRingbuf || needsAttach {
+		std = append(std, "fmt")
+	}
+	if needsXDP {
+		std = append(std, "net")
+	}
+	thirdParty := []string{"github.com/cilium/ebpf"}
+	if needsAttach {
+		thirdParty = append(thirdParty, "github.com/cilium/ebpf/link")
+	}
+	if needsRingbuf {
+		thirdParty = append(thirdParty, "github.com/cilium/ebpf/ringbuf")
+	}
+	b.WriteString("import (\n")
+	for _, path := range std {
+		fmt.Fprintf(b, "\t%q\n", path)
+	}
+	if len(std) > 0 {
+		b.WriteByte('\n')
+	}
+	for _, path := range thirdParty {
+		fmt.Fprintf(b, "\t%q\n", path)
+	}
+	b.WriteString(")\n\n")
+}
+
+func hasRingbuf(program ir.Program) bool {
+	for _, m := range program.Maps {
+		if m.Kind == ir.MapKindRingbuf && m.Val.Name != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func hasAttach(program ir.Program) bool {
+	for _, fn := range program.Functions {
+		switch fn.Section.Kind {
+		case ir.ProgramTracepoint, ir.ProgramXDP:
+			return true
+		}
+	}
+	return false
+}
+
+func hasXDP(program ir.Program) bool {
+	for _, fn := range program.Functions {
+		if fn.Section.Kind == ir.ProgramXDP {
+			return true
+		}
+	}
+	return false
 }
 
 func emitStruct(b *bytes.Buffer, decl ir.Struct) {

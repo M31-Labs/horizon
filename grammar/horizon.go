@@ -116,9 +116,11 @@ func HorizonGrammar() *grammargen.Grammar {
 	g.Define("attribute", grammargen.Seq(
 		grammargen.Str("@"),
 		grammargen.Field("name", grammargen.Sym("identifier")),
-		grammargen.Str("("),
-		grammargen.Optional(grammargen.Field("value", grammargen.Sym("string_literal"))),
-		grammargen.Str(")"),
+		grammargen.Optional(grammargen.Seq(
+			grammargen.Str("("),
+			grammargen.Optional(grammargen.Field("value", grammargen.Sym("string_literal"))),
+			grammargen.Str(")"),
+		)),
 	))
 
 	g.Define("parameter_list", grammargen.Seq(

@@ -8,6 +8,7 @@ verifier-friendly eBPF programs that lower to readable BPF C.
 It keeps the kernel-side language deliberately small:
 
 - tracepoint programs
+- XDP programs
 - typed structs and fixed arrays
 - ringbuf event output
 - hash and array maps
@@ -83,6 +84,19 @@ func OnExec(ctx tracepoint.Exec) i32 {
 }
 ```
 
+Packet-path programs use explicit section attributes and named action values,
+not raw integer returns.
+
+```go
+package probes
+
+@capability("kernel.network.xdp.drop")
+@xdp
+func DropAll(ctx xdp.Context) i32 {
+    return xdp.Drop
+}
+```
+
 ## Commands
 
 ```sh
@@ -93,6 +107,8 @@ hzn workbench ./examples/execwatch -o dist
 hzn workbench ./examples/execwatch -o dist -compile
 hzn build ./examples/execwatch -o dist
 go run ./examples/execwatch/cmd/execwatch -obj dist/exec.bpf.o
+hzn build ./examples/xdpdrop -o dist
+sudo go run ./examples/xdpdrop/cmd/xdpdrop -obj dist/xdp.bpf.o -iface lo
 hzn diagnose dist/exec.verifier.log --map dist/exec.hznmap.json
 ```
 
@@ -116,10 +132,11 @@ Horizon makes verifier-sensitive behavior explicit before clang runs:
 - fixed array fields are address-only; pass `&event.comm` directly to helpers instead of copying arrays
 - only bounded counted loops are accepted
 - helper availability is checked against the program kind
+- XDP programs return named actions such as `xdp.Pass` and `xdp.Drop`
 - generated C stays readable so clang and verifier logs remain inspectable
 
 ## Status
 
-Pre-alpha. The current implementation targets tracepoint programs with typed
-ringbuf event output, typed hash/array map access, bounded loops, generated
-BPF C, clang builds, Go bindings, and Continuum capability manifests.
+Pre-alpha. The current implementation targets tracepoint and XDP programs with
+typed ringbuf event output, typed hash/array map access, bounded loops,
+generated BPF C, clang builds, Go bindings, and Continuum capability manifests.
