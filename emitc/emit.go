@@ -330,6 +330,8 @@ func inferredDeclType(expr *ir.Expr, program ir.Program) string {
 		if mapName, ok := lookupCall(expr); ok {
 			return mapValueType(mapName, program.Maps) + " *"
 		}
+	case "struct_lit":
+		return cType(ir.Type{Name: expr.Name})
 	case "binary":
 		return "bool"
 	case "int":
@@ -362,11 +364,28 @@ func cExpr(expr *ir.Expr) string {
 		return cExpr(expr.Left) + " " + expr.Op + " " + cExpr(expr.Right)
 	case "call":
 		return cCallExpr(expr)
+	case "struct_lit":
+		return cStructLiteral(expr)
 	case "raw":
 		return expr.Value
 	default:
 		return "0"
 	}
+}
+
+func cStructLiteral(expr *ir.Expr) string {
+	if expr == nil || expr.Name == "" {
+		return "(void){0}"
+	}
+	if len(expr.Fields) == 0 {
+		return fmt.Sprintf("(%s){0}", cType(ir.Type{Name: expr.Name}))
+	}
+	fields := make([]string, 0, len(expr.Fields))
+	for _, field := range expr.Fields {
+		value := field.Value
+		fields = append(fields, fmt.Sprintf(".%s = %s", field.Name, cExpr(&value)))
+	}
+	return fmt.Sprintf("(%s){ %s }", cType(ir.Type{Name: expr.Name}), strings.Join(fields, ", "))
 }
 
 func cCallExpr(expr *ir.Expr) string {

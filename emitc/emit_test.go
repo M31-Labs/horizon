@@ -104,3 +104,42 @@ func OnExec(ctx tracepoint.Exec) i32 {
 		}
 	}
 }
+
+func TestEmitStructLiteralMapUpdate(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "counts.hzn")
+	if err := os.WriteFile(path, []byte(`package probes
+
+type Count struct {
+    seen u32
+}
+
+map Counts hash[u32, Count]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    pid := bpf.current_pid()
+    Counts.update(pid, Count{seen: pid})
+    return 0
+}
+`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	result, err := compiler.AnalyzePath(dir)
+	if err != nil {
+		t.Fatalf("AnalyzePath: %v", err)
+	}
+	out, err := Emit(result.Program)
+	if err != nil {
+		t.Fatalf("Emit: %v", err)
+	}
+	for _, want := range []string{
+		"struct Count {",
+		"static __always_inline long Counts_update(__u32 key, struct Count value)",
+		"Counts_update(pid, (struct Count){ .seen = pid });",
+	} {
+		if !strings.Contains(out.Code, want) {
+			t.Fatalf("generated C missing %q:\n%s", want, out.Code)
+		}
+	}
+}

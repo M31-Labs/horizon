@@ -245,6 +245,7 @@ func HorizonGrammar() *grammargen.Grammar {
 
 	g.Define("expression", grammargen.Choice(
 		grammargen.Sym("binary_expression"),
+		grammargen.Sym("struct_literal"),
 		grammargen.Sym("call_expression"),
 		grammargen.Sym("unary_expression"),
 		grammargen.Sym("selector_expression"),
@@ -267,12 +268,30 @@ func HorizonGrammar() *grammargen.Grammar {
 	)))
 
 	g.Define("_simple_expression", grammargen.Choice(
+		grammargen.Sym("struct_literal"),
 		grammargen.Sym("call_expression"),
 		grammargen.Sym("unary_expression"),
 		grammargen.Sym("selector_expression"),
 		grammargen.Sym("nil_literal"),
 		grammargen.Sym("number_literal"),
 		grammargen.Sym("identifier"),
+	))
+
+	g.Define("struct_literal", grammargen.Prec(2, grammargen.Seq(
+		grammargen.Field("type", grammargen.Sym("identifier")),
+		grammargen.Str("{"),
+		grammargen.Optional(grammargen.Seq(
+			grammargen.Sym("literal_field"),
+			grammargen.Repeat(grammargen.Seq(grammargen.Str(","), grammargen.Sym("literal_field"))),
+			grammargen.Optional(grammargen.Str(",")),
+		)),
+		grammargen.Str("}"),
+	)))
+
+	g.Define("literal_field", grammargen.Seq(
+		grammargen.Field("name", grammargen.Sym("identifier")),
+		grammargen.Str(":"),
+		grammargen.Field("value", grammargen.Sym("expression")),
 	))
 
 	g.Define("call_expression", grammargen.Prec(3, grammargen.Seq(

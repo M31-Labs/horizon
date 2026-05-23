@@ -105,6 +105,9 @@ func walkExpr(expr *ir.Expr, visit func(*ir.Expr)) {
 	for i := range expr.Args {
 		walkExpr(&expr.Args[i], visit)
 	}
+	for i := range expr.Fields {
+		walkExpr(&expr.Fields[i].Value, visit)
+	}
 }
 
 func irQualifiedName(expr *ir.Expr) string {

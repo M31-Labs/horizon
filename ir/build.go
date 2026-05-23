@@ -142,6 +142,8 @@ func buildExpr(expr ast.Expr) Expr {
 	case ast.CallExpr:
 		fn := buildExpr(e.Func)
 		return Expr{Kind: "call", Func: &fn, Args: buildExprs(e.Args), Span: e.Span}
+	case ast.StructLiteralExpr:
+		return Expr{Kind: "struct_lit", Name: e.Type.Name, Fields: buildExprFields(e.Fields), Span: e.Span}
 	case ast.UnaryExpr:
 		operand := buildExpr(e.Expr)
 		return Expr{Kind: "unary", Op: e.Op, Operand: &operand, Span: e.Span}
@@ -160,6 +162,18 @@ func buildExpr(expr ast.Expr) Expr {
 	default:
 		return Expr{Kind: "unknown", Span: expr.GetSpan()}
 	}
+}
+
+func buildExprFields(fields []ast.StructLiteralField) []ExprField {
+	out := make([]ExprField, 0, len(fields))
+	for _, field := range fields {
+		out = append(out, ExprField{
+			Name:  field.Name,
+			Value: buildExpr(field.Value),
+			Span:  field.Span,
+		})
+	}
+	return out
 }
 
 func buildExprs(exprs []ast.Expr) []Expr {
@@ -285,6 +299,9 @@ func mapAccesses(fn Function, maps []Map) capabilityAccess {
 		visitExpr(expr.Func)
 		for i := range expr.Args {
 			visitExpr(&expr.Args[i])
+		}
+		for i := range expr.Fields {
+			visitExpr(&expr.Fields[i].Value)
 		}
 	}
 	var walk func([]Statement)

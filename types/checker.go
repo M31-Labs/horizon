@@ -413,6 +413,8 @@ func typeOfExpr(expr ast.Expr, locals map[string]valueType, maps map[string]ast.
 		_, leftDiags := typeOfExpr(e.Left, locals, maps, structs)
 		_, rightDiags := typeOfExpr(e.Right, locals, maps, structs)
 		return valueType{Name: "bool"}, append(leftDiags, rightDiags...)
+	case ast.StructLiteralExpr:
+		return typeOfStructLiteral(e, locals, maps, structs)
 	case ast.CallExpr:
 		return typeOfCall(e, locals, maps, structs)
 	case ast.RawExpr:
@@ -425,6 +427,53 @@ func typeOfExpr(expr ast.Expr, locals map[string]valueType, maps map[string]ast.
 	default:
 		return valueType{}, nil
 	}
+}
+
+func typeOfStructLiteral(lit ast.StructLiteralExpr, locals map[string]valueType, maps map[string]ast.MapDecl, structs map[string]ast.TypeDecl) (valueType, []diag.Diagnostic) {
+	structDecl, ok := structs[lit.Type.Name]
+	if !ok {
+		return valueType{Name: lit.Type.Name, Ref: lit.Type}, []diag.Diagnostic{{
+			Code:     "HZN1425",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("unknown struct type %q", lit.Type.Name),
+			Primary:  lit.Span,
+		}}
+	}
+	seen := map[string]bool{}
+	var diags []diag.Diagnostic
+	for _, field := range lit.Fields {
+		if seen[field.Name] {
+			diags = append(diags, diag.Diagnostic{
+				Code:     "HZN1426",
+				Severity: diag.SeverityError,
+				Message:  fmt.Sprintf("duplicate field %q in %s literal", field.Name, structDecl.Name),
+				Primary:  field.Span,
+			})
+			continue
+		}
+		seen[field.Name] = true
+		declField, ok := findField(structDecl, field.Name)
+		if !ok {
+			diags = append(diags, diag.Diagnostic{
+				Code:     "HZN1427",
+				Severity: diag.SeverityError,
+				Message:  fmt.Sprintf("type %s has no field %q", structDecl.Name, field.Name),
+				Primary:  field.Span,
+			})
+			continue
+		}
+		value, valueDiags := typeOfExpr(field.Value, locals, maps, structs)
+		diags = append(diags, valueDiags...)
+		if !assignable(valueType{Name: declField.Type.Name, Ref: declField.Type}, value) {
+			diags = append(diags, diag.Diagnostic{
+				Code:     "HZN1428",
+				Severity: diag.SeverityError,
+				Message:  fmt.Sprintf("cannot assign %s to field %s.%s (%s)", typeName(value), structDecl.Name, field.Name, typeName(valueType{Name: declField.Type.Name, Ref: declField.Type})),
+				Primary:  field.Span,
+			})
+		}
+	}
+	return valueType{Name: structDecl.Name, Ref: lit.Type}, diags
 }
 
 func typeOfCall(call ast.CallExpr, locals map[string]valueType, maps map[string]ast.MapDecl, structs map[string]ast.TypeDecl) (valueType, []diag.Diagnostic) {

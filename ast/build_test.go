@@ -126,3 +126,41 @@ func F(ctx tracepoint.Exec) i32 {
 		t.Fatalf("loop post = %#v, want i++", loop.Post)
 	}
 }
+
+func TestBuildStructLiteral(t *testing.T) {
+	parsed, err := parser.ParseSource(parser.SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
+
+type Count struct {
+    seen u32
+}
+
+map Counts hash[u32, Count]
+
+@tracepoint("sched:sched_process_exec")
+func F(ctx tracepoint.Exec) i32 {
+    pid := bpf.current_pid()
+    Counts.update(pid, Count{seen: pid})
+    return 0
+}
+`)})
+	if err != nil {
+		t.Fatalf("ParseSource: %v", err)
+	}
+	file, err := Build(parsed)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	fn := file.Decls[2].(FuncDecl)
+	stmt, ok := fn.Body[1].(ExprStmt)
+	if !ok {
+		t.Fatalf("body[1] = %T, want ExprStmt", fn.Body[1])
+	}
+	call := stmt.Expr.(CallExpr)
+	lit, ok := call.Args[1].(StructLiteralExpr)
+	if !ok {
+		t.Fatalf("arg[1] = %T, want StructLiteralExpr", call.Args[1])
+	}
+	if lit.Type.Name != "Count" || len(lit.Fields) != 1 || lit.Fields[0].Name != "seen" {
+		t.Fatalf("literal = %#v, want Count{seen: ...}", lit)
+	}
+}

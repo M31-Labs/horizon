@@ -5,10 +5,82 @@ Go-shaped eBPF authoring for the kernel boundary.
 Horizon is not a Go compiler. It is a small Go-shaped DSL for writing
 verifier-friendly eBPF programs that lower to readable BPF C.
 
+It keeps the kernel-side language deliberately small:
+
+- tracepoint programs
+- typed structs and fixed arrays
+- ringbuf event output
+- hash and array maps
+- nil-checked map lookups
+- bounded counted loops
+- compiler-known kernel helpers
+- readable generated BPF C
+- source maps for diagnostics
+- typed Go bindings and Continuum capability manifests
+
 ## Pipeline
 
 ```text
-.hzn -> AST -> BPF IR -> validation -> C -> clang -> .bpf.o -> bindings
+.hzn -> gotreesitter parser -> AST -> BPF IR -> validation -> C -> clang -> .bpf.o -> bindings + capabilities
+```
+
+## Example
+
+```go
+package probes
+
+import bpf "m31labs.dev/horizon/runtime/kernel"
+
+type ExecEvent struct {
+    pid  u32
+    ppid u32
+    uid  u32
+    comm [16]u8
+}
+
+map ExecEvents ringbuf[ExecEvent]
+
+@capability("kernel.process.exec.observe")
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    event := ExecEvents.reserve()
+    if event == nil {
+        return 0
+    }
+
+    event.pid = bpf.current_pid()
+    event.ppid = bpf.current_ppid()
+    event.uid = bpf.current_uid()
+    bpf.current_comm(&event.comm)
+
+    ExecEvents.submit(event)
+    return 0
+}
+```
+
+Stateful programs can use typed maps. Lookup results are nullable and must be
+checked before dereference.
+
+```go
+type Count struct {
+    seen u32
+}
+
+map Counts hash[u32, Count]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    pid := bpf.current_pid()
+    Counts.update(pid, Count{seen: 1})
+
+    count := Counts.lookup(pid)
+    if count == nil {
+        return 0
+    }
+
+    count.seen = bpf.current_pid()
+    return 0
+}
 ```
 
 ## Commands
@@ -34,7 +106,19 @@ headers, bpftool/LLVM utilities, kernel BTF, and a usable `vmlinux.h`.
 Use `make setup-vmlinux` on BTF-enabled Linux hosts to generate
 `/usr/local/include/vmlinux.h`.
 
+## Safety Model
+
+Horizon makes verifier-sensitive behavior explicit before clang runs:
+
+- ringbuf reservations must be nil-checked, submitted, or discarded exactly once
+- writes after ringbuf submit/discard are rejected
+- map lookup results must be nil-checked before field access
+- only bounded counted loops are accepted
+- helper availability is checked against the program kind
+- generated C stays readable so clang and verifier logs remain inspectable
+
 ## Status
 
-Pre-alpha. The first implementation target is tracepoint programs that emit
-typed events through ring buffers.
+Pre-alpha. The current implementation targets tracepoint programs with typed
+ringbuf event output, typed hash/array map access, bounded loops, generated
+BPF C, clang builds, Go bindings, and Continuum capability manifests.

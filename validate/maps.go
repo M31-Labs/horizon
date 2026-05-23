@@ -112,6 +112,9 @@ func validateTypedMapLookups(fn ir.Function, lookupMaps map[string]ir.Map) []dia
 		for i := range expr.Args {
 			checkExpr(&expr.Args[i])
 		}
+		for i := range expr.Fields {
+			checkExpr(&expr.Fields[i].Value)
+		}
 	}
 	var walk func([]ir.Statement)
 	walk = func(stmts []ir.Statement) {

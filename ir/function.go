@@ -47,7 +47,14 @@ type Expr struct {
 	Right   *Expr
 	Func    *Expr
 	Args    []Expr
+	Fields  []ExprField
 	Span    span.Span
+}
+
+type ExprField struct {
+	Name  string
+	Value Expr
+	Span  span.Span
 }
 
 type Type struct {

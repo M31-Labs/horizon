@@ -247,6 +247,12 @@ func buildExpr(parsed *parser.File, n *gotreesitter.Node) Expr {
 			Args: buildArgumentList(parsed, n.ChildByFieldName("arguments", parsed.Lang)),
 			Span: spanForNode(parsed.Source.FileID, n),
 		}
+	case "struct_literal":
+		return StructLiteralExpr{
+			Type:   buildTypeRef(parsed, n.ChildByFieldName("type", parsed.Lang)),
+			Fields: buildStructLiteralFields(parsed, n),
+			Span:   spanForNode(parsed.Source.FileID, n),
+		}
 	case "unary_expression":
 		return UnaryExpr{
 			Op:   operatorText(parsed, n),
@@ -267,6 +273,22 @@ func buildExpr(parsed *parser.File, n *gotreesitter.Node) Expr {
 		}
 		return RawExpr{Text: raw, Span: spanForNode(parsed.Source.FileID, n)}
 	}
+}
+
+func buildStructLiteralFields(parsed *parser.File, n *gotreesitter.Node) []StructLiteralField {
+	var out []StructLiteralField
+	for i := 0; i < int(n.NamedChildCount()); i++ {
+		child := n.NamedChild(i)
+		if child.Type(parsed.Lang) != "literal_field" {
+			continue
+		}
+		out = append(out, StructLiteralField{
+			Name:  text(parsed, child.ChildByFieldName("name", parsed.Lang)),
+			Value: buildExpr(parsed, child.ChildByFieldName("value", parsed.Lang)),
+			Span:  spanForNode(parsed.Source.FileID, child),
+		})
+	}
+	return out
 }
 
 func buildArgumentList(parsed *parser.File, n *gotreesitter.Node) []Expr {

@@ -112,6 +112,34 @@ func F(ctx tracepoint.Exec) i32 {
 	}
 }
 
+func TestParseStructLiteral(t *testing.T) {
+	src := SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
+
+type Count struct {
+    seen u32
+}
+
+map Counts hash[u32, Count]
+
+@tracepoint("sched:sched_process_exec")
+func F(ctx tracepoint.Exec) i32 {
+    pid := bpf.current_pid()
+    Counts.update(pid, Count{seen: pid})
+    return 0
+}
+`)}
+	file, err := ParseSource(src)
+	if err != nil {
+		t.Fatalf("ParseSource: %v", err)
+	}
+	if countNamedDescendants(file.Tree.RootNode(), file.Lang, "struct_literal") != 1 {
+		t.Fatalf("struct literal count = %d, want 1", countNamedDescendants(file.Tree.RootNode(), file.Lang, "struct_literal"))
+	}
+	if countNamedDescendants(file.Tree.RootNode(), file.Lang, "literal_field") != 1 {
+		t.Fatalf("literal field count = %d, want 1", countNamedDescendants(file.Tree.RootNode(), file.Lang, "literal_field"))
+	}
+}
+
 func countNamedDescendants(n *gotreesitter.Node, lang *gotreesitter.Language, typ string) int {
 	if n == nil {
 		return 0

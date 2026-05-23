@@ -59,6 +59,23 @@ func (e CallExpr) GetSpan() span.Span {
 	return e.Span
 }
 
+type StructLiteralExpr struct {
+	Type   TypeRef
+	Fields []StructLiteralField
+	Span   span.Span
+}
+
+func (StructLiteralExpr) exprNode() {}
+func (e StructLiteralExpr) GetSpan() span.Span {
+	return e.Span
+}
+
+type StructLiteralField struct {
+	Name  string
+	Value Expr
+	Span  span.Span
+}
+
 type UnaryExpr struct {
 	Op   string
 	Expr Expr

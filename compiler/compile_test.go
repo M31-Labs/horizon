@@ -205,3 +205,61 @@ func OnExec(ctx tracepoint.Exec) i32 {
 		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
 	}
 }
+
+func TestAnalyzeAllowsStructLiteralMapUpdate(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "counts.hzn")
+	if err := os.WriteFile(path, []byte(`package probes
+
+type Count struct {
+    seen u32
+}
+
+map Counts hash[u32, Count]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    pid := bpf.current_pid()
+    Counts.update(pid, Count{seen: pid})
+    return 0
+}
+`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	result, err := AnalyzePath(dir)
+	if err != nil {
+		t.Fatalf("AnalyzePath: %v", err)
+	}
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+}
+
+func TestAnalyzeRejectsUnknownStructLiteralField(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "counts.hzn")
+	if err := os.WriteFile(path, []byte(`package probes
+
+type Count struct {
+    seen u32
+}
+
+map Counts hash[u32, Count]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    pid := bpf.current_pid()
+    Counts.update(pid, Count{missing: pid})
+    return 0
+}
+`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	result, err := AnalyzePath(dir)
+	if err != nil {
+		t.Fatalf("AnalyzePath: %v", err)
+	}
+	if !slices.ContainsFunc(result.Diagnostics, func(d diag.Diagnostic) bool { return d.Code == "HZN1427" }) {
+		t.Fatalf("diagnostics = %#v, want HZN1427", result.Diagnostics)
+	}
+}
