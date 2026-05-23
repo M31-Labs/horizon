@@ -144,6 +144,26 @@ func validateTypedRingbuf(fn ir.Function, ringMaps map[string]ir.Map) []diag.Dia
 		diags = append(diags, liveOnReturnAt(fn, varName, primary))
 		reportedLive[varName] = true
 	}
+	checkWrite := func(varName string, primary span.Span) {
+		state, ok := states[varName]
+		if !ok {
+			return
+		}
+		switch state.State {
+		case "maybe_nil":
+			if !reportedMissingNil[varName] {
+				diags = append(diags, missingNilCheckAt(fn, varName, primary))
+				reportedMissingNil[varName] = true
+			}
+		case "consumed":
+			diags = append(diags, diag.Diagnostic{
+				Code:     "HZN2103",
+				Severity: diag.SeverityError,
+				Message:  fmt.Sprintf("write to ringbuf reservation %q after submit or discard", varName),
+				Primary:  primary,
+			})
+		}
+	}
 	var walk func([]ir.Statement)
 	walk = func(stmts []ir.Statement) {
 		for _, stmt := range stmts {
@@ -156,24 +176,7 @@ func validateTypedRingbuf(fn ir.Function, ringMaps map[string]ir.Map) []diag.Dia
 				}
 			case "assign":
 				if varName, ok := selectorBase(stmt.Target); ok {
-					state, ok := states[varName]
-					if !ok {
-						break
-					}
-					switch state.State {
-					case "maybe_nil":
-						if !reportedMissingNil[varName] {
-							diags = append(diags, missingNilCheckAt(fn, varName, stmt.Span))
-							reportedMissingNil[varName] = true
-						}
-					case "consumed":
-						diags = append(diags, diag.Diagnostic{
-							Code:     "HZN2103",
-							Severity: diag.SeverityError,
-							Message:  fmt.Sprintf("write to ringbuf reservation %q after submit or discard", varName),
-							Primary:  stmt.Span,
-						})
-					}
+					checkWrite(varName, stmt.Span)
 				}
 			case "expr":
 				if mapName, op, varName, ok := consumeCall(stmt.Expr); ok {
@@ -215,6 +218,10 @@ func validateTypedRingbuf(fn ir.Function, ringMaps map[string]ir.Map) []diag.Dia
 						state.State = "consumed"
 					}
 					states[varName] = state
+					break
+				}
+				if varName, ok := helperWriteBase(stmt.Expr); ok {
+					checkWrite(varName, stmt.Span)
 				}
 			case "if":
 				if varName, ok := nilCheckedVar(stmt.Cond); ok {
@@ -360,6 +367,29 @@ func consumeCall(expr *ir.Expr) (string, string, string, bool) {
 		return "", "", "", false
 	}
 	return operand.Name, method, arg.Name, true
+}
+
+func helperWriteBase(expr *ir.Expr) (string, bool) {
+	if expr == nil || expr.Kind != "call" || len(expr.Args) == 0 {
+		return "", false
+	}
+	operand, method, ok := selectorMethod(expr.Func)
+	if !ok || operand.Kind != "ident" || operand.Name != "bpf" {
+		return "", false
+	}
+	switch method {
+	case "current_comm":
+		return addressSelectorBase(&expr.Args[0])
+	default:
+		return "", false
+	}
+}
+
+func addressSelectorBase(expr *ir.Expr) (string, bool) {
+	if expr == nil || expr.Kind != "unary" || expr.Op != "&" || expr.Operand == nil {
+		return "", false
+	}
+	return selectorBase(expr.Operand)
 }
 
 func selectorMethod(expr *ir.Expr) (ir.Expr, string, bool) {

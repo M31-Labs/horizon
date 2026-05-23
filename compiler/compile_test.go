@@ -263,3 +263,172 @@ func OnExec(ctx tracepoint.Exec) i32 {
 		t.Fatalf("diagnostics = %#v, want HZN1427", result.Diagnostics)
 	}
 }
+
+func TestAnalyzeRejectsFixedArrayValueCopies(t *testing.T) {
+	tests := map[string]string{
+		"local copy": `package probes
+
+type Event struct {
+    comm [16]u8
+}
+
+map Events ringbuf[Event]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    event := Events.reserve()
+    if event == nil {
+        return 0
+    }
+    comm := event.comm
+    Events.discard(event)
+    return 0
+}
+`,
+		"local pointer alias": `package probes
+
+type Event struct {
+    comm [16]u8
+}
+
+map Events ringbuf[Event]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    event := Events.reserve()
+    if event == nil {
+        return 0
+    }
+    comm := &event.comm
+    Events.discard(event)
+    return 0
+}
+`,
+	}
+	for name, source := range tests {
+		t.Run(name, func(t *testing.T) {
+			result := analyzeSource(t, "array.hzn", source)
+			requireDiagnosticCode(t, result, "HZN1430")
+		})
+	}
+}
+
+func TestAnalyzeRejectsFixedArrayFieldAssignment(t *testing.T) {
+	result := analyzeSource(t, "array.hzn", `package probes
+
+type Event struct {
+    comm [16]u8
+}
+
+map Events ringbuf[Event]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    event := Events.reserve()
+    if event == nil {
+        return 0
+    }
+    event.comm = event.comm
+    Events.discard(event)
+    return 0
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1431")
+}
+
+func TestAnalyzeRejectsFixedArrayStructLiteralField(t *testing.T) {
+	result := analyzeSource(t, "array.hzn", `package probes
+
+type Event struct {
+    comm [16]u8
+}
+
+map Events ringbuf[Event]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    event := Events.reserve()
+    if event == nil {
+        return 0
+    }
+    copy := Event{comm: event.comm}
+    Events.discard(event)
+    return 0
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1433")
+}
+
+func TestAnalyzeTreatsHelperArrayWritesAsRingbufWrites(t *testing.T) {
+	tests := map[string]string{
+		"missing nil check": `package probes
+
+type Event struct {
+    comm [16]u8
+}
+
+map Events ringbuf[Event]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    event := Events.reserve()
+    bpf.current_comm(&event.comm)
+    if event == nil {
+        return 0
+    }
+    Events.submit(event)
+    return 0
+}
+`,
+		"after submit": `package probes
+
+type Event struct {
+    comm [16]u8
+}
+
+map Events ringbuf[Event]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    event := Events.reserve()
+    if event == nil {
+        return 0
+    }
+    Events.submit(event)
+    bpf.current_comm(&event.comm)
+    return 0
+}
+`,
+	}
+	want := map[string]string{
+		"missing nil check": "HZN2100",
+		"after submit":      "HZN2103",
+	}
+	for name, source := range tests {
+		t.Run(name, func(t *testing.T) {
+			result := analyzeSource(t, "array.hzn", source)
+			requireDiagnosticCode(t, result, want[name])
+		})
+	}
+}
+
+func analyzeSource(t *testing.T, name string, source string) *Result {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	result, err := AnalyzePath(dir)
+	if err != nil {
+		t.Fatalf("AnalyzePath: %v", err)
+	}
+	return result
+}
+
+func requireDiagnosticCode(t *testing.T, result *Result, code string) {
+	t.Helper()
+	if !slices.ContainsFunc(result.Diagnostics, func(d diag.Diagnostic) bool { return d.Code == code }) {
+		t.Fatalf("diagnostics = %#v, want %s", result.Diagnostics, code)
+	}
+}

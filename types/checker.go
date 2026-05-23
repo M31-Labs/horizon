@@ -256,6 +256,10 @@ func validateFuncBody(decl ast.FuncDecl, maps map[string]ast.MapDecl, structs ma
 				})
 				break
 			}
+			if isFixedArray(typ) {
+				diags = append(diags, fixedArrayLocalDiagnostic(s.Span, s.Name, typ))
+				break
+			}
 			if s.Name != "" {
 				locals[s.Name] = typ
 			}
@@ -275,6 +279,16 @@ func validateFuncBody(decl ast.FuncDecl, maps map[string]ast.MapDecl, structs ma
 					Message:  "assignment target is not addressable",
 					Primary:  s.Span,
 				})
+			} else if isFixedArray(target) {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1431",
+					Severity: diag.SeverityError,
+					Message:  "fixed array fields cannot be assigned as values in Horizon v0",
+					Primary:  s.Span,
+					Suggest:  "write fixed array fields through compiler-known helpers such as bpf.current_comm(&event.comm)",
+				})
+			} else if isFixedArray(value) {
+				diags = append(diags, fixedArrayValueDiagnostic(s.Span))
 			} else if !assignable(target, value) {
 				diags = append(diags, diag.Diagnostic{
 					Code:     "HZN1402",
@@ -289,7 +303,15 @@ func validateFuncBody(decl ast.FuncDecl, maps map[string]ast.MapDecl, structs ma
 		case ast.ReturnStmt:
 			value, exprDiags := typeOfExpr(s.Value, locals, maps, structs)
 			diags = append(diags, exprDiags...)
-			if s.Value != nil && !assignable(valueType{Name: "i32"}, value) {
+			if s.Value != nil && isFixedArray(value) {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1432",
+					Severity: diag.SeverityError,
+					Message:  "fixed array values cannot be returned in Horizon v0",
+					Primary:  s.Span,
+					Suggest:  "keep fixed arrays inside typed records and pass field addresses to compiler-known helpers",
+				})
+			} else if s.Value != nil && !assignable(valueType{Name: "i32"}, value) {
 				diags = append(diags, diag.Diagnostic{
 					Code:     "HZN1403",
 					Severity: diag.SeverityError,
@@ -464,11 +486,26 @@ func typeOfStructLiteral(lit ast.StructLiteralExpr, locals map[string]valueType,
 		}
 		value, valueDiags := typeOfExpr(field.Value, locals, maps, structs)
 		diags = append(diags, valueDiags...)
-		if !assignable(valueType{Name: declField.Type.Name, Ref: declField.Type}, value) {
+		fieldType := valueType{Name: declField.Type.Name, Ref: declField.Type}
+		if isFixedArray(fieldType) {
+			diags = append(diags, diag.Diagnostic{
+				Code:     "HZN1433",
+				Severity: diag.SeverityError,
+				Message:  fmt.Sprintf("fixed array field %s.%s cannot be set from a struct literal in Horizon v0", structDecl.Name, field.Name),
+				Primary:  field.Span,
+				Suggest:  "leave fixed array fields zeroed or populate them through compiler-known helpers",
+			})
+			continue
+		}
+		if isFixedArray(value) {
+			diags = append(diags, fixedArrayValueDiagnostic(field.Span))
+			continue
+		}
+		if !assignable(fieldType, value) {
 			diags = append(diags, diag.Diagnostic{
 				Code:     "HZN1428",
 				Severity: diag.SeverityError,
-				Message:  fmt.Sprintf("cannot assign %s to field %s.%s (%s)", typeName(value), structDecl.Name, field.Name, typeName(valueType{Name: declField.Type.Name, Ref: declField.Type})),
+				Message:  fmt.Sprintf("cannot assign %s to field %s.%s (%s)", typeName(value), structDecl.Name, field.Name, typeName(fieldType)),
 				Primary:  field.Span,
 			})
 		}
@@ -678,9 +715,37 @@ func assignable(dst, src valueType) bool {
 		return false
 	}
 	if dst.Ref.Len != "" || src.Ref.Len != "" {
-		return dst.Ref.Len == src.Ref.Len && dst.Ref.Elem != nil && src.Ref.Elem != nil && dst.Ref.Elem.Name == src.Ref.Elem.Name
+		return false
 	}
 	return dst.Name == src.Name
+}
+
+func isFixedArray(t valueType) bool {
+	return t.Ref.Len != "" && t.Ref.Elem != nil
+}
+
+func fixedArrayLocalDiagnostic(primary span.Span, name string, typ valueType) diag.Diagnostic {
+	message := fmt.Sprintf("fixed array values cannot be stored in local %q in Horizon v0", name)
+	if typ.Ptr {
+		message = fmt.Sprintf("fixed array addresses cannot be stored in local %q in Horizon v0", name)
+	}
+	return diag.Diagnostic{
+		Code:     "HZN1430",
+		Severity: diag.SeverityError,
+		Message:  message,
+		Primary:  primary,
+		Suggest:  "pass a field address such as &event.comm directly to a compiler-known helper instead of copying or aliasing the array",
+	}
+}
+
+func fixedArrayValueDiagnostic(primary span.Span) diag.Diagnostic {
+	return diag.Diagnostic{
+		Code:     "HZN1430",
+		Severity: diag.SeverityError,
+		Message:  "fixed array values are address-only in Horizon v0",
+		Primary:  primary,
+		Suggest:  "pass a field address such as &event.comm directly to a compiler-known helper instead of copying the array",
+	}
 }
 
 func isScalar(name string) bool {

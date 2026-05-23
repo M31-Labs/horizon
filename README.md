@@ -113,6 +113,7 @@ Horizon makes verifier-sensitive behavior explicit before clang runs:
 - ringbuf reservations must be nil-checked, submitted, or discarded exactly once
 - writes after ringbuf submit/discard are rejected
 - map lookup results must be nil-checked before field access
+- fixed array fields are address-only; pass `&event.comm` directly to helpers instead of copying arrays
 - only bounded counted loops are accepted
 - helper availability is checked against the program kind
 - generated C stays readable so clang and verifier logs remain inspectable
