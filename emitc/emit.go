@@ -29,10 +29,11 @@ func Emit(program ir.Program) (Output, error) {
 		Generated: ir.GeneratedSource{Language: "c"},
 	}
 	for _, fn := range program.Functions {
+		env := newCEnv()
 		startLine := strings.Count(b.String(), "\n") + 1
 		fmt.Fprintf(&b, "\nSEC(%q)\nint %s(%s) {\n", fn.Section.Name, fn.Name, cContext(fn))
 		for _, stmt := range functionStatements(fn) {
-			emitStatement(&b, stmt, program, 1, &sourceMap, fn)
+			emitStatement(&b, stmt, program, 1, &sourceMap, fn, env)
 		}
 		b.WriteString("}\n")
 		sourceMap.Mappings = append(sourceMap.Mappings, ir.SourceMapping{
@@ -48,6 +49,28 @@ func Emit(program ir.Program) (Output, error) {
 	}
 	sourceMap.Sources = sourceMapSources(sourceMap.Mappings)
 	return Output{Code: b.String(), SourceMap: sourceMap}, nil
+}
+
+type cEnv struct {
+	ptrLocals map[string]bool
+}
+
+func newCEnv() *cEnv {
+	return &cEnv{ptrLocals: map[string]bool{}}
+}
+
+func (e *cEnv) setPtr(name string, ptr bool) {
+	if e == nil || name == "" {
+		return
+	}
+	e.ptrLocals[name] = ptr
+}
+
+func (e *cEnv) isPtr(name string) bool {
+	if e == nil {
+		return false
+	}
+	return e.ptrLocals[name]
 }
 
 func emitHelperWrappers(b *strings.Builder) {
@@ -214,44 +237,50 @@ func cIdent(s string) string {
 	return b.String()
 }
 
-func emitStatement(b *strings.Builder, stmt ir.Statement, program ir.Program, depth int, sourceMap *ir.SourceMap, fn ir.Function) {
+func emitStatement(b *strings.Builder, stmt ir.Statement, program ir.Program, depth int, sourceMap *ir.SourceMap, fn ir.Function, env *cEnv) {
 	startLine := strings.Count(b.String(), "\n") + 1
 	indent := strings.Repeat("    ", depth)
 	switch stmt.Kind {
 	case "short_var":
 		if mapName, ok := reserveCall(stmt.Value); ok {
 			fmt.Fprintf(b, "%s%s *%s = %s_reserve();\n", indent, reserveType(mapName, program.Maps), stmt.Name, mapName)
+			env.setPtr(stmt.Name, true)
 		} else if mapName, ok := lookupCall(stmt.Value); ok {
-			fmt.Fprintf(b, "%s%s *%s = %s;\n", indent, mapValueType(mapName, program.Maps), stmt.Name, cExpr(stmt.Value))
+			fmt.Fprintf(b, "%s%s *%s = %s;\n", indent, mapValueType(mapName, program.Maps), stmt.Name, cExpr(stmt.Value, env))
+			env.setPtr(stmt.Name, true)
 		} else {
-			fmt.Fprintf(b, "%s%s %s = %s;\n", indent, inferredDeclType(stmt.Value, program), stmt.Name, cExpr(stmt.Value))
+			fmt.Fprintf(b, "%s%s %s = %s;\n", indent, inferredDeclType(stmt.Value, program), stmt.Name, cExpr(stmt.Value, env))
+			env.setPtr(stmt.Name, cExprIsPointer(stmt.Value, env))
 		}
 	case "assign":
-		fmt.Fprintf(b, "%s%s = %s;\n", indent, cExpr(stmt.Target), cExpr(stmt.Value))
+		fmt.Fprintf(b, "%s%s = %s;\n", indent, cExpr(stmt.Target, env), cExpr(stmt.Value, env))
+		if stmt.Target != nil && stmt.Target.Kind == "ident" {
+			env.setPtr(stmt.Target.Name, cExprIsPointer(stmt.Value, env))
+		}
 	case "expr":
 		if mapName, op, varName, ok := consumeCall(stmt.Expr); ok {
 			fmt.Fprintf(b, "%s%s_%s(%s);\n", indent, mapName, op, varName)
 		} else {
-			fmt.Fprintf(b, "%s%s;\n", indent, cExpr(stmt.Expr))
+			fmt.Fprintf(b, "%s%s;\n", indent, cExpr(stmt.Expr, env))
 		}
 	case "return":
-		fmt.Fprintf(b, "%sreturn %s;\n", indent, cExpr(stmt.Value))
+		fmt.Fprintf(b, "%sreturn %s;\n", indent, cExpr(stmt.Value, env))
 	case "if":
-		fmt.Fprintf(b, "%sif (%s) {\n", indent, cExpr(stmt.Cond))
+		fmt.Fprintf(b, "%sif (%s) {\n", indent, cExpr(stmt.Cond, env))
 		for _, child := range stmt.Then {
-			emitStatement(b, child, program, depth+1, sourceMap, fn)
+			emitStatement(b, child, program, depth+1, sourceMap, fn, env)
 		}
 		fmt.Fprintf(b, "%s}\n", indent)
 	case "for":
 		if stmt.Init != nil || stmt.Post != nil {
-			fmt.Fprintf(b, "%sfor (%s; %s; %s) {\n", indent, cForInit(stmt.Init, program), cExpr(stmt.Cond), cForPost(stmt.Post))
+			fmt.Fprintf(b, "%sfor (%s; %s; %s) {\n", indent, cForInit(stmt.Init, program, env), cExpr(stmt.Cond, env), cForPost(stmt.Post))
 		} else if stmt.Cond == nil || stmt.Cond.Kind == "" {
 			fmt.Fprintf(b, "%sfor (;;) {\n", indent)
 		} else {
-			fmt.Fprintf(b, "%sfor (; %s; ) {\n", indent, cExpr(stmt.Cond))
+			fmt.Fprintf(b, "%sfor (; %s; ) {\n", indent, cExpr(stmt.Cond, env))
 		}
 		for _, child := range stmt.Body {
-			emitStatement(b, child, program, depth+1, sourceMap, fn)
+			emitStatement(b, child, program, depth+1, sourceMap, fn, env)
 		}
 		fmt.Fprintf(b, "%s}\n", indent)
 	case "inc":
@@ -286,15 +315,16 @@ func reserveType(mapName string, maps []ir.Map) string {
 	return "void"
 }
 
-func cForInit(stmt *ir.Statement, program ir.Program) string {
+func cForInit(stmt *ir.Statement, program ir.Program, env *cEnv) string {
 	if stmt == nil {
 		return ""
 	}
 	switch stmt.Kind {
 	case "short_var":
-		return fmt.Sprintf("%s %s = %s", inferredDeclType(stmt.Value, program), stmt.Name, cExpr(stmt.Value))
+		env.setPtr(stmt.Name, cExprIsPointer(stmt.Value, env))
+		return fmt.Sprintf("%s %s = %s", inferredDeclType(stmt.Value, program), stmt.Name, cExpr(stmt.Value, env))
 	case "assign":
-		return fmt.Sprintf("%s = %s", cExpr(stmt.Target), cExpr(stmt.Value))
+		return fmt.Sprintf("%s = %s", cExpr(stmt.Target, env), cExpr(stmt.Value, env))
 	default:
 		return ""
 	}
@@ -342,7 +372,7 @@ func inferredDeclType(expr *ir.Expr, program ir.Program) string {
 	return "__u64"
 }
 
-func cExpr(expr *ir.Expr) string {
+func cExpr(expr *ir.Expr, env *cEnv) string {
 	if expr == nil {
 		return "0"
 	}
@@ -357,15 +387,19 @@ func cExpr(expr *ir.Expr) string {
 		if expr.Operand == nil {
 			return expr.Field
 		}
-		return cExpr(expr.Operand) + "->" + expr.Field
+		access := "."
+		if cExprIsPointer(expr.Operand, env) {
+			access = "->"
+		}
+		return cExpr(expr.Operand, env) + access + expr.Field
 	case "unary":
-		return expr.Op + cExpr(expr.Operand)
+		return expr.Op + cExpr(expr.Operand, env)
 	case "binary":
-		return cExpr(expr.Left) + " " + expr.Op + " " + cExpr(expr.Right)
+		return cExpr(expr.Left, env) + " " + expr.Op + " " + cExpr(expr.Right, env)
 	case "call":
-		return cCallExpr(expr)
+		return cCallExpr(expr, env)
 	case "struct_lit":
-		return cStructLiteral(expr)
+		return cStructLiteral(expr, env)
 	case "raw":
 		return expr.Value
 	default:
@@ -373,7 +407,31 @@ func cExpr(expr *ir.Expr) string {
 	}
 }
 
-func cStructLiteral(expr *ir.Expr) string {
+func cExprIsPointer(expr *ir.Expr, env *cEnv) bool {
+	if expr == nil {
+		return false
+	}
+	switch expr.Kind {
+	case "ident":
+		return env.isPtr(expr.Name)
+	case "nil":
+		return true
+	case "unary":
+		return expr.Op == "&"
+	case "call":
+		if _, ok := reserveCall(expr); ok {
+			return true
+		}
+		if _, ok := lookupCall(expr); ok {
+			return true
+		}
+		return false
+	default:
+		return false
+	}
+}
+
+func cStructLiteral(expr *ir.Expr, env *cEnv) string {
 	if expr == nil || expr.Name == "" {
 		return "(void){0}"
 	}
@@ -383,12 +441,12 @@ func cStructLiteral(expr *ir.Expr) string {
 	fields := make([]string, 0, len(expr.Fields))
 	for _, field := range expr.Fields {
 		value := field.Value
-		fields = append(fields, fmt.Sprintf(".%s = %s", field.Name, cExpr(&value)))
+		fields = append(fields, fmt.Sprintf(".%s = %s", field.Name, cExpr(&value, env)))
 	}
 	return fmt.Sprintf("(%s){ %s }", cType(ir.Type{Name: expr.Name}), strings.Join(fields, ", "))
 }
 
-func cCallExpr(expr *ir.Expr) string {
+func cCallExpr(expr *ir.Expr, env *cEnv) string {
 	if expr == nil || expr.Kind != "call" {
 		return "0"
 	}
@@ -396,7 +454,7 @@ func cCallExpr(expr *ir.Expr) string {
 		args := make([]string, 0, len(expr.Args))
 		for _, arg := range expr.Args {
 			arg := arg
-			args = append(args, cExpr(&arg))
+			args = append(args, cExpr(&arg, env))
 		}
 		return fmt.Sprintf("%s_%s(%s)", mapName, method, strings.Join(args, ", "))
 	}
@@ -411,26 +469,26 @@ func cCallExpr(expr *ir.Expr) string {
 		case "bpf.current_comm":
 			if len(expr.Args) == 1 {
 				arg := expr.Args[0]
-				return fmt.Sprintf("hzn_current_comm(%s, sizeof(%s))", cExpr(&arg), sizeofExpr(&arg))
+				return fmt.Sprintf("hzn_current_comm(%s, sizeof(%s))", cExpr(&arg, env), sizeofExpr(&arg, env))
 			}
 		}
 	}
 	args := make([]string, 0, len(expr.Args))
 	for _, arg := range expr.Args {
 		arg := arg
-		args = append(args, cExpr(&arg))
+		args = append(args, cExpr(&arg, env))
 	}
-	return cExpr(expr.Func) + "(" + strings.Join(args, ", ") + ")"
+	return cExpr(expr.Func, env) + "(" + strings.Join(args, ", ") + ")"
 }
 
-func sizeofExpr(expr *ir.Expr) string {
+func sizeofExpr(expr *ir.Expr, env *cEnv) string {
 	if expr == nil {
 		return "0"
 	}
 	if expr.Kind == "unary" && expr.Op == "&" && expr.Operand != nil {
-		return cExpr(expr.Operand)
+		return cExpr(expr.Operand, env)
 	}
-	return cExpr(expr)
+	return cExpr(expr, env)
 }
 
 func qualifiedName(expr *ir.Expr) string {
