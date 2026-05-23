@@ -29,7 +29,7 @@ func Emit(program ir.Program) (Output, error) {
 		Generated: ir.GeneratedSource{Language: "c"},
 	}
 	for _, fn := range program.Functions {
-		env := newCEnv()
+		env := newCEnv(program)
 		startLine := strings.Count(b.String(), "\n") + 1
 		fmt.Fprintf(&b, "\nSEC(%q)\nint %s(%s) {\n", fn.Section.Name, fn.Name, cContext(fn))
 		for _, stmt := range functionStatements(fn) {
@@ -53,17 +53,33 @@ func Emit(program ir.Program) (Output, error) {
 
 type cEnv struct {
 	ptrLocals map[string]bool
+	locals    map[string]ir.Type
+	structs   map[string]ir.Struct
+	maps      map[string]ir.Map
 }
 
-func newCEnv() *cEnv {
-	return &cEnv{ptrLocals: map[string]bool{}}
+func newCEnv(program ir.Program) *cEnv {
+	env := &cEnv{
+		ptrLocals: map[string]bool{},
+		locals:    map[string]ir.Type{},
+		structs:   map[string]ir.Struct{},
+		maps:      map[string]ir.Map{},
+	}
+	for _, decl := range program.Structs {
+		env.structs[decl.Name] = decl
+	}
+	for _, m := range program.Maps {
+		env.maps[m.Name] = m
+	}
+	return env
 }
 
-func (e *cEnv) setPtr(name string, ptr bool) {
+func (e *cEnv) setLocal(name string, typ ir.Type) {
 	if e == nil || name == "" {
 		return
 	}
-	e.ptrLocals[name] = ptr
+	e.locals[name] = typ
+	e.ptrLocals[name] = typ.Ptr
 }
 
 func (e *cEnv) isPtr(name string) bool {
@@ -71,6 +87,14 @@ func (e *cEnv) isPtr(name string) bool {
 		return false
 	}
 	return e.ptrLocals[name]
+}
+
+func (e *cEnv) local(name string) (ir.Type, bool) {
+	if e == nil {
+		return ir.Type{}, false
+	}
+	typ, ok := e.locals[name]
+	return typ, ok
 }
 
 func emitHelperWrappers(b *strings.Builder) {
@@ -244,18 +268,19 @@ func emitStatement(b *strings.Builder, stmt ir.Statement, program ir.Program, de
 	case "short_var":
 		if mapName, ok := reserveCall(stmt.Value); ok {
 			fmt.Fprintf(b, "%s%s *%s = %s_reserve();\n", indent, reserveType(mapName, program.Maps), stmt.Name, mapName)
-			env.setPtr(stmt.Name, true)
+			env.setLocal(stmt.Name, ptrToMapValue(mapName, env))
 		} else if mapName, ok := lookupCall(stmt.Value); ok {
 			fmt.Fprintf(b, "%s%s *%s = %s;\n", indent, mapValueType(mapName, program.Maps), stmt.Name, cExpr(stmt.Value, env))
-			env.setPtr(stmt.Name, true)
+			env.setLocal(stmt.Name, ptrToMapValue(mapName, env))
 		} else {
-			fmt.Fprintf(b, "%s%s %s = %s;\n", indent, inferredDeclType(stmt.Value, program), stmt.Name, cExpr(stmt.Value, env))
-			env.setPtr(stmt.Name, cExprIsPointer(stmt.Value, env))
+			typ := inferredExprType(stmt.Value, env)
+			fmt.Fprintf(b, "%s%s %s = %s;\n", indent, cType(typ), stmt.Name, cExpr(stmt.Value, env))
+			env.setLocal(stmt.Name, typ)
 		}
 	case "assign":
 		fmt.Fprintf(b, "%s%s = %s;\n", indent, cExpr(stmt.Target, env), cExpr(stmt.Value, env))
 		if stmt.Target != nil && stmt.Target.Kind == "ident" {
-			env.setPtr(stmt.Target.Name, cExprIsPointer(stmt.Value, env))
+			env.setLocal(stmt.Target.Name, inferredExprType(stmt.Value, env))
 		}
 	case "expr":
 		if mapName, op, varName, ok := consumeCall(stmt.Expr); ok {
@@ -321,8 +346,9 @@ func cForInit(stmt *ir.Statement, program ir.Program, env *cEnv) string {
 	}
 	switch stmt.Kind {
 	case "short_var":
-		env.setPtr(stmt.Name, cExprIsPointer(stmt.Value, env))
-		return fmt.Sprintf("%s %s = %s", inferredDeclType(stmt.Value, program), stmt.Name, cExpr(stmt.Value, env))
+		typ := inferredExprType(stmt.Value, env)
+		env.setLocal(stmt.Name, typ)
+		return fmt.Sprintf("%s %s = %s", cType(typ), stmt.Name, cExpr(stmt.Value, env))
 	case "assign":
 		return fmt.Sprintf("%s = %s", cExpr(stmt.Target, env), cExpr(stmt.Value, env))
 	default:
@@ -342,34 +368,102 @@ func cForPost(stmt *ir.Statement) string {
 	}
 }
 
-func inferredDeclType(expr *ir.Expr, program ir.Program) string {
+func inferredExprType(expr *ir.Expr, env *cEnv) ir.Type {
+	if typ, ok := cExprType(expr, env); ok {
+		return typ
+	}
+	return ir.Type{Name: "i64"}
+}
+
+func cExprType(expr *ir.Expr, env *cEnv) (ir.Type, bool) {
 	if expr == nil {
-		return "__u64"
+		return ir.Type{}, false
 	}
 	switch expr.Kind {
+	case "ident":
+		return env.local(expr.Name)
+	case "int":
+		return ir.Type{Name: "i64"}, true
+	case "nil":
+		return ptrTo(ir.Type{}), true
+	case "binary":
+		return ir.Type{Name: "bool"}, true
+	case "struct_lit":
+		if expr.Name == "" {
+			return ir.Type{}, false
+		}
+		return ir.Type{Name: expr.Name}, true
 	case "call":
 		if name := qualifiedName(expr.Func); name != "" {
 			switch name {
 			case "bpf.current_pid", "bpf.current_ppid", "bpf.current_uid":
-				return "__u32"
+				return ir.Type{Name: "u32"}, true
+			case "bpf.current_comm":
+				return ir.Type{Name: "i64"}, true
 			}
 		}
 		if mapName, ok := reserveCall(expr); ok {
-			return reserveType(mapName, program.Maps) + " *"
+			return ptrToMapValue(mapName, env), true
 		}
 		if mapName, ok := lookupCall(expr); ok {
-			return mapValueType(mapName, program.Maps) + " *"
+			return ptrToMapValue(mapName, env), true
 		}
-	case "struct_lit":
-		return cType(ir.Type{Name: expr.Name})
-	case "binary":
-		return "bool"
-	case "int":
-		return "__s64"
-	case "nil":
-		return "void *"
+	case "selector":
+		return selectorExprType(expr, env)
+	case "unary":
+		switch expr.Op {
+		case "&":
+			operand, ok := cExprType(expr.Operand, env)
+			if !ok {
+				return ir.Type{}, false
+			}
+			return ptrTo(operand), true
+		case "*":
+			operand, ok := cExprType(expr.Operand, env)
+			if !ok || !operand.Ptr || operand.Elem == nil {
+				return ir.Type{}, false
+			}
+			return *operand.Elem, true
+		}
 	}
-	return "__u64"
+	return ir.Type{}, false
+}
+
+func selectorExprType(expr *ir.Expr, env *cEnv) (ir.Type, bool) {
+	if expr == nil || expr.Operand == nil {
+		return ir.Type{}, false
+	}
+	operand, ok := cExprType(expr.Operand, env)
+	if !ok {
+		return ir.Type{}, false
+	}
+	if operand.Ptr && operand.Elem != nil {
+		operand = *operand.Elem
+	}
+	structDecl, ok := env.structs[operand.Name]
+	if !ok {
+		return ir.Type{}, false
+	}
+	for _, field := range structDecl.Fields {
+		if field.Name == expr.Field {
+			return field.Type, true
+		}
+	}
+	return ir.Type{}, false
+}
+
+func ptrToMapValue(mapName string, env *cEnv) ir.Type {
+	if env != nil {
+		if m, ok := env.maps[mapName]; ok {
+			return ptrTo(m.Val)
+		}
+	}
+	return ptrTo(ir.Type{})
+}
+
+func ptrTo(typ ir.Type) ir.Type {
+	elem := typ
+	return ir.Type{Name: typ.Name, Ptr: true, Elem: &elem}
 }
 
 func cExpr(expr *ir.Expr, env *cEnv) string {

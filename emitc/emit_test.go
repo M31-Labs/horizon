@@ -121,6 +121,7 @@ func OnExec(ctx tracepoint.Exec) i32 {
     pid := bpf.current_pid()
     state := Count{seen: pid}
     state.seen = bpf.current_pid()
+    seen := state.seen
     Counts.update(pid, state)
     return 0
 }
@@ -140,6 +141,7 @@ func OnExec(ctx tracepoint.Exec) i32 {
 		"static __always_inline long Counts_update(__u32 key, struct Count value)",
 		"struct Count state = (struct Count){ .seen = pid };",
 		"state.seen = hzn_current_pid();",
+		"__u32 seen = state.seen;",
 		"Counts_update(pid, state);",
 	} {
 		if !strings.Contains(out.Code, want) {
@@ -166,6 +168,7 @@ func OnExec(ctx tracepoint.Exec) i32 {
     if count == nil {
         return 0
     }
+    seen := count.seen
     count.seen = pid
     return 0
 }
@@ -182,6 +185,7 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	}
 	for _, want := range []string{
 		"struct Count *count = Counts_lookup(pid);",
+		"__u32 seen = count->seen;",
 		"count->seen = pid;",
 	} {
 		if !strings.Contains(out.Code, want) {
