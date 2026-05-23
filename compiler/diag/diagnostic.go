@@ -16,18 +16,18 @@ const (
 )
 
 type Label struct {
-	Span    span.Span
-	Message string
+	Span    span.Span `json:"span"`
+	Message string    `json:"message"`
 }
 
 type Diagnostic struct {
-	Code     string
-	Severity Severity
-	Message  string
-	Primary  span.Span
-	Labels   []Label
-	Notes    []string
-	Suggest  string
+	Code     string    `json:"code,omitempty"`
+	Severity Severity  `json:"severity"`
+	Message  string    `json:"message"`
+	Primary  span.Span `json:"primary,omitempty"`
+	Labels   []Label   `json:"labels,omitempty"`
+	Notes    []string  `json:"notes,omitempty"`
+	Suggest  string    `json:"suggest,omitempty"`
 }
 
 func (d Diagnostic) HasPrimary() bool {

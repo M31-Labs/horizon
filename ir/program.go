@@ -4,6 +4,7 @@ import "m31labs.dev/horizon/compiler/span"
 
 type Program struct {
 	Package      string
+	Structs      []Struct
 	Functions    []Function
 	Maps         []Map
 	Capabilities []Capability
@@ -11,13 +12,13 @@ type Program struct {
 }
 
 type SourceMap struct {
-	Mappings []SourceMapping
+	Mappings []SourceMapping `json:"mappings"`
 }
 
 type SourceMapping struct {
-	Source    span.Span
-	Generated span.Span
-	Node      string
-	Function  string
-	Section   string
+	Source    span.Span `json:"source"`
+	Generated span.Span `json:"generated"`
+	Node      string    `json:"node"`
+	Function  string    `json:"function"`
+	Section   string    `json:"section"`
 }

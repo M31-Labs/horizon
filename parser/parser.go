@@ -2,7 +2,6 @@ package parser
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 
 	gotreesitter "github.com/odvcencio/gotreesitter"
@@ -35,6 +34,9 @@ func ParseSource(source SourceFile) (*File, error) {
 		return nil, fmt.Errorf("parse %s: %w", source.Path, err)
 	}
 	root := tree.RootNode()
+	if tree.ParseStoppedEarly() {
+		return nil, &ParseError{Path: source.Path, Line: 1, Column: 1, Message: "parse stopped before consuming the source"}
+	}
 	if root.HasError() {
 		return nil, parseProblem(source.Path, root, source.Bytes, lang)
 	}
@@ -47,27 +49,10 @@ func ParseSource(source SourceFile) (*File, error) {
 }
 
 func packageName(root *gotreesitter.Node, source []byte, lang *gotreesitter.Language) string {
-	if root == nil {
-		return ""
+	if pkg := firstNamedDescendant(root, lang, "package_clause"); pkg != nil {
+		return NodeText(pkg.ChildByFieldName("name", lang), source)
 	}
-	for i := 0; i < int(root.NamedChildCount()); i++ {
-		child := root.NamedChild(i)
-		if child.Type(lang) != "package_clause" {
-			continue
-		}
-		return NodeText(child.ChildByFieldName("name", lang), source)
-	}
-	return packageNameFromSource(source)
-}
-
-var packageLineRE = regexp.MustCompile(`(?m)^\s*package\s+([A-Za-z_][A-Za-z0-9_]*)\s*$`)
-
-func packageNameFromSource(source []byte) string {
-	match := packageLineRE.FindSubmatch(source)
-	if len(match) != 2 {
-		return ""
-	}
-	return string(match[1])
+	return ""
 }
 
 func parseProblem(path string, root *gotreesitter.Node, source []byte, lang *gotreesitter.Language) error {
@@ -115,4 +100,19 @@ func parseProblemMessage(node *gotreesitter.Node, source []byte, lang *gotreesit
 		return fmt.Sprintf("parse error near %q", snippet)
 	}
 	return "parse error"
+}
+
+func firstNamedDescendant(node *gotreesitter.Node, lang *gotreesitter.Language, typ string) *gotreesitter.Node {
+	if node == nil {
+		return nil
+	}
+	if node.IsNamed() && node.Type(lang) == typ {
+		return node
+	}
+	for i := 0; i < int(node.NamedChildCount()); i++ {
+		if found := firstNamedDescendant(node.NamedChild(i), lang, typ); found != nil {
+			return found
+		}
+	}
+	return nil
 }

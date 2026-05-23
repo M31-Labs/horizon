@@ -14,12 +14,13 @@ func (d TypeDecl) GetSpan() span.Span {
 }
 
 type FuncDecl struct {
-	Name   string
-	Attrs  []Attr
-	Params []Param
-	Return TypeRef
-	Body   []Stmt
-	Span   span.Span
+	Name     string
+	Attrs    []Attr
+	Params   []Param
+	Return   TypeRef
+	Body     []Stmt
+	BodyText string
+	Span     span.Span
 }
 
 func (FuncDecl) declNode() {}

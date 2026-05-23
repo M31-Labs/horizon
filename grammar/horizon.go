@@ -23,9 +23,21 @@ func Language() (*gotreesitter.Language, error) {
 func HorizonGrammar() *grammargen.Grammar {
 	g := grammargen.NewGrammar("horizon")
 	g.SetWord("identifier")
-	g.SetExtras(grammargen.Pat(`\s`), grammargen.Sym("line_comment"))
+	g.SetExtras(grammargen.Pat(`[ \t\f]+`), grammargen.Sym("line_comment"))
 
-	g.Define("source_file", grammargen.Repeat(grammargen.Sym("_item")))
+	g.Define("source_file", grammargen.Seq(
+		grammargen.Repeat(grammargen.Choice(
+			grammargen.Seq(
+				grammargen.Sym("_item"),
+				grammargen.Repeat1(grammargen.Sym("_terminator")),
+			),
+			grammargen.Sym("_terminator"),
+		)),
+		grammargen.Choice(
+			grammargen.Sym("_item"),
+			grammargen.Blank(),
+		),
+	))
 	g.Define("_item", grammargen.Choice(
 		grammargen.Sym("package_clause"),
 		grammargen.Sym("import_declaration"),
@@ -33,6 +45,10 @@ func HorizonGrammar() *grammargen.Grammar {
 		grammargen.Sym("const_declaration"),
 		grammargen.Sym("map_declaration"),
 		grammargen.Sym("function_declaration"),
+	))
+	g.Define("_terminator", grammargen.Choice(
+		grammargen.Pat(`\r?\n`),
+		grammargen.Str(";"),
 	))
 
 	g.Define("package_clause", grammargen.Seq(
@@ -55,7 +71,13 @@ func HorizonGrammar() *grammargen.Grammar {
 	g.Define("struct_type", grammargen.Seq(
 		grammargen.Str("struct"),
 		grammargen.Str("{"),
-		grammargen.Repeat(grammargen.Sym("field_declaration")),
+		grammargen.Repeat(grammargen.Sym("_terminator")),
+		grammargen.Repeat(grammargen.Seq(
+			grammargen.Sym("field_declaration"),
+			grammargen.Repeat1(grammargen.Sym("_terminator")),
+		)),
+		grammargen.Optional(grammargen.Sym("field_declaration")),
+		grammargen.Repeat(grammargen.Sym("_terminator")),
 		grammargen.Str("}"),
 	))
 
@@ -78,7 +100,10 @@ func HorizonGrammar() *grammargen.Grammar {
 	))
 
 	g.Define("function_declaration", grammargen.Seq(
-		grammargen.Repeat(grammargen.Sym("attribute")),
+		grammargen.Repeat(grammargen.Seq(
+			grammargen.Sym("attribute"),
+			grammargen.Repeat(grammargen.Sym("_terminator")),
+		)),
 		grammargen.Str("func"),
 		grammargen.Field("name", grammargen.Sym("identifier")),
 		grammargen.Str("("),
@@ -144,12 +169,13 @@ func HorizonGrammar() *grammargen.Grammar {
 		grammargen.Str("{"),
 		grammargen.Repeat(grammargen.Choice(
 			grammargen.Sym("block"),
-			grammargen.Token(grammargen.Pat(`[^{}]+`)),
+			grammargen.Sym("raw_statement"),
 		)),
 		grammargen.Str("}"),
 	))
 
 	g.Define("raw_expr", grammargen.Token(grammargen.Pat(`[^\n\r]+`)))
+	g.Define("raw_statement", grammargen.Token(grammargen.Pat(`[^{}]+`)))
 	g.Define("identifier", grammargen.Token(grammargen.Pat(`[A-Za-z_][A-Za-z0-9_]*`)))
 	g.Define("number_literal", grammargen.Token(grammargen.Pat(`[0-9]+`)))
 	g.Define("string_literal", grammargen.Token(grammargen.Seq(

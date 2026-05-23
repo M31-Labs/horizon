@@ -3,16 +3,16 @@ package span
 type FileID string
 
 type Point struct {
-	Line   int
-	Column int
+	Line   int `json:"line"`
+	Column int `json:"column"`
 }
 
 type Span struct {
-	File      FileID
-	StartByte int
-	EndByte   int
-	Start     Point
-	End       Point
+	File      FileID `json:"file,omitempty"`
+	StartByte int    `json:"start_byte,omitempty"`
+	EndByte   int    `json:"end_byte,omitempty"`
+	Start     Point  `json:"start"`
+	End       Point  `json:"end"`
 }
 
 func (s Span) IsZero() bool {

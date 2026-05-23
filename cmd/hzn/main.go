@@ -48,3 +48,37 @@ func pathArg(fs *flag.FlagSet) string {
 	}
 	return "."
 }
+
+func parseFlags(fs *flag.FlagSet, args []string) error {
+	return fs.Parse(reorderFlags(args))
+}
+
+func reorderFlags(args []string) []string {
+	var flags []string
+	var positionals []string
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if len(arg) > 0 && arg[0] == '-' {
+			flags = append(flags, arg)
+			if flagNeedsValue(arg) && i+1 < len(args) {
+				i++
+				flags = append(flags, args[i])
+			}
+			continue
+		}
+		positionals = append(positionals, arg)
+	}
+	return append(flags, positionals...)
+}
+
+func flagNeedsValue(arg string) bool {
+	if len(arg) >= 2 && arg[0:2] == "--" {
+		arg = arg[1:]
+	}
+	for _, name := range []string{"-o", "-map", "-package"} {
+		if arg == name || len(arg) > len(name) && arg[:len(name)+1] == name+"=" {
+			return arg == name
+		}
+	}
+	return false
+}

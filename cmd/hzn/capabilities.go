@@ -2,14 +2,23 @@ package main
 
 import (
 	"flag"
-	"fmt"
+
+	"m31labs.dev/horizon/capability"
 )
 
 func runCapabilities(args []string) error {
 	fs := flag.NewFlagSet("capabilities", flag.ContinueOnError)
-	_ = fs.String("o", "", "output path")
-	if err := fs.Parse(args); err != nil {
+	outPath := fs.String("o", "", "output path")
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
-	return fmt.Errorf("capabilities is not implemented yet")
+	result, err := analyze(pathArg(fs))
+	if err != nil {
+		return err
+	}
+	manifest := capability.FromIR(result.Program)
+	if err := capability.Validate(manifest); err != nil {
+		return err
+	}
+	return writeJSON(*outPath, manifest)
 }

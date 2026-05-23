@@ -2,14 +2,24 @@ package main
 
 import (
 	"flag"
-	"fmt"
+
+	"m31labs.dev/horizon/bindgen"
 )
 
 func runBindgen(args []string) error {
 	fs := flag.NewFlagSet("bindgen", flag.ContinueOnError)
-	_ = fs.String("o", "", "output path")
-	if err := fs.Parse(args); err != nil {
+	outPath := fs.String("o", "", "output path")
+	packageName := fs.String("package", "bindings", "generated Go package name")
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
-	return fmt.Errorf("bindgen is not implemented yet")
+	result, err := analyze(pathArg(fs))
+	if err != nil {
+		return err
+	}
+	code, err := bindgen.Generate(result.Program, *packageName)
+	if err != nil {
+		return err
+	}
+	return writeFile(*outPath, []byte(code))
 }

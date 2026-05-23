@@ -20,6 +20,8 @@ type Capability struct {
 	Name    string
 	Kind    CapabilityKind
 	Program string
+	Section string
+	Emits   string
 	Maps    CapabilityMapAccess
 	Danger  DangerLevel
 }
