@@ -1,0 +1,9 @@
+package invalid
+
+@tracepoint("sched:sched_process_exec")
+func Bad(ctx tracepoint.Exec) i32 {
+    for {
+    }
+    return 0
+}
+
