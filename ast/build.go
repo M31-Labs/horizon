@@ -99,16 +99,7 @@ func buildFuncDecl(parsed *parser.File, n *gotreesitter.Node) FuncDecl {
 	}
 	if body := n.ChildByFieldName("body", parsed.Lang); body != nil {
 		decl.BodyText = blockBodyText(parsed, body)
-		for _, child := range namedDescendantsOfType(parsed, body, "raw_statement") {
-			raw := strings.TrimSpace(text(parsed, child))
-			if raw == "" {
-				continue
-			}
-			decl.Body = append(decl.Body, RawStmt{
-				Text: raw,
-				Span: spanForNode(parsed.Source.FileID, child),
-			})
-		}
+		decl.Body = buildBlockStatements(parsed, body)
 	}
 	return decl
 }
@@ -148,6 +139,160 @@ func buildConstDecl(parsed *parser.File, n *gotreesitter.Node) ConstDecl {
 		},
 		Span: spanForNode(parsed.Source.FileID, n),
 	}
+}
+
+func buildBlockStatements(parsed *parser.File, n *gotreesitter.Node) []Stmt {
+	if n == nil {
+		return nil
+	}
+	list := firstNamedDescendantOfType(parsed, n, "statement_list")
+	if list == nil {
+		return nil
+	}
+	var out []Stmt
+	for i := 0; i < int(list.NamedChildCount()); i++ {
+		child := list.NamedChild(i)
+		if child.Type(parsed.Lang) != "statement" {
+			continue
+		}
+		if stmt := buildStmt(parsed, child); stmt != nil {
+			out = append(out, stmt)
+		}
+	}
+	return out
+}
+
+func buildStmt(parsed *parser.File, n *gotreesitter.Node) Stmt {
+	if n == nil {
+		return nil
+	}
+	if n.Type(parsed.Lang) == "statement" && n.NamedChildCount() == 1 {
+		return buildStmt(parsed, n.NamedChild(0))
+	}
+	switch n.Type(parsed.Lang) {
+	case "short_var_declaration":
+		return ShortVarStmt{
+			Name:  text(parsed, n.ChildByFieldName("name", parsed.Lang)),
+			Value: buildExpr(parsed, n.ChildByFieldName("value", parsed.Lang)),
+			Span:  spanForNode(parsed.Source.FileID, n),
+		}
+	case "assignment_statement":
+		return AssignStmt{
+			Target: buildExpr(parsed, n.ChildByFieldName("target", parsed.Lang)),
+			Value:  buildExpr(parsed, n.ChildByFieldName("value", parsed.Lang)),
+			Span:   spanForNode(parsed.Source.FileID, n),
+		}
+	case "return_statement":
+		return ReturnStmt{
+			Value: buildExpr(parsed, n.ChildByFieldName("value", parsed.Lang)),
+			Span:  spanForNode(parsed.Source.FileID, n),
+		}
+	case "if_statement":
+		return IfStmt{
+			Cond: buildExpr(parsed, n.ChildByFieldName("condition", parsed.Lang)),
+			Then: buildBlockStatements(parsed, n.ChildByFieldName("consequence", parsed.Lang)),
+			Span: spanForNode(parsed.Source.FileID, n),
+		}
+	case "for_statement":
+		return ForStmt{
+			Cond: buildExpr(parsed, n.ChildByFieldName("condition", parsed.Lang)),
+			Body: buildBlockStatements(parsed, n.ChildByFieldName("body", parsed.Lang)),
+			Span: spanForNode(parsed.Source.FileID, n),
+		}
+	case "expression_statement":
+		return ExprStmt{
+			Expr: buildExpr(parsed, n.ChildByFieldName("expression", parsed.Lang)),
+			Span: spanForNode(parsed.Source.FileID, n),
+		}
+	default:
+		raw := strings.TrimSpace(text(parsed, n))
+		if raw == "" {
+			return nil
+		}
+		return RawStmt{Text: raw, Span: spanForNode(parsed.Source.FileID, n)}
+	}
+}
+
+func buildExpr(parsed *parser.File, n *gotreesitter.Node) Expr {
+	if n == nil {
+		return nil
+	}
+	if n.Type(parsed.Lang) == "expression" && n.NamedChildCount() == 1 {
+		return buildExpr(parsed, n.NamedChild(0))
+	}
+	switch n.Type(parsed.Lang) {
+	case "identifier":
+		return IdentExpr{Name: text(parsed, n), Span: spanForNode(parsed.Source.FileID, n)}
+	case "number_literal":
+		return IntExpr{Value: text(parsed, n), Span: spanForNode(parsed.Source.FileID, n)}
+	case "nil_literal":
+		return NilExpr{Span: spanForNode(parsed.Source.FileID, n)}
+	case "selector_expression":
+		return SelectorExpr{
+			Operand: buildExpr(parsed, n.ChildByFieldName("operand", parsed.Lang)),
+			Field:   text(parsed, n.ChildByFieldName("field", parsed.Lang)),
+			Span:    spanForNode(parsed.Source.FileID, n),
+		}
+	case "call_expression":
+		return CallExpr{
+			Func: buildExpr(parsed, n.ChildByFieldName("function", parsed.Lang)),
+			Args: buildArgumentList(parsed, n.ChildByFieldName("arguments", parsed.Lang)),
+			Span: spanForNode(parsed.Source.FileID, n),
+		}
+	case "unary_expression":
+		return UnaryExpr{
+			Op:   operatorText(parsed, n),
+			Expr: buildExpr(parsed, n.ChildByFieldName("operand", parsed.Lang)),
+			Span: spanForNode(parsed.Source.FileID, n),
+		}
+	case "binary_expression":
+		return BinaryExpr{
+			Left:  buildExpr(parsed, n.ChildByFieldName("left", parsed.Lang)),
+			Op:    operatorText(parsed, n),
+			Right: buildExpr(parsed, n.ChildByFieldName("right", parsed.Lang)),
+			Span:  spanForNode(parsed.Source.FileID, n),
+		}
+	default:
+		raw := strings.TrimSpace(text(parsed, n))
+		if raw == "" {
+			return nil
+		}
+		return RawExpr{Text: raw, Span: spanForNode(parsed.Source.FileID, n)}
+	}
+}
+
+func buildArgumentList(parsed *parser.File, n *gotreesitter.Node) []Expr {
+	if n == nil {
+		return nil
+	}
+	var out []Expr
+	for i := 0; i < int(n.NamedChildCount()); i++ {
+		child := n.NamedChild(i)
+		if child.Type(parsed.Lang) != "expression" {
+			continue
+		}
+		if expr := buildExpr(parsed, child); expr != nil {
+			out = append(out, expr)
+		}
+	}
+	return out
+}
+
+func operatorText(parsed *parser.File, n *gotreesitter.Node) string {
+	if op := n.ChildByFieldName("operator", parsed.Lang); op != nil {
+		return text(parsed, op)
+	}
+	for i := 0; i < int(n.ChildCount()); i++ {
+		child := n.Child(i)
+		if child == nil || child.IsNamed() {
+			continue
+		}
+		switch tok := text(parsed, child); tok {
+		case "==", "!=", "<=", ">=", "<", ">", "&", "*", "!":
+			return tok
+		}
+	}
+	return ""
 }
 
 func buildTypeRef(parsed *parser.File, n *gotreesitter.Node) TypeRef {

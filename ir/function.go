@@ -22,9 +22,29 @@ type Block struct {
 }
 
 type Statement struct {
-	Kind string
-	Text string
-	Span span.Span
+	Kind   string
+	Name   string
+	Target *Expr
+	Value  *Expr
+	Expr   *Expr
+	Cond   *Expr
+	Then   []Statement
+	Body   []Statement
+	Span   span.Span
+}
+
+type Expr struct {
+	Kind    string
+	Name    string
+	Field   string
+	Op      string
+	Value   string
+	Operand *Expr
+	Left    *Expr
+	Right   *Expr
+	Func    *Expr
+	Args    []Expr
+	Span    span.Span
 }
 
 type Type struct {

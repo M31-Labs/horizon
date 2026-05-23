@@ -20,6 +20,9 @@ func runEmitC(args []string) error {
 	if err != nil {
 		return err
 	}
+	if *outPath != "" {
+		output.SourceMap.Generated.Path = *outPath
+	}
 	if err := writeFile(*outPath, []byte(output.Code)); err != nil {
 		return err
 	}

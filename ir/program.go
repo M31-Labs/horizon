@@ -12,7 +12,10 @@ type Program struct {
 }
 
 type SourceMap struct {
-	Mappings []SourceMapping `json:"mappings"`
+	Schema    string          `json:"schema"`
+	Sources   []Source        `json:"sources,omitempty"`
+	Generated GeneratedSource `json:"generated,omitempty"`
+	Mappings  []SourceMapping `json:"mappings"`
 }
 
 type SourceMapping struct {
@@ -21,4 +24,14 @@ type SourceMapping struct {
 	Node      string    `json:"node"`
 	Function  string    `json:"function"`
 	Section   string    `json:"section"`
+}
+
+type Source struct {
+	ID   int    `json:"id"`
+	Path string `json:"path"`
+}
+
+type GeneratedSource struct {
+	Path     string `json:"path,omitempty"`
+	Language string `json:"language,omitempty"`
 }

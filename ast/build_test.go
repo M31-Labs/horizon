@@ -67,4 +67,25 @@ func TestBuildExecwatchAST(t *testing.T) {
 	if len(fn.Body) == 0 {
 		t.Fatal("func body is empty")
 	}
+	if len(fn.Body) != 8 {
+		t.Fatalf("body statements = %d, want 8", len(fn.Body))
+	}
+	if _, ok := fn.Body[0].(ShortVarStmt); !ok {
+		t.Fatalf("body[0] = %T, want ShortVarStmt", fn.Body[0])
+	}
+	if _, ok := fn.Body[1].(IfStmt); !ok {
+		t.Fatalf("body[1] = %T, want IfStmt", fn.Body[1])
+	}
+	if _, ok := fn.Body[2].(AssignStmt); !ok {
+		t.Fatalf("body[2] = %T, want AssignStmt", fn.Body[2])
+	}
+	if _, ok := fn.Body[5].(ExprStmt); !ok {
+		t.Fatalf("body[5] = %T, want ExprStmt", fn.Body[5])
+	}
+	if _, ok := fn.Body[6].(ExprStmt); !ok {
+		t.Fatalf("body[6] = %T, want ExprStmt", fn.Body[6])
+	}
+	if _, ok := fn.Body[7].(ReturnStmt); !ok {
+		t.Fatalf("body[7] = %T, want ReturnStmt", fn.Body[7])
+	}
 }

@@ -167,15 +167,132 @@ func HorizonGrammar() *grammargen.Grammar {
 
 	g.Define("block", grammargen.Seq(
 		grammargen.Str("{"),
-		grammargen.Repeat(grammargen.Choice(
-			grammargen.Sym("block"),
-			grammargen.Sym("raw_statement"),
-		)),
+		grammargen.Sym("statement_list"),
 		grammargen.Str("}"),
 	))
 
+	g.Define("statement_list", grammargen.Seq(
+		grammargen.Repeat(grammargen.Choice(
+			grammargen.Sym("_terminator"),
+			grammargen.Seq(grammargen.Sym("statement"), grammargen.Repeat1(grammargen.Sym("_terminator"))),
+		)),
+		grammargen.Optional(grammargen.Sym("statement")),
+	))
+
+	g.Define("statement", grammargen.Choice(
+		grammargen.Sym("short_var_declaration"),
+		grammargen.Sym("assignment_statement"),
+		grammargen.Sym("return_statement"),
+		grammargen.Sym("if_statement"),
+		grammargen.Sym("for_statement"),
+		grammargen.Sym("expression_statement"),
+	))
+
+	g.Define("short_var_declaration", grammargen.Seq(
+		grammargen.Field("name", grammargen.Sym("identifier")),
+		grammargen.Str(":="),
+		grammargen.Field("value", grammargen.Sym("expression")),
+	))
+
+	g.Define("assignment_statement", grammargen.Seq(
+		grammargen.Field("target", grammargen.Sym("expression")),
+		grammargen.Str("="),
+		grammargen.Field("value", grammargen.Sym("expression")),
+	))
+
+	g.Define("return_statement", grammargen.Seq(
+		grammargen.Str("return"),
+		grammargen.Optional(grammargen.Field("value", grammargen.Sym("expression"))),
+	))
+
+	g.Define("if_statement", grammargen.Seq(
+		grammargen.Str("if"),
+		grammargen.Field("condition", grammargen.Sym("expression")),
+		grammargen.Field("consequence", grammargen.Sym("block")),
+	))
+
+	g.Define("for_statement", grammargen.Seq(
+		grammargen.Str("for"),
+		grammargen.Choice(
+			grammargen.Field("body", grammargen.Sym("block")),
+			grammargen.Seq(
+				grammargen.Field("condition", grammargen.Sym("expression")),
+				grammargen.Field("body", grammargen.Sym("block")),
+			),
+		),
+	))
+
+	g.Define("expression_statement", grammargen.Field("expression", grammargen.Sym("expression")))
+
+	g.Define("expression", grammargen.Choice(
+		grammargen.Sym("binary_expression"),
+		grammargen.Sym("call_expression"),
+		grammargen.Sym("unary_expression"),
+		grammargen.Sym("selector_expression"),
+		grammargen.Sym("nil_literal"),
+		grammargen.Sym("number_literal"),
+		grammargen.Sym("identifier"),
+	))
+
+	g.Define("binary_expression", grammargen.PrecLeft(1, grammargen.Seq(
+		grammargen.Field("left", grammargen.Sym("_simple_expression")),
+		grammargen.Field("operator", grammargen.Choice(
+			grammargen.Str("=="),
+			grammargen.Str("!="),
+			grammargen.Str("<="),
+			grammargen.Str(">="),
+			grammargen.Str("<"),
+			grammargen.Str(">"),
+		)),
+		grammargen.Field("right", grammargen.Sym("_simple_expression")),
+	)))
+
+	g.Define("_simple_expression", grammargen.Choice(
+		grammargen.Sym("call_expression"),
+		grammargen.Sym("unary_expression"),
+		grammargen.Sym("selector_expression"),
+		grammargen.Sym("nil_literal"),
+		grammargen.Sym("number_literal"),
+		grammargen.Sym("identifier"),
+	))
+
+	g.Define("call_expression", grammargen.Prec(3, grammargen.Seq(
+		grammargen.Field("function", grammargen.Choice(
+			grammargen.Sym("selector_expression"),
+			grammargen.Sym("identifier"),
+		)),
+		grammargen.Field("arguments", grammargen.Sym("argument_list")),
+	)))
+
+	g.Define("argument_list", grammargen.Seq(
+		grammargen.Str("("),
+		grammargen.Optional(grammargen.Seq(
+			grammargen.Sym("expression"),
+			grammargen.Repeat(grammargen.Seq(grammargen.Str(","), grammargen.Sym("expression"))),
+		)),
+		grammargen.Str(")"),
+	))
+
+	g.Define("selector_expression", grammargen.Prec(4, grammargen.Seq(
+		grammargen.Field("operand", grammargen.Choice(
+			grammargen.Sym("selector_expression"),
+			grammargen.Sym("identifier"),
+		)),
+		grammargen.Str("."),
+		grammargen.Field("field", grammargen.Sym("identifier")),
+	)))
+
+	g.Define("unary_expression", grammargen.Prec(5, grammargen.Seq(
+		grammargen.Field("operator", grammargen.Choice(
+			grammargen.Str("&"),
+			grammargen.Str("*"),
+			grammargen.Str("!"),
+		)),
+		grammargen.Field("operand", grammargen.Sym("_simple_expression")),
+	)))
+
 	g.Define("raw_expr", grammargen.Token(grammargen.Pat(`[^\n\r]+`)))
-	g.Define("raw_statement", grammargen.Token(grammargen.Pat(`[^{}]+`)))
+	g.Define("nil_literal", grammargen.Str("nil"))
 	g.Define("identifier", grammargen.Token(grammargen.Pat(`[A-Za-z_][A-Za-z0-9_]*`)))
 	g.Define("number_literal", grammargen.Token(grammargen.Pat(`[0-9]+`)))
 	g.Define("string_literal", grammargen.Token(grammargen.Seq(

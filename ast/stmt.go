@@ -16,3 +16,67 @@ func (RawStmt) stmtNode() {}
 func (s RawStmt) GetSpan() span.Span {
 	return s.Span
 }
+
+type ShortVarStmt struct {
+	Name  string
+	Value Expr
+	Span  span.Span
+}
+
+func (ShortVarStmt) stmtNode() {}
+func (s ShortVarStmt) GetSpan() span.Span {
+	return s.Span
+}
+
+type AssignStmt struct {
+	Target Expr
+	Value  Expr
+	Span   span.Span
+}
+
+func (AssignStmt) stmtNode() {}
+func (s AssignStmt) GetSpan() span.Span {
+	return s.Span
+}
+
+type ReturnStmt struct {
+	Value Expr
+	Span  span.Span
+}
+
+func (ReturnStmt) stmtNode() {}
+func (s ReturnStmt) GetSpan() span.Span {
+	return s.Span
+}
+
+type IfStmt struct {
+	Cond Expr
+	Then []Stmt
+	Span span.Span
+}
+
+func (IfStmt) stmtNode() {}
+func (s IfStmt) GetSpan() span.Span {
+	return s.Span
+}
+
+type ForStmt struct {
+	Cond Expr
+	Body []Stmt
+	Span span.Span
+}
+
+func (ForStmt) stmtNode() {}
+func (s ForStmt) GetSpan() span.Span {
+	return s.Span
+}
+
+type ExprStmt struct {
+	Expr Expr
+	Span span.Span
+}
+
+func (ExprStmt) stmtNode() {}
+func (s ExprStmt) GetSpan() span.Span {
+	return s.Span
+}

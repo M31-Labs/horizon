@@ -35,6 +35,7 @@ func runBuild(args []string) error {
 	if err != nil {
 		return err
 	}
+	cOutput.SourceMap.Generated.Path = cPath
 	if err := writeFile(cPath, []byte(cOutput.Code)); err != nil {
 		return err
 	}

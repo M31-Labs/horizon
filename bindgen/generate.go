@@ -24,6 +24,7 @@ func Generate(program ir.Program, packageName string) (string, error) {
 	"fmt"
 
 	"github.com/cilium/ebpf"
+	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/ringbuf"
 )
 
@@ -69,11 +70,33 @@ func (o *Objects) Close() error {
 			emitRingbufReader(&b, m)
 		}
 	}
+	for _, fn := range program.Functions {
+		emitAttach(&b, fn)
+	}
 	formatted, err := format.Source(b.Bytes())
 	if err != nil {
 		return b.String(), nil
 	}
 	return string(formatted), nil
+}
+
+func emitAttach(b *bytes.Buffer, fn ir.Function) {
+	if fn.Section.Kind != ir.ProgramTracepoint || fn.Section.Attach == "" {
+		return
+	}
+	category, event, ok := strings.Cut(fn.Section.Attach, ":")
+	if !ok {
+		return
+	}
+	field := exported(fn.Name)
+	fmt.Fprintf(b, `func (o *Objects) Attach%s() (link.Link, error) {
+	if o == nil || o.%s == nil {
+		return nil, fmt.Errorf("%s program is not loaded")
+	}
+	return link.Tracepoint(%q, %q, o.%s, nil)
+}
+
+`, field, field, fn.Name, category, event, field)
 }
 
 func emitStruct(b *bytes.Buffer, decl ir.Struct) {

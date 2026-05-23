@@ -2,7 +2,6 @@ package emitc
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 
 	"m31labs.dev/horizon/compiler/span"
@@ -15,25 +14,25 @@ func Emit(program ir.Program) (Output, error) {
 	b.WriteString("#include <bpf/bpf_helpers.h>\n\n")
 	b.WriteString("#include <bpf/bpf_tracing.h>\n\n")
 	b.WriteString("char LICENSE[] SEC(\"license\") = \"GPL\";\n")
+	emitHelperWrappers(&b)
 	for _, decl := range program.Structs {
 		emitStruct(&b, decl)
 	}
 	for _, m := range program.Maps {
 		emitMap(&b, m)
 	}
-	var sourceMap ir.SourceMap
+	for _, m := range program.Maps {
+		emitMapWrappers(&b, m)
+	}
+	sourceMap := ir.SourceMap{
+		Schema:    "m31labs.dev/horizon/sourcemap/v0",
+		Generated: ir.GeneratedSource{Language: "c"},
+	}
 	for _, fn := range program.Functions {
 		startLine := strings.Count(b.String(), "\n") + 1
 		fmt.Fprintf(&b, "\nSEC(%q)\nint %s(%s) {\n", fn.Section.Name, fn.Name, cContext(fn))
-		depth := 1
-		for _, line := range cBodyLines(fn.BodyText) {
-			if line == "}" && depth > 1 {
-				depth--
-			}
-			opened := emitLine(&b, line, program.Maps, depth)
-			if opened {
-				depth++
-			}
+		for _, stmt := range functionStatements(fn) {
+			emitStatement(&b, stmt, program, 1, &sourceMap, fn)
 		}
 		b.WriteString("}\n")
 		sourceMap.Mappings = append(sourceMap.Mappings, ir.SourceMapping{
@@ -47,7 +46,28 @@ func Emit(program ir.Program) (Output, error) {
 			},
 		})
 	}
+	sourceMap.Sources = sourceMapSources(sourceMap.Mappings)
 	return Output{Code: b.String(), SourceMap: sourceMap}, nil
+}
+
+func emitHelperWrappers(b *strings.Builder) {
+	b.WriteString(`
+static __always_inline __u32 hzn_current_pid(void) {
+    return (__u32)(bpf_get_current_pid_tgid() >> 32);
+}
+
+static __always_inline __u32 hzn_current_ppid(void) {
+    return 0;
+}
+
+static __always_inline __u32 hzn_current_uid(void) {
+    return (__u32)bpf_get_current_uid_gid();
+}
+
+static __always_inline long hzn_current_comm(void *dst, __u32 size) {
+    return bpf_get_current_comm(dst, size);
+}
+`)
 }
 
 func emitStruct(b *strings.Builder, decl ir.Struct) {
@@ -72,6 +92,26 @@ struct {
 } %s SEC(".maps");
 `, m.Name)
 	}
+}
+
+func emitMapWrappers(b *strings.Builder, m ir.Map) {
+	if m.Kind != ir.MapKindRingbuf || m.Val.Name == "" {
+		return
+	}
+	typ := "struct " + m.Val.Name
+	fmt.Fprintf(b, `
+static __always_inline %s *%s_reserve(void) {
+    return bpf_ringbuf_reserve(&%s, sizeof(%s), 0);
+}
+
+static __always_inline void %s_submit(%s *value) {
+    bpf_ringbuf_submit(value, 0);
+}
+
+static __always_inline void %s_discard(%s *value) {
+    bpf_ringbuf_discard(value, 0);
+}
+`, typ, m.Name, m.Name, typ, m.Name, typ, m.Name, typ)
 }
 
 func cType(t ir.Type) string {
@@ -116,70 +156,73 @@ func cContext(fn ir.Function) string {
 	return "struct trace_event_raw_" + cIdent(event) + " *ctx"
 }
 
-var nonIdentRE = regexp.MustCompile(`[^A-Za-z0-9_]`)
-
 func cIdent(s string) string {
-	return nonIdentRE.ReplaceAllString(s, "_")
-}
-
-func cBodyLines(body string) []string {
-	body = strings.ReplaceAll(body, "{", "{\n")
-	body = strings.ReplaceAll(body, "}", "\n}\n")
-	var out []string
-	for _, line := range strings.Split(body, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		out = append(out, strings.TrimSuffix(line, ";"))
-	}
-	return out
-}
-
-var (
-	reserveLineRE     = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\s*:=\s*([A-Za-z_][A-Za-z0-9_]*)\.reserve\(\)$`)
-	consumeLineRE     = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\.(submit|discard)\(([A-Za-z_][A-Za-z0-9_]*)\)$`)
-	currentCommLineRE = regexp.MustCompile(`^bpf\.current_comm\(&([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)\)$`)
-	assignLineRE      = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)$`)
-	returnLineRE      = regexp.MustCompile(`^return\s+(.+)$`)
-	ifLineRE          = regexp.MustCompile(`^if\s+(.+)\s+\{$`)
-)
-
-func emitLine(b *strings.Builder, line string, maps []ir.Map, depth int) bool {
-	indent := strings.Repeat("    ", depth)
-	switch {
-	case line == "}":
-		fmt.Fprintf(b, "%s}\n", indent)
-	case ifLineRE.MatchString(line):
-		cond := ifLineRE.FindStringSubmatch(line)[1]
-		cond = strings.ReplaceAll(cond, "nil", "0")
-		fmt.Fprintf(b, "%sif (%s) {\n", indent, cond)
-		return true
-	case reserveLineRE.MatchString(line):
-		match := reserveLineRE.FindStringSubmatch(line)
-		varName, mapName := match[1], match[2]
-		fmt.Fprintf(b, "%s%s *%s = bpf_ringbuf_reserve(&%s, sizeof(*%s), 0);\n", indent, reserveType(mapName, maps), varName, mapName, varName)
-	case consumeLineRE.MatchString(line):
-		match := consumeLineRE.FindStringSubmatch(line)
-		op, varName := match[2], match[3]
-		if op == "discard" {
-			fmt.Fprintf(b, "%sbpf_ringbuf_discard(%s, 0);\n", indent, varName)
+	var b strings.Builder
+	for _, r := range s {
+		if r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '_' {
+			b.WriteRune(r)
 		} else {
-			fmt.Fprintf(b, "%sbpf_ringbuf_submit(%s, 0);\n", indent, varName)
+			b.WriteByte('_')
 		}
-	case currentCommLineRE.MatchString(line):
-		match := currentCommLineRE.FindStringSubmatch(line)
-		fmt.Fprintf(b, "%sbpf_get_current_comm(%s->%s, sizeof(%s->%s));\n", indent, match[1], match[2], match[1], match[2])
-	case assignLineRE.MatchString(line):
-		match := assignLineRE.FindStringSubmatch(line)
-		fmt.Fprintf(b, "%s%s->%s = %s;\n", indent, match[1], match[2], cExpr(match[3]))
-	case returnLineRE.MatchString(line):
-		match := returnLineRE.FindStringSubmatch(line)
-		fmt.Fprintf(b, "%sreturn %s;\n", indent, cExpr(match[1]))
-	default:
-		fmt.Fprintf(b, "%s%s;\n", indent, cExpr(line))
 	}
-	return false
+	return b.String()
+}
+
+func emitStatement(b *strings.Builder, stmt ir.Statement, program ir.Program, depth int, sourceMap *ir.SourceMap, fn ir.Function) {
+	startLine := strings.Count(b.String(), "\n") + 1
+	indent := strings.Repeat("    ", depth)
+	switch stmt.Kind {
+	case "short_var":
+		if mapName, ok := reserveCall(stmt.Value); ok {
+			fmt.Fprintf(b, "%s%s *%s = %s_reserve();\n", indent, reserveType(mapName, program.Maps), stmt.Name, mapName)
+		} else {
+			fmt.Fprintf(b, "%s%s %s = %s;\n", indent, inferredDeclType(stmt.Value, program), stmt.Name, cExpr(stmt.Value))
+		}
+	case "assign":
+		fmt.Fprintf(b, "%s%s = %s;\n", indent, cExpr(stmt.Target), cExpr(stmt.Value))
+	case "expr":
+		if mapName, op, varName, ok := consumeCall(stmt.Expr); ok {
+			fmt.Fprintf(b, "%s%s_%s(%s);\n", indent, mapName, op, varName)
+		} else {
+			fmt.Fprintf(b, "%s%s;\n", indent, cExpr(stmt.Expr))
+		}
+	case "return":
+		fmt.Fprintf(b, "%sreturn %s;\n", indent, cExpr(stmt.Value))
+	case "if":
+		fmt.Fprintf(b, "%sif (%s) {\n", indent, cExpr(stmt.Cond))
+		for _, child := range stmt.Then {
+			emitStatement(b, child, program, depth+1, sourceMap, fn)
+		}
+		fmt.Fprintf(b, "%s}\n", indent)
+	case "for":
+		if stmt.Cond == nil || stmt.Cond.Kind == "" {
+			fmt.Fprintf(b, "%sfor (;;) {\n", indent)
+		} else {
+			fmt.Fprintf(b, "%sfor (; %s; ) {\n", indent, cExpr(stmt.Cond))
+		}
+		for _, child := range stmt.Body {
+			emitStatement(b, child, program, depth+1, sourceMap, fn)
+		}
+		fmt.Fprintf(b, "%s}\n", indent)
+	case "raw":
+		if stmt.Value != nil {
+			fmt.Fprintf(b, "%s%s;\n", indent, stmt.Value.Value)
+		}
+	default:
+		fmt.Fprintf(b, "%s/* unsupported Horizon statement */\n", indent)
+	}
+	if sourceMap != nil && !stmt.Span.IsZero() {
+		sourceMap.Mappings = append(sourceMap.Mappings, ir.SourceMapping{
+			Source:   stmt.Span,
+			Function: fn.Name,
+			Section:  fn.Section.Name,
+			Node:     stmt.Kind,
+			Generated: span.Span{
+				Start: span.Point{Line: startLine, Column: 1},
+				End:   span.Point{Line: strings.Count(b.String(), "\n") + 1, Column: 1},
+			},
+		})
+	}
 }
 
 func reserveType(mapName string, maps []ir.Map) string {
@@ -191,18 +234,159 @@ func reserveType(mapName string, maps []ir.Map) string {
 	return "void"
 }
 
-func cExpr(expr string) string {
-	expr = strings.TrimSpace(expr)
-	switch expr {
-	case "bpf.current_pid()":
-		return "(__u32)(bpf_get_current_pid_tgid() >> 32)"
-	case "bpf.current_ppid()":
+func inferredDeclType(expr *ir.Expr, program ir.Program) string {
+	if expr == nil {
+		return "__u64"
+	}
+	switch expr.Kind {
+	case "call":
+		if name := qualifiedName(expr.Func); name != "" {
+			switch name {
+			case "bpf.current_pid", "bpf.current_ppid", "bpf.current_uid":
+				return "__u32"
+			}
+		}
+		if mapName, ok := reserveCall(expr); ok {
+			return reserveType(mapName, program.Maps) + " *"
+		}
+	case "binary":
+		return "bool"
+	case "int":
+		return "__s64"
+	case "nil":
+		return "void *"
+	}
+	return "__u64"
+}
+
+func cExpr(expr *ir.Expr) string {
+	if expr == nil {
 		return "0"
-	case "bpf.current_uid()":
-		return "(__u32)bpf_get_current_uid_gid()"
+	}
+	switch expr.Kind {
+	case "ident":
+		return expr.Name
+	case "int":
+		return expr.Value
 	case "nil":
 		return "0"
+	case "selector":
+		if expr.Operand == nil {
+			return expr.Field
+		}
+		return cExpr(expr.Operand) + "->" + expr.Field
+	case "unary":
+		return expr.Op + cExpr(expr.Operand)
+	case "binary":
+		return cExpr(expr.Left) + " " + expr.Op + " " + cExpr(expr.Right)
+	case "call":
+		return cCallExpr(expr)
+	case "raw":
+		return expr.Value
 	default:
-		return strings.ReplaceAll(expr, "nil", "0")
+		return "0"
 	}
+}
+
+func cCallExpr(expr *ir.Expr) string {
+	if expr == nil || expr.Kind != "call" {
+		return "0"
+	}
+	if name := qualifiedName(expr.Func); name != "" {
+		switch name {
+		case "bpf.current_pid":
+			return "hzn_current_pid()"
+		case "bpf.current_ppid":
+			return "hzn_current_ppid()"
+		case "bpf.current_uid":
+			return "hzn_current_uid()"
+		case "bpf.current_comm":
+			if len(expr.Args) == 1 {
+				arg := expr.Args[0]
+				return fmt.Sprintf("hzn_current_comm(%s, sizeof(%s))", cExpr(&arg), sizeofExpr(&arg))
+			}
+		}
+	}
+	args := make([]string, 0, len(expr.Args))
+	for _, arg := range expr.Args {
+		arg := arg
+		args = append(args, cExpr(&arg))
+	}
+	return cExpr(expr.Func) + "(" + strings.Join(args, ", ") + ")"
+}
+
+func sizeofExpr(expr *ir.Expr) string {
+	if expr == nil {
+		return "0"
+	}
+	if expr.Kind == "unary" && expr.Op == "&" && expr.Operand != nil {
+		return cExpr(expr.Operand)
+	}
+	return cExpr(expr)
+}
+
+func qualifiedName(expr *ir.Expr) string {
+	if expr == nil {
+		return ""
+	}
+	switch expr.Kind {
+	case "ident":
+		return expr.Name
+	case "selector":
+		prefix := qualifiedName(expr.Operand)
+		if prefix == "" {
+			return expr.Field
+		}
+		return prefix + "." + expr.Field
+	default:
+		return ""
+	}
+}
+
+func functionStatements(fn ir.Function) []ir.Statement {
+	var out []ir.Statement
+	for _, block := range fn.Body {
+		out = append(out, block.Statements...)
+	}
+	return out
+}
+
+func reserveCall(expr *ir.Expr) (string, bool) {
+	if expr == nil || expr.Kind != "call" || expr.Func == nil || expr.Func.Kind != "selector" {
+		return "", false
+	}
+	if expr.Func.Field != "reserve" || expr.Func.Operand == nil || expr.Func.Operand.Kind != "ident" {
+		return "", false
+	}
+	return expr.Func.Operand.Name, true
+}
+
+func consumeCall(expr *ir.Expr) (string, string, string, bool) {
+	if expr == nil || expr.Kind != "call" || expr.Func == nil || expr.Func.Kind != "selector" || len(expr.Args) != 1 {
+		return "", "", "", false
+	}
+	if expr.Func.Field != "submit" && expr.Func.Field != "discard" {
+		return "", "", "", false
+	}
+	if expr.Func.Operand == nil || expr.Func.Operand.Kind != "ident" || expr.Args[0].Kind != "ident" {
+		return "", "", "", false
+	}
+	return expr.Func.Operand.Name, expr.Func.Field, expr.Args[0].Name, true
+}
+
+func sourceMapSources(mappings []ir.SourceMapping) []ir.Source {
+	seen := map[string]int{}
+	var sources []ir.Source
+	for _, mapping := range mappings {
+		path := string(mapping.Source.File)
+		if path == "" {
+			continue
+		}
+		if _, ok := seen[path]; ok {
+			continue
+		}
+		seen[path] = len(sources)
+		sources = append(sources, ir.Source{ID: len(sources), Path: path})
+	}
+	return sources
 }
