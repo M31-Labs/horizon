@@ -1,0 +1,39 @@
+{
+  "schema": "m31labs.dev/horizon/capability/v0",
+  "package": "probes",
+  "programs": [
+    {
+      "name": "OnExec",
+      "kind": "tracepoint",
+      "attach": "sched:sched_process_exec",
+      "section": "tracepoint/sched:sched_process_exec",
+      "capabilities": [
+        "kernel.process.exec.observe"
+      ]
+    }
+  ],
+  "capabilities": [
+    {
+      "name": "kernel.process.exec.observe",
+      "kind": "source",
+      "danger": "observe",
+      "program": "OnExec",
+      "section": "tracepoint/sched:sched_process_exec",
+      "emits": "ExecEvent",
+      "maps": {
+        "read": [],
+        "write": [],
+        "events": [
+          "ExecEvents"
+        ]
+      }
+    }
+  ],
+  "maps": [
+    {
+      "name": "ExecEvents",
+      "kind": "ringbuf",
+      "value": "ExecEvent"
+    }
+  ]
+}
