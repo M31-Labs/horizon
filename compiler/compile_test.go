@@ -6,7 +6,9 @@ import (
 	"slices"
 	"testing"
 
+	"m31labs.dev/horizon/capability"
 	"m31labs.dev/horizon/compiler/diag"
+	"m31labs.dev/horizon/ir"
 )
 
 func TestAnalyzeExecwatchPasses(t *testing.T) {
@@ -94,5 +96,112 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	}
 	if !slices.ContainsFunc(result.Diagnostics, func(d diag.Diagnostic) bool { return d.Code == "HZN2202" }) {
 		t.Fatalf("diagnostics = %#v, want HZN2202", result.Diagnostics)
+	}
+}
+
+func TestAnalyzeHashLookupRequiresNilCheckAndTracksManifestAccess(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "counts.hzn")
+	if err := os.WriteFile(path, []byte(`package probes
+
+type Count struct {
+    seen u32
+}
+
+map Counts hash[u32, Count]
+
+@capability("kernel.process.exec.count")
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    pid := bpf.current_pid()
+    count := Counts.lookup(pid)
+    if count == nil {
+        return 0
+    }
+    count.seen = bpf.current_pid()
+    return 0
+}
+`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	result, err := AnalyzePath(dir)
+	if err != nil {
+		t.Fatalf("AnalyzePath: %v", err)
+	}
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+	if len(result.Program.Maps) != 1 || result.Program.Maps[0].Kind != ir.MapKindHash {
+		t.Fatalf("maps = %#v, want one hash map", result.Program.Maps)
+	}
+	manifest := capability.FromIR(result.Program)
+	if len(manifest.Capabilities) != 1 {
+		t.Fatalf("capabilities = %#v, want one", manifest.Capabilities)
+	}
+	access := manifest.Capabilities[0].Maps
+	if !slices.Contains(access.Read, "Counts") || !slices.Contains(access.Write, "Counts") {
+		t.Fatalf("map access = %#v, want read and write Counts", access)
+	}
+}
+
+func TestAnalyzeRejectsHashLookupDereferenceWithoutNilCheck(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "counts.hzn")
+	if err := os.WriteFile(path, []byte(`package probes
+
+type Count struct {
+    seen u32
+}
+
+map Counts hash[u32, Count]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    pid := bpf.current_pid()
+    count := Counts.lookup(pid)
+    count.seen = 1
+    return 0
+}
+`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	result, err := AnalyzePath(dir)
+	if err != nil {
+		t.Fatalf("AnalyzePath: %v", err)
+	}
+	if !slices.ContainsFunc(result.Diagnostics, func(d diag.Diagnostic) bool { return d.Code == "HZN2500" }) {
+		t.Fatalf("diagnostics = %#v, want HZN2500", result.Diagnostics)
+	}
+}
+
+func TestAnalyzeAllowsHashLookupNonNilBranch(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "counts.hzn")
+	if err := os.WriteFile(path, []byte(`package probes
+
+type Count struct {
+    seen u32
+}
+
+map Counts hash[u32, Count]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    pid := bpf.current_pid()
+    count := Counts.lookup(pid)
+    if count != nil {
+        count.seen = 1
+    }
+    return 0
+}
+`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	result, err := AnalyzePath(dir)
+	if err != nil {
+		t.Fatalf("AnalyzePath: %v", err)
+	}
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
 	}
 }

@@ -177,19 +177,15 @@ func buildCapabilities(decl ast.FuncDecl, fn Function, maps []Map) []Capability 
 			continue
 		}
 		name := stringArg(attr)
-		events, emits := eventMaps(fn.BodyText, maps)
+		access := mapAccesses(fn, maps)
 		out = append(out, Capability{
 			Name:    name,
 			Kind:    CapabilitySource,
 			Program: fn.Name,
 			Section: manifestSection(fn.Section),
-			Emits:   emits,
-			Maps: CapabilityMapAccess{
-				Read:   []string{},
-				Write:  []string{},
-				Events: events,
-			},
-			Danger: DangerObserve,
+			Emits:   access.Emits,
+			Maps:    access.Maps,
+			Danger:  DangerObserve,
 		})
 	}
 	return out
@@ -236,22 +232,146 @@ func stringArg(attr ast.Attr) string {
 	return ""
 }
 
-func eventMaps(body string, maps []Map) ([]string, string) {
-	var events []string
-	emits := ""
+type capabilityAccess struct {
+	Maps  CapabilityMapAccess
+	Emits string
+}
+
+func mapAccesses(fn Function, maps []Map) capabilityAccess {
+	byName := map[string]Map{}
 	for _, m := range maps {
-		if m.Kind != MapKindRingbuf {
-			continue
+		byName[m.Name] = m
+	}
+	seenRead := map[string]bool{}
+	seenWrite := map[string]bool{}
+	seenEvents := map[string]bool{}
+	lookupVars := map[string]string{}
+	access := capabilityAccess{
+		Maps: CapabilityMapAccess{
+			Read:   []string{},
+			Write:  []string{},
+			Events: []string{},
+		},
+	}
+	var visitExpr func(*Expr)
+	visitExpr = func(expr *Expr) {
+		if expr == nil {
+			return
 		}
-		if !strings.Contains(body, m.Name+".submit(") {
-			continue
+		if expr.Kind == "call" {
+			mapName, method, ok := mapMethodCall(expr)
+			if ok {
+				m, known := byName[mapName]
+				if known {
+					switch method {
+					case "lookup":
+						addUnique(&access.Maps.Read, seenRead, mapName)
+					case "update", "delete":
+						addUnique(&access.Maps.Write, seenWrite, mapName)
+					case "submit":
+						if m.Kind == MapKindRingbuf {
+							addUnique(&access.Maps.Events, seenEvents, mapName)
+							if access.Emits == "" {
+								access.Emits = m.Val.Name
+							}
+						}
+					}
+				}
+			}
 		}
-		events = append(events, m.Name)
-		if emits == "" {
-			emits = m.Val.Name
+		visitExpr(expr.Operand)
+		visitExpr(expr.Left)
+		visitExpr(expr.Right)
+		visitExpr(expr.Func)
+		for i := range expr.Args {
+			visitExpr(&expr.Args[i])
 		}
 	}
-	return events, emits
+	var walk func([]Statement)
+	walk = func(stmts []Statement) {
+		for _, stmt := range stmts {
+			switch stmt.Kind {
+			case "short_var":
+				visitExpr(stmt.Value)
+				if mapName, method, ok := mapMethodCall(stmt.Value); ok && method == "lookup" {
+					if _, known := byName[mapName]; known {
+						lookupVars[stmt.Name] = mapName
+					}
+				}
+			case "assign":
+				if varName, ok := selectorBase(stmt.Target); ok {
+					if mapName, ok := lookupVars[varName]; ok {
+						addUnique(&access.Maps.Write, seenWrite, mapName)
+					}
+				}
+				visitExpr(stmt.Target)
+				visitExpr(stmt.Value)
+			case "expr":
+				visitExpr(stmt.Expr)
+			case "return":
+				visitExpr(stmt.Value)
+			case "if":
+				visitExpr(stmt.Cond)
+				walk(stmt.Then)
+			case "for":
+				if stmt.Init != nil {
+					walk([]Statement{*stmt.Init})
+				}
+				visitExpr(stmt.Cond)
+				if stmt.Post != nil {
+					walk([]Statement{*stmt.Post})
+				}
+				walk(stmt.Body)
+			}
+		}
+	}
+	walk(functionStatements(fn))
+	return access
+}
+
+func mapMethodCall(expr *Expr) (string, string, bool) {
+	if expr == nil || expr.Kind != "call" || expr.Func == nil || expr.Func.Kind != "selector" {
+		return "", "", false
+	}
+	if expr.Func.Operand == nil || expr.Func.Operand.Kind != "ident" {
+		return "", "", false
+	}
+	switch expr.Func.Field {
+	case "lookup", "update", "delete", "submit":
+		return expr.Func.Operand.Name, expr.Func.Field, true
+	default:
+		return "", "", false
+	}
+}
+
+func selectorBase(expr *Expr) (string, bool) {
+	if expr == nil {
+		return "", false
+	}
+	switch expr.Kind {
+	case "ident":
+		return expr.Name, true
+	case "selector":
+		return selectorBase(expr.Operand)
+	default:
+		return "", false
+	}
+}
+
+func addUnique(values *[]string, seen map[string]bool, value string) {
+	if seen[value] {
+		return
+	}
+	seen[value] = true
+	*values = append(*values, value)
+}
+
+func functionStatements(fn Function) []Statement {
+	var out []Statement
+	for _, block := range fn.Body {
+		out = append(out, block.Statements...)
+	}
+	return out
 }
 
 func manifestSection(section Section) string {

@@ -91,11 +91,33 @@ struct {
     __uint(max_entries, 1 << 24);
 } %s SEC(".maps");
 `, m.Name)
+	case ir.MapKindHash, ir.MapKindArray:
+		mapType := "BPF_MAP_TYPE_HASH"
+		if m.Kind == ir.MapKindArray {
+			mapType = "BPF_MAP_TYPE_ARRAY"
+		}
+		fmt.Fprintf(b, `
+struct {
+    __uint(type, %s);
+    __uint(max_entries, 1024);
+    __type(key, %s);
+    __type(value, %s);
+} %s SEC(".maps");
+`, mapType, cType(m.Key), cType(m.Val), m.Name)
 	}
 }
 
 func emitMapWrappers(b *strings.Builder, m ir.Map) {
-	if m.Kind != ir.MapKindRingbuf || m.Val.Name == "" {
+	switch m.Kind {
+	case ir.MapKindRingbuf:
+		emitRingbufWrappers(b, m)
+	case ir.MapKindHash, ir.MapKindArray:
+		emitLookupMapWrappers(b, m)
+	}
+}
+
+func emitRingbufWrappers(b *strings.Builder, m ir.Map) {
+	if m.Val.Name == "" {
 		return
 	}
 	typ := "struct " + m.Val.Name
@@ -112,6 +134,30 @@ static __always_inline void %s_discard(%s *value) {
     bpf_ringbuf_discard(value, 0);
 }
 `, typ, m.Name, m.Name, typ, m.Name, typ, m.Name, typ)
+}
+
+func emitLookupMapWrappers(b *strings.Builder, m ir.Map) {
+	if m.Key.Name == "" || m.Val.Name == "" {
+		return
+	}
+	keyType := cType(m.Key)
+	valueType := cType(m.Val)
+	fmt.Fprintf(b, `
+static __always_inline %s *%s_lookup(%s key) {
+    return bpf_map_lookup_elem(&%s, &key);
+}
+
+static __always_inline long %s_update(%s key, %s value) {
+    return bpf_map_update_elem(&%s, &key, &value, BPF_ANY);
+}
+`, valueType, m.Name, keyType, m.Name, m.Name, keyType, valueType, m.Name)
+	if m.Kind == ir.MapKindHash {
+		fmt.Fprintf(b, `
+static __always_inline long %s_delete(%s key) {
+    return bpf_map_delete_elem(&%s, &key);
+}
+`, m.Name, keyType, m.Name)
+	}
 }
 
 func cType(t ir.Type) string {
@@ -175,6 +221,8 @@ func emitStatement(b *strings.Builder, stmt ir.Statement, program ir.Program, de
 	case "short_var":
 		if mapName, ok := reserveCall(stmt.Value); ok {
 			fmt.Fprintf(b, "%s%s *%s = %s_reserve();\n", indent, reserveType(mapName, program.Maps), stmt.Name, mapName)
+		} else if mapName, ok := lookupCall(stmt.Value); ok {
+			fmt.Fprintf(b, "%s%s *%s = %s;\n", indent, mapValueType(mapName, program.Maps), stmt.Name, cExpr(stmt.Value))
 		} else {
 			fmt.Fprintf(b, "%s%s %s = %s;\n", indent, inferredDeclType(stmt.Value, program), stmt.Name, cExpr(stmt.Value))
 		}
@@ -279,6 +327,9 @@ func inferredDeclType(expr *ir.Expr, program ir.Program) string {
 		if mapName, ok := reserveCall(expr); ok {
 			return reserveType(mapName, program.Maps) + " *"
 		}
+		if mapName, ok := lookupCall(expr); ok {
+			return mapValueType(mapName, program.Maps) + " *"
+		}
 	case "binary":
 		return "bool"
 	case "int":
@@ -321,6 +372,14 @@ func cExpr(expr *ir.Expr) string {
 func cCallExpr(expr *ir.Expr) string {
 	if expr == nil || expr.Kind != "call" {
 		return "0"
+	}
+	if mapName, method, ok := mapMethodCall(expr); ok {
+		args := make([]string, 0, len(expr.Args))
+		for _, arg := range expr.Args {
+			arg := arg
+			args = append(args, cExpr(&arg))
+		}
+		return fmt.Sprintf("%s_%s(%s)", mapName, method, strings.Join(args, ", "))
 	}
 	if name := qualifiedName(expr.Func); name != "" {
 		switch name {
@@ -389,6 +448,35 @@ func reserveCall(expr *ir.Expr) (string, bool) {
 		return "", false
 	}
 	return expr.Func.Operand.Name, true
+}
+
+func lookupCall(expr *ir.Expr) (string, bool) {
+	mapName, method, ok := mapMethodCall(expr)
+	return mapName, ok && method == "lookup"
+}
+
+func mapMethodCall(expr *ir.Expr) (string, string, bool) {
+	if expr == nil || expr.Kind != "call" || expr.Func == nil || expr.Func.Kind != "selector" {
+		return "", "", false
+	}
+	if expr.Func.Operand == nil || expr.Func.Operand.Kind != "ident" {
+		return "", "", false
+	}
+	switch expr.Func.Field {
+	case "lookup", "update", "delete":
+		return expr.Func.Operand.Name, expr.Func.Field, true
+	default:
+		return "", "", false
+	}
+}
+
+func mapValueType(mapName string, maps []ir.Map) string {
+	for _, m := range maps {
+		if m.Name == mapName && m.Val.Name != "" {
+			return cType(m.Val)
+		}
+	}
+	return "void"
 }
 
 func consumeCall(expr *ir.Expr) (string, string, string, bool) {

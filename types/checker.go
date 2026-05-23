@@ -117,6 +117,14 @@ func validateMapDecl(decl ast.MapDecl, known map[string]bool) []diag.Diagnostic 
 				Primary:  decl.Span,
 			})
 		}
+		if decl.Kind == ast.MapKindArray && decl.Key.Name != "u32" {
+			diags = append(diags, diag.Diagnostic{
+				Code:     "HZN1204",
+				Severity: diag.SeverityError,
+				Message:  fmt.Sprintf("array map %q must use u32 keys", decl.Name),
+				Primary:  decl.Key.Span,
+			})
+		}
 		diags = append(diags, validateTypeRef(decl.Key, known)...)
 		diags = append(diags, validateTypeRef(decl.Val, known)...)
 	default:
@@ -239,6 +247,15 @@ func validateFuncBody(decl ast.FuncDecl, maps map[string]ast.MapDecl, structs ma
 		case ast.ShortVarStmt:
 			typ, exprDiags := typeOfExpr(s.Value, locals, maps, structs)
 			diags = append(diags, exprDiags...)
+			if typ.Void {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1409",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("cannot assign void expression to %q", s.Name),
+					Primary:  s.Span,
+				})
+				break
+			}
 			if s.Name != "" {
 				locals[s.Name] = typ
 			}
@@ -426,6 +443,88 @@ func typeOfCall(call ast.CallExpr, locals map[string]valueType, maps map[string]
 	}
 	if m, ok := maps[root]; ok {
 		switch method {
+		case "lookup":
+			if len(call.Args) != 1 {
+				diags = append(diags, argCountDiagnostic(call.Span, root+".lookup", 1, len(call.Args)))
+				return valueType{Name: m.Val.Name, Ref: m.Val, Ptr: true, MaybeNil: true}, diags
+			}
+			if m.Kind != ast.MapKindHash && m.Kind != ast.MapKindArray {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1418",
+					Severity: diag.SeverityError,
+					Message:  "lookup is only valid on hash and array maps",
+					Primary:  call.Span,
+				})
+			}
+			arg, argDiags := typeOfExpr(call.Args[0], locals, maps, structs)
+			diags = append(diags, argDiags...)
+			if !assignable(valueType{Name: m.Key.Name, Ref: m.Key}, arg) {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1419",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("%s.lookup expects key %s, got %s", root, typeName(valueType{Name: m.Key.Name, Ref: m.Key}), typeName(arg)),
+					Primary:  call.Span,
+				})
+			}
+			return valueType{Name: m.Val.Name, Ref: m.Val, Ptr: true, MaybeNil: true}, diags
+		case "update":
+			if len(call.Args) != 2 {
+				diags = append(diags, argCountDiagnostic(call.Span, root+".update", 2, len(call.Args)))
+				return valueType{Name: "i64"}, diags
+			}
+			if m.Kind != ast.MapKindHash && m.Kind != ast.MapKindArray {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1420",
+					Severity: diag.SeverityError,
+					Message:  "update is only valid on hash and array maps",
+					Primary:  call.Span,
+				})
+			}
+			key, keyDiags := typeOfExpr(call.Args[0], locals, maps, structs)
+			val, valDiags := typeOfExpr(call.Args[1], locals, maps, structs)
+			diags = append(diags, keyDiags...)
+			diags = append(diags, valDiags...)
+			if !assignable(valueType{Name: m.Key.Name, Ref: m.Key}, key) {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1421",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("%s.update expects key %s, got %s", root, typeName(valueType{Name: m.Key.Name, Ref: m.Key}), typeName(key)),
+					Primary:  call.Span,
+				})
+			}
+			if !assignable(valueType{Name: m.Val.Name, Ref: m.Val}, val) {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1422",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("%s.update expects value %s, got %s", root, typeName(valueType{Name: m.Val.Name, Ref: m.Val}), typeName(val)),
+					Primary:  call.Span,
+				})
+			}
+			return valueType{Name: "i64"}, diags
+		case "delete":
+			if len(call.Args) != 1 {
+				diags = append(diags, argCountDiagnostic(call.Span, root+".delete", 1, len(call.Args)))
+				return valueType{Name: "i64"}, diags
+			}
+			if m.Kind != ast.MapKindHash {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1423",
+					Severity: diag.SeverityError,
+					Message:  "delete is only valid on hash maps",
+					Primary:  call.Span,
+				})
+			}
+			key, keyDiags := typeOfExpr(call.Args[0], locals, maps, structs)
+			diags = append(diags, keyDiags...)
+			if !assignable(valueType{Name: m.Key.Name, Ref: m.Key}, key) {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1424",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("%s.delete expects key %s, got %s", root, typeName(valueType{Name: m.Key.Name, Ref: m.Key}), typeName(key)),
+					Primary:  call.Span,
+				})
+			}
+			return valueType{Name: "i64"}, diags
 		case "reserve":
 			if len(call.Args) != 0 {
 				diags = append(diags, argCountDiagnostic(call.Span, root+".reserve", 0, len(call.Args)))
