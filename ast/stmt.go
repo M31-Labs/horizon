@@ -61,7 +61,9 @@ func (s IfStmt) GetSpan() span.Span {
 }
 
 type ForStmt struct {
+	Init Stmt
 	Cond Expr
+	Post Stmt
 	Body []Stmt
 	Span span.Span
 }
@@ -78,5 +80,16 @@ type ExprStmt struct {
 
 func (ExprStmt) stmtNode() {}
 func (s ExprStmt) GetSpan() span.Span {
+	return s.Span
+}
+
+type IncStmt struct {
+	Name string
+	Op   string
+	Span span.Span
+}
+
+func (IncStmt) stmtNode() {}
+func (s IncStmt) GetSpan() span.Span {
 	return s.Span
 }

@@ -287,12 +287,37 @@ func validateFuncBody(decl ast.FuncDecl, maps map[string]ast.MapDecl, structs ma
 				checkStmt(child)
 			}
 		case ast.ForStmt:
+			if s.Init != nil {
+				checkStmt(s.Init)
+			}
 			if s.Cond != nil {
 				_, exprDiags := typeOfExpr(s.Cond, locals, maps, structs)
 				diags = append(diags, exprDiags...)
 			}
+			if s.Post != nil {
+				checkStmt(s.Post)
+			}
 			for _, child := range s.Body {
 				checkStmt(child)
+			}
+		case ast.IncStmt:
+			local, ok := locals[s.Name]
+			if !ok {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1404",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("unknown identifier %q", s.Name),
+					Primary:  s.Span,
+				})
+				break
+			}
+			if !isIntegerScalar(local.Name) && local.Name != "untyped_int" {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1408",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("%s requires an integer variable, got %s", s.Op, typeName(local)),
+					Primary:  s.Span,
+				})
 			}
 		case ast.RawStmt:
 			diags = append(diags, diag.Diagnostic{
@@ -513,6 +538,15 @@ func assignable(dst, src valueType) bool {
 func isScalar(name string) bool {
 	switch name {
 	case "u8", "u16", "u32", "u64", "i8", "i16", "i32", "i64", "bool":
+		return true
+	default:
+		return false
+	}
+}
+
+func isIntegerScalar(name string) bool {
+	switch name {
+	case "u8", "u16", "u32", "u64", "i8", "i16", "i32", "i64":
 		return true
 	default:
 		return false

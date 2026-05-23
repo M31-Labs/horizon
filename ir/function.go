@@ -24,10 +24,13 @@ type Block struct {
 type Statement struct {
 	Kind   string
 	Name   string
+	Op     string
 	Target *Expr
 	Value  *Expr
 	Expr   *Expr
+	Init   *Statement
 	Cond   *Expr
+	Post   *Statement
 	Then   []Statement
 	Body   []Statement
 	Span   span.Span

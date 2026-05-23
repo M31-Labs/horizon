@@ -89,3 +89,40 @@ func TestBuildExecwatchAST(t *testing.T) {
 		t.Fatalf("body[7] = %T, want ReturnStmt", fn.Body[7])
 	}
 }
+
+func TestBuildBoundedForClause(t *testing.T) {
+	parsed, err := parser.ParseSource(parser.SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
+
+@tracepoint("sched:sched_process_exec")
+func F(ctx tracepoint.Exec) i32 {
+    for i := 0; i < 4; i++ {
+        bpf.current_pid()
+    }
+    return 0
+}
+`)})
+	if err != nil {
+		t.Fatalf("ParseSource: %v", err)
+	}
+	file, err := Build(parsed)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	fn := file.Decls[0].(FuncDecl)
+	loop, ok := fn.Body[0].(ForStmt)
+	if !ok {
+		t.Fatalf("body[0] = %T, want ForStmt", fn.Body[0])
+	}
+	init, ok := loop.Init.(ShortVarStmt)
+	if !ok || init.Name != "i" {
+		t.Fatalf("loop init = %#v, want short var i", loop.Init)
+	}
+	cond, ok := loop.Cond.(BinaryExpr)
+	if !ok || cond.Op != "<" {
+		t.Fatalf("loop cond = %#v, want < binary expr", loop.Cond)
+	}
+	post, ok := loop.Post.(IncStmt)
+	if !ok || post.Name != "i" || post.Op != "++" {
+		t.Fatalf("loop post = %#v, want i++", loop.Post)
+	}
+}

@@ -81,7 +81,13 @@ func walkStatements(stmts []ir.Statement, visit func(*ir.Expr)) {
 			walkExpr(stmt.Cond, visit)
 			walkStatements(stmt.Then, visit)
 		case "for":
+			if stmt.Init != nil {
+				walkStatements([]ir.Statement{*stmt.Init}, visit)
+			}
 			walkExpr(stmt.Cond, visit)
+			if stmt.Post != nil {
+				walkStatements([]ir.Statement{*stmt.Post}, visit)
+			}
 			walkStatements(stmt.Body, visit)
 		}
 	}

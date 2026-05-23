@@ -195,7 +195,9 @@ func emitStatement(b *strings.Builder, stmt ir.Statement, program ir.Program, de
 		}
 		fmt.Fprintf(b, "%s}\n", indent)
 	case "for":
-		if stmt.Cond == nil || stmt.Cond.Kind == "" {
+		if stmt.Init != nil || stmt.Post != nil {
+			fmt.Fprintf(b, "%sfor (%s; %s; %s) {\n", indent, cForInit(stmt.Init, program), cExpr(stmt.Cond), cForPost(stmt.Post))
+		} else if stmt.Cond == nil || stmt.Cond.Kind == "" {
 			fmt.Fprintf(b, "%sfor (;;) {\n", indent)
 		} else {
 			fmt.Fprintf(b, "%sfor (; %s; ) {\n", indent, cExpr(stmt.Cond))
@@ -204,6 +206,8 @@ func emitStatement(b *strings.Builder, stmt ir.Statement, program ir.Program, de
 			emitStatement(b, child, program, depth+1, sourceMap, fn)
 		}
 		fmt.Fprintf(b, "%s}\n", indent)
+	case "inc":
+		fmt.Fprintf(b, "%s%s%s;\n", indent, stmt.Name, stmt.Op)
 	case "raw":
 		if stmt.Value != nil {
 			fmt.Fprintf(b, "%s%s;\n", indent, stmt.Value.Value)
@@ -232,6 +236,32 @@ func reserveType(mapName string, maps []ir.Map) string {
 		}
 	}
 	return "void"
+}
+
+func cForInit(stmt *ir.Statement, program ir.Program) string {
+	if stmt == nil {
+		return ""
+	}
+	switch stmt.Kind {
+	case "short_var":
+		return fmt.Sprintf("%s %s = %s", inferredDeclType(stmt.Value, program), stmt.Name, cExpr(stmt.Value))
+	case "assign":
+		return fmt.Sprintf("%s = %s", cExpr(stmt.Target), cExpr(stmt.Value))
+	default:
+		return ""
+	}
+}
+
+func cForPost(stmt *ir.Statement) string {
+	if stmt == nil {
+		return ""
+	}
+	switch stmt.Kind {
+	case "inc":
+		return stmt.Name + stmt.Op
+	default:
+		return ""
+	}
 }
 
 func inferredDeclType(expr *ir.Expr, program ir.Program) string {

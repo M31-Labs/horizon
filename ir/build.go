@@ -98,16 +98,28 @@ func buildStatement(stmt ast.Stmt) Statement {
 		cond := buildExpr(s.Cond)
 		return Statement{Kind: "if", Cond: &cond, Then: buildStatements(s.Then), Span: s.Span}
 	case ast.ForStmt:
+		init := buildStatementPtr(s.Init)
 		cond := buildExpr(s.Cond)
-		return Statement{Kind: "for", Cond: &cond, Body: buildStatements(s.Body), Span: s.Span}
+		post := buildStatementPtr(s.Post)
+		return Statement{Kind: "for", Init: init, Cond: &cond, Post: post, Body: buildStatements(s.Body), Span: s.Span}
 	case ast.ExprStmt:
 		expr := buildExpr(s.Expr)
 		return Statement{Kind: "expr", Expr: &expr, Span: s.Span}
+	case ast.IncStmt:
+		return Statement{Kind: "inc", Name: s.Name, Op: s.Op, Span: s.Span}
 	case ast.RawStmt:
 		return Statement{Kind: "raw", Value: &Expr{Kind: "raw", Value: s.Text, Span: s.Span}, Span: s.Span}
 	default:
 		return Statement{Kind: "unknown", Span: stmt.GetSpan()}
 	}
+}
+
+func buildStatementPtr(stmt ast.Stmt) *Statement {
+	if stmt == nil {
+		return nil
+	}
+	built := buildStatement(stmt)
+	return &built
 }
 
 func buildStatements(stmts []ast.Stmt) []Statement {

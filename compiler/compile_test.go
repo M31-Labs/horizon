@@ -1,6 +1,8 @@
 package compiler
 
 import (
+	"os"
+	"path/filepath"
 	"slices"
 	"testing"
 
@@ -43,5 +45,54 @@ func TestAnalyzeInvalidRingbufPrograms(t *testing.T) {
 		}) {
 			t.Fatalf("AnalyzePath(%s) diagnostics = %#v, want %s", path, result.Diagnostics, code)
 		}
+	}
+}
+
+func TestAnalyzeBoundedForLoopPasses(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "loop.hzn")
+	if err := os.WriteFile(path, []byte(`package probes
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    for i := 0; i < 4; i++ {
+        bpf.current_pid()
+    }
+    return 0
+}
+`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	result, err := AnalyzePath(dir)
+	if err != nil {
+		t.Fatalf("AnalyzePath: %v", err)
+	}
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+}
+
+func TestAnalyzeRejectsNonConstantLoopBound(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "loop.hzn")
+	if err := os.WriteFile(path, []byte(`package probes
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    limit := bpf.current_pid()
+    for i := 0; i < limit; i++ {
+        bpf.current_pid()
+    }
+    return 0
+}
+`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	result, err := AnalyzePath(dir)
+	if err != nil {
+		t.Fatalf("AnalyzePath: %v", err)
+	}
+	if !slices.ContainsFunc(result.Diagnostics, func(d diag.Diagnostic) bool { return d.Code == "HZN2202" }) {
+		t.Fatalf("diagnostics = %#v, want HZN2202", result.Diagnostics)
 	}
 }

@@ -216,10 +216,29 @@ func HorizonGrammar() *grammargen.Grammar {
 		grammargen.Choice(
 			grammargen.Field("body", grammargen.Sym("block")),
 			grammargen.Seq(
+				grammargen.Field("init", grammargen.Sym("for_init_statement")),
+				grammargen.Str(";"),
+				grammargen.Field("condition", grammargen.Sym("expression")),
+				grammargen.Str(";"),
+				grammargen.Field("post", grammargen.Sym("for_post_statement")),
+				grammargen.Field("body", grammargen.Sym("block")),
+			),
+			grammargen.Seq(
 				grammargen.Field("condition", grammargen.Sym("expression")),
 				grammargen.Field("body", grammargen.Sym("block")),
 			),
 		),
+	))
+
+	g.Define("for_init_statement", grammargen.Sym("short_var_declaration"))
+	g.Define("for_post_statement", grammargen.Sym("increment_statement"))
+
+	g.Define("increment_statement", grammargen.Seq(
+		grammargen.Field("name", grammargen.Sym("identifier")),
+		grammargen.Field("operator", grammargen.Choice(
+			grammargen.Str("++"),
+			grammargen.Str("--"),
+		)),
 	))
 
 	g.Define("expression_statement", grammargen.Field("expression", grammargen.Sym("expression")))

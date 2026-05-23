@@ -1,9 +1,9 @@
 dist/
 generated/
+.canopy/
 *.bpf.o
 *.bpf.c
 *.hznmap.json
 *.cap.json
 *.report.json
 *.bindings.go
-

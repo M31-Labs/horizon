@@ -166,7 +166,7 @@ func buildStmt(parsed *parser.File, n *gotreesitter.Node) Stmt {
 	if n == nil {
 		return nil
 	}
-	if n.Type(parsed.Lang) == "statement" && n.NamedChildCount() == 1 {
+	if (n.Type(parsed.Lang) == "statement" || n.Type(parsed.Lang) == "for_init_statement" || n.Type(parsed.Lang) == "for_post_statement") && n.NamedChildCount() == 1 {
 		return buildStmt(parsed, n.NamedChild(0))
 	}
 	switch n.Type(parsed.Lang) {
@@ -195,13 +195,21 @@ func buildStmt(parsed *parser.File, n *gotreesitter.Node) Stmt {
 		}
 	case "for_statement":
 		return ForStmt{
+			Init: buildStmt(parsed, n.ChildByFieldName("init", parsed.Lang)),
 			Cond: buildExpr(parsed, n.ChildByFieldName("condition", parsed.Lang)),
+			Post: buildStmt(parsed, n.ChildByFieldName("post", parsed.Lang)),
 			Body: buildBlockStatements(parsed, n.ChildByFieldName("body", parsed.Lang)),
 			Span: spanForNode(parsed.Source.FileID, n),
 		}
 	case "expression_statement":
 		return ExprStmt{
 			Expr: buildExpr(parsed, n.ChildByFieldName("expression", parsed.Lang)),
+			Span: spanForNode(parsed.Source.FileID, n),
+		}
+	case "increment_statement":
+		return IncStmt{
+			Name: text(parsed, n.ChildByFieldName("name", parsed.Lang)),
+			Op:   operatorText(parsed, n),
 			Span: spanForNode(parsed.Source.FileID, n),
 		}
 	default:
@@ -288,7 +296,7 @@ func operatorText(parsed *parser.File, n *gotreesitter.Node) string {
 			continue
 		}
 		switch tok := text(parsed, child); tok {
-		case "==", "!=", "<=", ">=", "<", ">", "&", "*", "!":
+		case "==", "!=", "<=", ">=", "<", ">", "&", "*", "!", "++", "--":
 			return tok
 		}
 	}

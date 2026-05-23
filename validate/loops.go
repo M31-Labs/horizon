@@ -56,7 +56,8 @@ func validateTypedLoops(fn ir.Function) []diag.Diagnostic {
 		for _, stmt := range stmts {
 			switch stmt.Kind {
 			case "for":
-				if stmt.Cond == nil || stmt.Cond.Kind == "" {
+				switch {
+				case stmt.Init == nil && (stmt.Cond == nil || stmt.Cond.Kind == "") && stmt.Post == nil:
 					diags = append(diags, diag.Diagnostic{
 						Code:     "HZN2200",
 						Severity: diag.SeverityError,
@@ -64,13 +65,13 @@ func validateTypedLoops(fn ir.Function) []diag.Diagnostic {
 						Primary:  stmt.Span,
 						Suggest:  "use a for loop with a constant upper bound",
 					})
-				} else {
+				case !isBoundedForClause(stmt):
 					diags = append(diags, diag.Diagnostic{
 						Code:     "HZN2202",
 						Severity: diag.SeverityError,
-						Message:  "condition-only for loops are not allowed in v0",
+						Message:  "for loop must use a simple constant upper bound",
 						Primary:  stmt.Span,
-						Suggest:  "use `for i := 0; i < N; i++` once bounded for clauses are enabled",
+						Suggest:  "use `for i := 0; i < N; i++` with a numeric literal bound",
 					})
 				}
 				walk(stmt.Body)
@@ -81,4 +82,20 @@ func validateTypedLoops(fn ir.Function) []diag.Diagnostic {
 	}
 	walk(functionStatements(fn))
 	return diags
+}
+
+func isBoundedForClause(stmt ir.Statement) bool {
+	if stmt.Kind != "for" || stmt.Init == nil || stmt.Cond == nil || stmt.Post == nil {
+		return false
+	}
+	if stmt.Init.Kind != "short_var" || stmt.Init.Name == "" || stmt.Init.Value == nil || stmt.Init.Value.Kind != "int" {
+		return false
+	}
+	if stmt.Cond.Kind != "binary" || stmt.Cond.Op != "<" || stmt.Cond.Left == nil || stmt.Cond.Right == nil {
+		return false
+	}
+	if stmt.Cond.Left.Kind != "ident" || stmt.Cond.Left.Name != stmt.Init.Name || stmt.Cond.Right.Kind != "int" {
+		return false
+	}
+	return stmt.Post.Kind == "inc" && stmt.Post.Name == stmt.Init.Name && stmt.Post.Op == "++"
 }
