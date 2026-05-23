@@ -21,6 +21,23 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.24.x'
-      - run: sudo apt-get update && sudo apt-get install -y clang llvm
+      - run: sudo apt-get update && sudo apt-get install -y clang llvm libbpf-dev linux-tools-generic
+      - name: Prepare vmlinux.h
+        run: |
+          set -euo pipefail
+          if [ -r /sys/kernel/btf/vmlinux ]; then
+            BPFTOOL="$(command -v bpftool || true)"
+            if [ -z "$BPFTOOL" ] || ! "$BPFTOOL" version >/dev/null 2>&1; then
+              BPFTOOL="$(find /usr/lib/linux-tools -name bpftool -type f | head -n 1)"
+            fi
+            "$BPFTOOL" btf dump file /sys/kernel/btf/vmlinux format c | sudo tee /usr/local/include/vmlinux.h >/dev/null
+          else
+            printf '%s\n' \
+              'typedef unsigned char __u8;' \
+              'typedef unsigned int __u32;' \
+              'struct trace_event_raw_sched_process_exec {};' |
+              sudo tee /usr/local/include/vmlinux.h >/dev/null
+          fi
+      - run: go run ./cmd/hzn doctor
+      - run: go run ./cmd/hzn workbench ./examples/execwatch -o /tmp/horizon-ci -compile
       - run: go test ./... -tags clang_smoke
-
