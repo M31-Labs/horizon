@@ -1,2 +1,27 @@
 package probes
 
+import bpf "m31labs.dev/horizon/runtime/kernel"
+
+type TCPConnectEvent struct {
+    pid  u32
+    uid  u32
+    comm [16]u8
+}
+
+map TCPConnectEvents ringbuf[TCPConnectEvent]
+
+@capability("kernel.network.tcp.connect.observe")
+@kprobe("tcp_v4_connect")
+func OnTCPConnect(ctx kprobe.Context) i32 {
+    event := TCPConnectEvents.reserve()
+    if event == nil {
+        return 0
+    }
+
+    event.pid = bpf.current_pid()
+    event.uid = bpf.current_uid()
+    bpf.current_comm(&event.comm)
+
+    TCPConnectEvents.submit(event)
+    return 0
+}
