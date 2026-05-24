@@ -16,7 +16,11 @@ func Emit(program ir.Program) (Output, error) {
 	if err := emitter.emit(); err != nil {
 		return Output{}, err
 	}
-	return emitter.output(), nil
+	out := emitter.output()
+	if err := ValidateC(out.Code); err != nil {
+		return Output{}, err
+	}
+	return out, nil
 }
 
 type cEmitter struct {

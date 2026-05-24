@@ -28,6 +28,22 @@ func (e UnsupportedNodeError) Error() string {
 }
 
 func DiagnosticForError(err error) (diag.Diagnostic, bool) {
+	var cValidation CValidationError
+	if errors.As(err, &cValidation) {
+		notes := []string{
+			"Horizon validates generated BPF C before writing artifacts or invoking clang.",
+		}
+		if cValidation.Line > 0 {
+			notes = append(notes, fmt.Sprintf("generated C line %d failed rule %q", cValidation.Line, cValidation.Rule))
+		}
+		return diag.Diagnostic{
+			Code:     "HZN3001",
+			Severity: diag.SeverityError,
+			Message:  cValidation.Message,
+			Notes:    notes,
+			Suggest:  "report this as a Horizon compiler bug; generated C should satisfy Horizon's C invariants",
+		}, true
+	}
 	var unsupported UnsupportedNodeError
 	if !errors.As(err, &unsupported) {
 		return diag.Diagnostic{}, false
