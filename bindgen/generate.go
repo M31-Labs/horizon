@@ -17,8 +17,10 @@ func Generate(program ir.Program, packageName string) (string, error) {
 	var b bytes.Buffer
 	fmt.Fprintf(&b, "package %s\n\n", packageName)
 	emitImports(&b, program)
+	structs := ir.StructsByName(program.Structs)
 	for _, decl := range program.Structs {
 		emitStruct(&b, decl)
+		emitStructLayoutAssertions(&b, decl, structs)
 	}
 	b.WriteString("type Objects struct {\n")
 	for _, m := range program.Maps {
@@ -167,6 +169,9 @@ func emitImports(b *bytes.Buffer, program ir.Program) {
 	if needsXDP {
 		std = append(std, "net")
 	}
+	if needsStructLayoutAssertions(program) {
+		std = append(std, "unsafe")
+	}
 	thirdParty := []string{"github.com/cilium/ebpf"}
 	if needsAttach {
 		thirdParty = append(thirdParty, "github.com/cilium/ebpf/link")
@@ -220,12 +225,45 @@ func hasXDP(program ir.Program) bool {
 	return false
 }
 
+func needsStructLayoutAssertions(program ir.Program) bool {
+	structs := ir.StructsByName(program.Structs)
+	for _, decl := range program.Structs {
+		if _, ok := ir.StructLayout(decl, structs); ok {
+			return true
+		}
+	}
+	return false
+}
+
 func emitStruct(b *bytes.Buffer, decl ir.Struct) {
 	fmt.Fprintf(b, "type %s struct {\n", exported(decl.Name))
 	for _, field := range decl.Fields {
 		fmt.Fprintf(b, "\t%s %s\n", exported(field.Name), goType(field.Type))
 	}
 	b.WriteString("}\n\n")
+}
+
+func emitStructLayoutAssertions(b *bytes.Buffer, decl ir.Struct, structs map[string]ir.Struct) {
+	layout, ok := ir.StructLayout(decl, structs)
+	if !ok {
+		return
+	}
+	typeName := exported(decl.Name)
+	emitLayoutEqualityAssertion(b, fmt.Sprintf("unsafe.Sizeof(%s{})", typeName), layout.Size)
+	for _, field := range layout.Fields {
+		fieldName := exported(field.Name)
+		emitLayoutEqualityAssertion(b, fmt.Sprintf("unsafe.Offsetof(%s{}.%s)", typeName, fieldName), field.Offset)
+	}
+	b.WriteString("\n")
+}
+
+func emitLayoutEqualityAssertion(b *bytes.Buffer, expr string, want int) {
+	if want == 0 {
+		fmt.Fprintf(b, "var _ [-int(%s)]byte\n", expr)
+		return
+	}
+	fmt.Fprintf(b, "var _ [%d - int(%s)]byte\n", want, expr)
+	fmt.Fprintf(b, "var _ [int(%s) - %d]byte\n", expr, want)
 }
 
 func emitRingbufReader(b *bytes.Buffer, m ir.Map) {

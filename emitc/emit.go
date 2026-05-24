@@ -29,7 +29,7 @@ func Emit(program ir.Program) (Output, error) {
 	for _, c := range program.Constants {
 		emitConst(&b, c)
 	}
-	structs := cStructMap(program)
+	structs := ir.StructsByName(program.Structs)
 	for _, decl := range program.Structs {
 		emitStruct(&b, decl, structs)
 	}
@@ -500,7 +500,7 @@ func emitStruct(b *strings.Builder, decl ir.Struct, structs map[string]ir.Struct
 }
 
 func emitStructLayoutAssertions(b *strings.Builder, decl ir.Struct, structs map[string]ir.Struct) {
-	layout, ok := cStructLayout(decl, structs)
+	layout, ok := ir.StructLayout(decl, structs)
 	if !ok {
 		return
 	}

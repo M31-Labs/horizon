@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"unsafe"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
@@ -19,6 +20,16 @@ type ExecEvent struct {
 	Uid  uint32
 	Comm [16]uint8
 }
+
+var _ [28 - int(unsafe.Sizeof(ExecEvent{}))]byte
+var _ [int(unsafe.Sizeof(ExecEvent{})) - 28]byte
+var _ [-int(unsafe.Offsetof(ExecEvent{}.Pid))]byte
+var _ [4 - int(unsafe.Offsetof(ExecEvent{}.Ppid))]byte
+var _ [int(unsafe.Offsetof(ExecEvent{}.Ppid)) - 4]byte
+var _ [8 - int(unsafe.Offsetof(ExecEvent{}.Uid))]byte
+var _ [int(unsafe.Offsetof(ExecEvent{}.Uid)) - 8]byte
+var _ [12 - int(unsafe.Offsetof(ExecEvent{}.Comm))]byte
+var _ [int(unsafe.Offsetof(ExecEvent{}.Comm)) - 12]byte
 
 type Objects struct {
 	ExecEvents *ebpf.Map     `ebpf:"ExecEvents"`

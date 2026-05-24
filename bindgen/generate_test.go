@@ -40,6 +40,7 @@ func TestGenerateXDPAttachBindings(t *testing.T) {
 	for _, unwanted := range []string{
 		`"github.com/cilium/ebpf/ringbuf"`,
 		`"encoding/binary"`,
+		`"unsafe"`,
 	} {
 		if strings.Contains(code, unwanted) {
 			t.Fatalf("generated bindings unexpectedly contain %q:\n%s", unwanted, code)
@@ -113,7 +114,10 @@ func TestGenerateTypedMapBindings(t *testing.T) {
 	for _, want := range []string{
 		`"errors"`,
 		`"fmt"`,
+		`"unsafe"`,
 		`"github.com/cilium/ebpf"`,
+		"var _ [4 - int(unsafe.Sizeof(Count{}))]byte",
+		"var _ [-int(unsafe.Offsetof(Count{}.Seen))]byte",
 		"func (o *Objects) LookupCounts(key uint32) (Count, bool, error)",
 		"if errors.Is(err, ebpf.ErrKeyNotExist)",
 		"func (o *Objects) UpdateCounts(key uint32, value Count) error",
@@ -132,6 +136,39 @@ func TestGenerateTypedMapBindings(t *testing.T) {
 	}
 	if strings.Contains(code, "DeleteSlots") {
 		t.Fatalf("generated array bindings unexpectedly include delete:\n%s", code)
+	}
+}
+
+func TestGenerateStructLayoutAssertionsIncludePadding(t *testing.T) {
+	code, err := Generate(ir.Program{
+		Package: "probes",
+		Structs: []ir.Struct{{
+			Name: "LayoutEvent",
+			Fields: []ir.Field{{
+				Name: "tag",
+				Type: ir.Type{Name: "u8"},
+			}, {
+				Name: "pid",
+				Type: ir.Type{Name: "u32"},
+			}, {
+				Name: "ports",
+				Type: ir.Type{Len: "3", Elem: &ir.Type{Name: "u16"}},
+			}},
+		}},
+	}, "bindings")
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	for _, want := range []string{
+		`"unsafe"`,
+		"var _ [16 - int(unsafe.Sizeof(LayoutEvent{}))]byte",
+		"var _ [-int(unsafe.Offsetof(LayoutEvent{}.Tag))]byte",
+		"var _ [4 - int(unsafe.Offsetof(LayoutEvent{}.Pid))]byte",
+		"var _ [8 - int(unsafe.Offsetof(LayoutEvent{}.Ports))]byte",
+	} {
+		if !strings.Contains(code, want) {
+			t.Fatalf("generated bindings missing %q:\n%s", want, code)
+		}
 	}
 }
 

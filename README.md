@@ -173,8 +173,9 @@ unwind through the supplied context.
 `LoadObjects` removes the memlock limit by default; use `LoadObjectsWithOptions`
 when callers need explicit cilium collection options or custom rlimit behavior.
 
-Generated BPF C includes scalar width and struct layout static assertions, so
-clang fails early if an emitted type no longer matches Horizon's ABI model.
+Generated BPF C and generated Go bindings include scalar width, struct size, and
+field offset assertions, so clang or `go test` fails early if an emitted type no
+longer matches Horizon's ABI model.
 
 Capability manifests include programs, map access, emitted event names, map key
 and value types, and struct field schemas for declared Horizon types. Continuum
