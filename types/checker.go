@@ -528,290 +528,15 @@ type valueType struct {
 }
 
 func validateFuncBody(decl ast.FuncDecl, maps map[string]ast.MapDecl, structs map[string]ast.TypeDecl, consts map[string]ast.ConstDecl, sections []sectionSpec) []diag.Diagnostic {
-	locals := map[string]valueType{}
-	for name, constant := range consts {
-		if typ, ok := constDeclType(constant); ok {
-			locals[name] = typ
-		}
+	locals := initialFuncLocals(decl, consts)
+	checker := funcBodyChecker{
+		maps:           maps,
+		structs:        structs,
+		programSection: programSectionName(sections),
 	}
-	programSection := ""
-	if len(sections) == 1 {
-		programSection = sections[0].Attr.Name
-	}
-	var diags []diag.Diagnostic
-	for _, param := range decl.Params {
-		if param.Name == "" {
-			continue
-		}
-		locals[param.Name] = valueType{Name: param.Type.Name, Ref: param.Type, Ptr: param.Type.Ptr}
-	}
-	var checkStmt func(ast.Stmt, map[string]valueType)
-	checkStmt = func(stmt ast.Stmt, locals map[string]valueType) {
-		switch s := stmt.(type) {
-		case ast.ShortVarStmt:
-			typ, exprDiags := typeOfExpr(s.Value, locals, maps, structs)
-			diags = append(diags, exprDiags...)
-			if typ.Fallible != "" {
-				diags = append(diags, fallibleResultDiagnostic(s.Span, typ.Fallible))
-				break
-			}
-			if typ.Void {
-				diags = append(diags, diag.Diagnostic{
-					Code:     "HZN1409",
-					Severity: diag.SeverityError,
-					Message:  fmt.Sprintf("cannot assign void expression to %q", s.Name),
-					Primary:  s.Span,
-				})
-				break
-			}
-			if isFixedArray(typ) {
-				diags = append(diags, fixedArrayLocalDiagnostic(s.Span, s.Name, typ))
-				break
-			}
-			if len(exprDiags) == 0 && isTrackedPointer(typ) && !directTrackedPointerSource(s.Value, maps) {
-				diags = append(diags, trackedPointerAliasDiagnostic(s.Span, s.Name, typ))
-				if s.Name != "" {
-					locals[s.Name] = typ
-				}
-				break
-			}
-			if s.Name != "" {
-				locals[s.Name] = typ
-			}
-		case ast.AssignStmt:
-			target, targetDiags := typeOfExpr(s.Target, locals, maps, structs)
-			value, valueDiags := typeOfExpr(s.Value, locals, maps, structs)
-			targetHadErrors := len(targetDiags) > 0
-			diags = append(diags, targetDiags...)
-			diags = append(diags, valueDiags...)
-			if value.Fallible != "" {
-				diags = append(diags, fallibleResultDiagnostic(s.Span, value.Fallible))
-				break
-			}
-			if len(valueDiags) == 0 && isTrackedPointer(value) {
-				diags = append(diags, trackedPointerAliasDiagnostic(s.Span, "", value))
-				break
-			}
-			if target.XDPAction && !value.XDPAction {
-				diags = append(diags, diag.Diagnostic{
-					Code:     "HZN1448",
-					Severity: diag.SeverityError,
-					Message:  "XDP action locals can only be assigned named xdp actions",
-					Primary:  s.Span,
-					Suggest:  "assign xdp.Pass, xdp.Drop, xdp.Aborted, xdp.Tx, or xdp.Redirect",
-				})
-				break
-			}
-			if target.TCAction && !value.TCAction {
-				diags = append(diags, diag.Diagnostic{
-					Code:     "HZN1450",
-					Severity: diag.SeverityError,
-					Message:  "TC action locals can only be assigned named tc actions",
-					Primary:  s.Span,
-					Suggest:  "assign tc.OK, tc.Shot, tc.Reclassify, tc.Pipe, tc.Stolen, or tc.Redirect",
-				})
-				break
-			}
-			if target.CgroupAction && !value.CgroupAction {
-				diags = append(diags, diag.Diagnostic{
-					Code:     "HZN1454",
-					Severity: diag.SeverityError,
-					Message:  "cgroup action locals can only be assigned named cgroup actions",
-					Primary:  s.Span,
-					Suggest:  "assign cgroup.Allow or cgroup.Deny",
-				})
-				break
-			}
-			if target.LSMAction && !value.LSMAction {
-				diags = append(diags, diag.Diagnostic{
-					Code:     "HZN1459",
-					Severity: diag.SeverityError,
-					Message:  "LSM action locals can only be assigned named lsm actions",
-					Primary:  s.Span,
-					Suggest:  "assign lsm.Allow or lsm.Deny",
-				})
-				break
-			}
-			if targetHadErrors {
-				break
-			}
-			if target.Void {
-				diags = append(diags, diag.Diagnostic{
-					Code:     "HZN1401",
-					Severity: diag.SeverityError,
-					Message:  "assignment target is not addressable",
-					Primary:  s.Span,
-				})
-			} else if isFixedArray(target) {
-				diags = append(diags, diag.Diagnostic{
-					Code:     "HZN1431",
-					Severity: diag.SeverityError,
-					Message:  "fixed array fields cannot be assigned as values in Horizon v0",
-					Primary:  s.Span,
-					Suggest:  "write fixed array fields through compiler-known helpers such as bpf.current_comm(&event.comm)",
-				})
-			} else if isFixedArray(value) {
-				diags = append(diags, fixedArrayValueDiagnostic(s.Span))
-			} else if !assignable(target, value) {
-				diags = append(diags, diag.Diagnostic{
-					Code:     "HZN1402",
-					Severity: diag.SeverityError,
-					Message:  fmt.Sprintf("cannot assign %s to %s", typeName(value), typeName(target)),
-					Primary:  s.Span,
-				})
-			}
-		case ast.ExprStmt:
-			typ, exprDiags := typeOfExpr(s.Expr, locals, maps, structs)
-			diags = append(diags, exprDiags...)
-			if typ.Fallible != "" {
-				diags = append(diags, fallibleResultDiagnostic(s.Span, typ.Fallible))
-			}
-		case ast.ReturnStmt:
-			value, exprDiags := typeOfExpr(s.Value, locals, maps, structs)
-			diags = append(diags, exprDiags...)
-			if s.Value != nil && isFixedArray(value) {
-				diags = append(diags, diag.Diagnostic{
-					Code:     "HZN1432",
-					Severity: diag.SeverityError,
-					Message:  "fixed array values cannot be returned in Horizon v0",
-					Primary:  s.Span,
-					Suggest:  "keep fixed arrays inside typed records and pass field addresses to compiler-known helpers",
-				})
-			} else if programSection == "xdp" && !value.XDPAction {
-				diags = append(diags, diag.Diagnostic{
-					Code:     "HZN1448",
-					Severity: diag.SeverityError,
-					Message:  "XDP programs must return a named xdp action",
-					Primary:  s.Span,
-					Suggest:  "return xdp.Pass, xdp.Drop, xdp.Aborted, xdp.Tx, or xdp.Redirect",
-				})
-			} else if programSection == "tc" && !value.TCAction {
-				diags = append(diags, diag.Diagnostic{
-					Code:     "HZN1450",
-					Severity: diag.SeverityError,
-					Message:  "TC programs must return a named tc action",
-					Primary:  s.Span,
-					Suggest:  "return tc.OK, tc.Shot, tc.Reclassify, tc.Pipe, tc.Stolen, or tc.Redirect",
-				})
-			} else if programSection == "cgroup" && !value.CgroupAction {
-				diags = append(diags, diag.Diagnostic{
-					Code:     "HZN1454",
-					Severity: diag.SeverityError,
-					Message:  "cgroup programs must return a named cgroup action",
-					Primary:  s.Span,
-					Suggest:  "return cgroup.Allow or cgroup.Deny",
-				})
-			} else if programSection == "lsm" && !value.LSMAction {
-				diags = append(diags, diag.Diagnostic{
-					Code:     "HZN1459",
-					Severity: diag.SeverityError,
-					Message:  "LSM programs must return a named lsm action",
-					Primary:  s.Span,
-					Suggest:  "return lsm.Allow or lsm.Deny",
-				})
-			} else if programSection != "" && programSection != "xdp" && value.XDPAction {
-				diags = append(diags, diag.Diagnostic{
-					Code:     "HZN1449",
-					Severity: diag.SeverityError,
-					Message:  fmt.Sprintf("@%s programs cannot return XDP actions", programSection),
-					Primary:  s.Span,
-					Suggest:  "return 0 from tracing programs; XDP actions are only valid in @xdp programs",
-				})
-			} else if programSection != "" && programSection != "tc" && value.TCAction {
-				diags = append(diags, diag.Diagnostic{
-					Code:     "HZN1451",
-					Severity: diag.SeverityError,
-					Message:  fmt.Sprintf("@%s programs cannot return TC actions", programSection),
-					Primary:  s.Span,
-					Suggest:  `return 0 from tracing programs; TC actions are only valid in @tc programs`,
-				})
-			} else if programSection != "" && programSection != "cgroup" && value.CgroupAction {
-				diags = append(diags, diag.Diagnostic{
-					Code:     "HZN1455",
-					Severity: diag.SeverityError,
-					Message:  fmt.Sprintf("@%s programs cannot return cgroup actions", programSection),
-					Primary:  s.Span,
-					Suggest:  `return 0 from tracing programs; cgroup actions are only valid in @cgroup programs`,
-				})
-			} else if programSection != "" && programSection != "lsm" && value.LSMAction {
-				diags = append(diags, diag.Diagnostic{
-					Code:     "HZN1460",
-					Severity: diag.SeverityError,
-					Message:  fmt.Sprintf("@%s programs cannot return LSM actions", programSection),
-					Primary:  s.Span,
-					Suggest:  `return 0 from tracing programs; LSM actions are only valid in @lsm programs`,
-				})
-			} else if s.Value != nil && !assignable(valueType{Name: "i32"}, value) {
-				diags = append(diags, diag.Diagnostic{
-					Code:     "HZN1403",
-					Severity: diag.SeverityError,
-					Message:  fmt.Sprintf("cannot return %s from i32 program", typeName(value)),
-					Primary:  s.Span,
-				})
-			}
-		case ast.IfStmt:
-			cond, exprDiags := typeOfExpr(s.Cond, locals, maps, structs)
-			diags = append(diags, exprDiags...)
-			diags = append(diags, validateCondition(cond, s.Cond.GetSpan())...)
-			thenLocals := cloneValueTypes(locals)
-			for _, child := range s.Then {
-				checkStmt(child, thenLocals)
-			}
-			elseLocals := cloneValueTypes(locals)
-			for _, child := range s.Else {
-				checkStmt(child, elseLocals)
-			}
-		case ast.ForStmt:
-			loopLocals := cloneValueTypes(locals)
-			if s.Init != nil {
-				checkStmt(s.Init, loopLocals)
-			}
-			if s.Cond != nil {
-				cond, exprDiags := typeOfExpr(s.Cond, loopLocals, maps, structs)
-				diags = append(diags, exprDiags...)
-				diags = append(diags, validateCondition(cond, s.Cond.GetSpan())...)
-			}
-			if s.Post != nil {
-				checkStmt(s.Post, loopLocals)
-			}
-			bodyLocals := cloneValueTypes(loopLocals)
-			for _, child := range s.Body {
-				checkStmt(child, bodyLocals)
-			}
-		case ast.IncStmt:
-			local, ok := locals[s.Name]
-			if !ok {
-				diags = append(diags, diag.Diagnostic{
-					Code:     "HZN1404",
-					Severity: diag.SeverityError,
-					Message:  fmt.Sprintf("unknown identifier %q", s.Name),
-					Primary:  s.Span,
-				})
-				break
-			}
-			if !isIntegerScalar(local.Name) && local.Name != "untyped_int" {
-				diags = append(diags, diag.Diagnostic{
-					Code:     "HZN1408",
-					Severity: diag.SeverityError,
-					Message:  fmt.Sprintf("%s requires an integer variable, got %s", s.Op, typeName(local)),
-					Primary:  s.Span,
-				})
-			}
-		case ast.RawStmt:
-			diags = append(diags, diag.Diagnostic{
-				Code:     "HZN1400",
-				Severity: diag.SeverityError,
-				Message:  "unsupported statement form",
-				Primary:  s.Span,
-				Suggest:  "use Horizon's Go-shaped statement subset instead of raw text",
-			})
-		}
-	}
-	for _, stmt := range decl.Body {
-		checkStmt(stmt, locals)
-	}
+	checker.checkStatements(decl.Body, locals)
 	if !blockAlwaysReturns(decl.Body) {
-		diags = append(diags, diag.Diagnostic{
+		checker.add(diag.Diagnostic{
 			Code:     "HZN1445",
 			Severity: diag.SeverityError,
 			Message:  fmt.Sprintf("function %q must return i32 on every path", decl.Name),
@@ -819,7 +544,274 @@ func validateFuncBody(decl ast.FuncDecl, maps map[string]ast.MapDecl, structs ma
 			Suggest:  "end the program with an explicit return, or make both branches of the final if return",
 		})
 	}
-	return diags
+	return checker.diags
+}
+
+type funcBodyChecker struct {
+	maps           map[string]ast.MapDecl
+	structs        map[string]ast.TypeDecl
+	programSection string
+	diags          []diag.Diagnostic
+}
+
+func initialFuncLocals(decl ast.FuncDecl, consts map[string]ast.ConstDecl) map[string]valueType {
+	locals := map[string]valueType{}
+	for name, constant := range consts {
+		if typ, ok := constDeclType(constant); ok {
+			locals[name] = typ
+		}
+	}
+	for _, param := range decl.Params {
+		if param.Name == "" {
+			continue
+		}
+		locals[param.Name] = valueType{Name: param.Type.Name, Ref: param.Type, Ptr: param.Type.Ptr}
+	}
+	return locals
+}
+
+func programSectionName(sections []sectionSpec) string {
+	if len(sections) == 1 {
+		return sections[0].Attr.Name
+	}
+	return ""
+}
+
+func (c *funcBodyChecker) add(diags ...diag.Diagnostic) {
+	c.diags = append(c.diags, diags...)
+}
+
+func (c *funcBodyChecker) typeOf(expr ast.Expr, locals map[string]valueType) (valueType, []diag.Diagnostic) {
+	return typeOfExpr(expr, locals, c.maps, c.structs)
+}
+
+func (c *funcBodyChecker) checkStatements(stmts []ast.Stmt, locals map[string]valueType) {
+	for _, stmt := range stmts {
+		c.checkStmt(stmt, locals)
+	}
+}
+
+func (c *funcBodyChecker) checkStmt(stmt ast.Stmt, locals map[string]valueType) {
+	switch s := stmt.(type) {
+	case ast.ShortVarStmt:
+		c.checkShortVar(s, locals)
+	case ast.AssignStmt:
+		c.checkAssign(s, locals)
+	case ast.ExprStmt:
+		c.checkExprStmt(s, locals)
+	case ast.ReturnStmt:
+		c.checkReturn(s, locals)
+	case ast.IfStmt:
+		c.checkIf(s, locals)
+	case ast.ForStmt:
+		c.checkFor(s, locals)
+	case ast.IncStmt:
+		c.checkInc(s, locals)
+	case ast.RawStmt:
+		c.add(diag.Diagnostic{
+			Code:     "HZN1400",
+			Severity: diag.SeverityError,
+			Message:  "unsupported statement form",
+			Primary:  s.Span,
+			Suggest:  "use Horizon's Go-shaped statement subset instead of raw text",
+		})
+	}
+}
+
+func (c *funcBodyChecker) checkShortVar(s ast.ShortVarStmt, locals map[string]valueType) {
+	typ, exprDiags := c.typeOf(s.Value, locals)
+	c.add(exprDiags...)
+	switch {
+	case typ.Fallible != "":
+		c.add(fallibleResultDiagnostic(s.Span, typ.Fallible))
+	case typ.Void:
+		c.add(diag.Diagnostic{
+			Code:     "HZN1409",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("cannot assign void expression to %q", s.Name),
+			Primary:  s.Span,
+		})
+	case isFixedArray(typ):
+		c.add(fixedArrayLocalDiagnostic(s.Span, s.Name, typ))
+	case len(exprDiags) == 0 && isTrackedPointer(typ) && !directTrackedPointerSource(s.Value, c.maps):
+		c.add(trackedPointerAliasDiagnostic(s.Span, s.Name, typ))
+		if s.Name != "" {
+			locals[s.Name] = typ
+		}
+	default:
+		if s.Name != "" {
+			locals[s.Name] = typ
+		}
+	}
+}
+
+func (c *funcBodyChecker) checkAssign(s ast.AssignStmt, locals map[string]valueType) {
+	target, targetDiags := c.typeOf(s.Target, locals)
+	value, valueDiags := c.typeOf(s.Value, locals)
+	targetHadErrors := len(targetDiags) > 0
+	c.add(targetDiags...)
+	c.add(valueDiags...)
+	if c.rejectInvalidAssignedValue(s, value, valueDiags) || c.rejectActionAssignment(s, target, value) || targetHadErrors {
+		return
+	}
+	c.validateAssignableTarget(s, target, value)
+}
+
+func (c *funcBodyChecker) rejectInvalidAssignedValue(s ast.AssignStmt, value valueType, valueDiags []diag.Diagnostic) bool {
+	if value.Fallible != "" {
+		c.add(fallibleResultDiagnostic(s.Span, value.Fallible))
+		return true
+	}
+	if len(valueDiags) == 0 && isTrackedPointer(value) {
+		c.add(trackedPointerAliasDiagnostic(s.Span, "", value))
+		return true
+	}
+	return false
+}
+
+func (c *funcBodyChecker) rejectActionAssignment(s ast.AssignStmt, target valueType, value valueType) bool {
+	if d, ok := actionAssignmentDiagnostic(s.Span, target, value); ok {
+		c.add(d)
+		return true
+	}
+	return false
+}
+
+func actionAssignmentDiagnostic(primary span.Span, target valueType, value valueType) (diag.Diagnostic, bool) {
+	switch {
+	case target.XDPAction && !value.XDPAction:
+		return diag.Diagnostic{Code: "HZN1448", Severity: diag.SeverityError, Message: "XDP action locals can only be assigned named xdp actions", Primary: primary, Suggest: "assign xdp.Pass, xdp.Drop, xdp.Aborted, xdp.Tx, or xdp.Redirect"}, true
+	case target.TCAction && !value.TCAction:
+		return diag.Diagnostic{Code: "HZN1450", Severity: diag.SeverityError, Message: "TC action locals can only be assigned named tc actions", Primary: primary, Suggest: "assign tc.OK, tc.Shot, tc.Reclassify, tc.Pipe, tc.Stolen, or tc.Redirect"}, true
+	case target.CgroupAction && !value.CgroupAction:
+		return diag.Diagnostic{Code: "HZN1454", Severity: diag.SeverityError, Message: "cgroup action locals can only be assigned named cgroup actions", Primary: primary, Suggest: "assign cgroup.Allow or cgroup.Deny"}, true
+	case target.LSMAction && !value.LSMAction:
+		return diag.Diagnostic{Code: "HZN1459", Severity: diag.SeverityError, Message: "LSM action locals can only be assigned named lsm actions", Primary: primary, Suggest: "assign lsm.Allow or lsm.Deny"}, true
+	default:
+		return diag.Diagnostic{}, false
+	}
+}
+
+func (c *funcBodyChecker) validateAssignableTarget(s ast.AssignStmt, target valueType, value valueType) {
+	switch {
+	case target.Void:
+		c.add(diag.Diagnostic{Code: "HZN1401", Severity: diag.SeverityError, Message: "assignment target is not addressable", Primary: s.Span})
+	case isFixedArray(target):
+		c.add(diag.Diagnostic{
+			Code:     "HZN1431",
+			Severity: diag.SeverityError,
+			Message:  "fixed array fields cannot be assigned as values in Horizon v0",
+			Primary:  s.Span,
+			Suggest:  "write fixed array fields through compiler-known helpers such as bpf.current_comm(&event.comm)",
+		})
+	case isFixedArray(value):
+		c.add(fixedArrayValueDiagnostic(s.Span))
+	case !assignable(target, value):
+		c.add(diag.Diagnostic{Code: "HZN1402", Severity: diag.SeverityError, Message: fmt.Sprintf("cannot assign %s to %s", typeName(value), typeName(target)), Primary: s.Span})
+	}
+}
+
+func (c *funcBodyChecker) checkExprStmt(s ast.ExprStmt, locals map[string]valueType) {
+	typ, exprDiags := c.typeOf(s.Expr, locals)
+	c.add(exprDiags...)
+	if typ.Fallible != "" {
+		c.add(fallibleResultDiagnostic(s.Span, typ.Fallible))
+	}
+}
+
+func (c *funcBodyChecker) checkReturn(s ast.ReturnStmt, locals map[string]valueType) {
+	value, exprDiags := c.typeOf(s.Value, locals)
+	c.add(exprDiags...)
+	if d, ok := returnDiagnostic(c.programSection, value, s.Value != nil, s.Span); ok {
+		c.add(d)
+	}
+}
+
+func returnDiagnostic(programSection string, value valueType, hasValue bool, primary span.Span) (diag.Diagnostic, bool) {
+	if hasValue && isFixedArray(value) {
+		return diag.Diagnostic{
+			Code:     "HZN1432",
+			Severity: diag.SeverityError,
+			Message:  "fixed array values cannot be returned in Horizon v0",
+			Primary:  primary,
+			Suggest:  "keep fixed arrays inside typed records and pass field addresses to compiler-known helpers",
+		}, true
+	}
+	if d, ok := requiredActionReturnDiagnostic(programSection, value, primary); ok {
+		return d, true
+	}
+	if d, ok := foreignActionReturnDiagnostic(programSection, value, primary); ok {
+		return d, true
+	}
+	if hasValue && !assignable(valueType{Name: "i32"}, value) {
+		return diag.Diagnostic{Code: "HZN1403", Severity: diag.SeverityError, Message: fmt.Sprintf("cannot return %s from i32 program", typeName(value)), Primary: primary}, true
+	}
+	return diag.Diagnostic{}, false
+}
+
+func requiredActionReturnDiagnostic(programSection string, value valueType, primary span.Span) (diag.Diagnostic, bool) {
+	switch {
+	case programSection == "xdp" && !value.XDPAction:
+		return diag.Diagnostic{Code: "HZN1448", Severity: diag.SeverityError, Message: "XDP programs must return a named xdp action", Primary: primary, Suggest: "return xdp.Pass, xdp.Drop, xdp.Aborted, xdp.Tx, or xdp.Redirect"}, true
+	case programSection == "tc" && !value.TCAction:
+		return diag.Diagnostic{Code: "HZN1450", Severity: diag.SeverityError, Message: "TC programs must return a named tc action", Primary: primary, Suggest: "return tc.OK, tc.Shot, tc.Reclassify, tc.Pipe, tc.Stolen, or tc.Redirect"}, true
+	case programSection == "cgroup" && !value.CgroupAction:
+		return diag.Diagnostic{Code: "HZN1454", Severity: diag.SeverityError, Message: "cgroup programs must return a named cgroup action", Primary: primary, Suggest: "return cgroup.Allow or cgroup.Deny"}, true
+	case programSection == "lsm" && !value.LSMAction:
+		return diag.Diagnostic{Code: "HZN1459", Severity: diag.SeverityError, Message: "LSM programs must return a named lsm action", Primary: primary, Suggest: "return lsm.Allow or lsm.Deny"}, true
+	default:
+		return diag.Diagnostic{}, false
+	}
+}
+
+func foreignActionReturnDiagnostic(programSection string, value valueType, primary span.Span) (diag.Diagnostic, bool) {
+	switch {
+	case programSection != "" && programSection != "xdp" && value.XDPAction:
+		return diag.Diagnostic{Code: "HZN1449", Severity: diag.SeverityError, Message: fmt.Sprintf("@%s programs cannot return XDP actions", programSection), Primary: primary, Suggest: "return 0 from tracing programs; XDP actions are only valid in @xdp programs"}, true
+	case programSection != "" && programSection != "tc" && value.TCAction:
+		return diag.Diagnostic{Code: "HZN1451", Severity: diag.SeverityError, Message: fmt.Sprintf("@%s programs cannot return TC actions", programSection), Primary: primary, Suggest: `return 0 from tracing programs; TC actions are only valid in @tc programs`}, true
+	case programSection != "" && programSection != "cgroup" && value.CgroupAction:
+		return diag.Diagnostic{Code: "HZN1455", Severity: diag.SeverityError, Message: fmt.Sprintf("@%s programs cannot return cgroup actions", programSection), Primary: primary, Suggest: `return 0 from tracing programs; cgroup actions are only valid in @cgroup programs`}, true
+	case programSection != "" && programSection != "lsm" && value.LSMAction:
+		return diag.Diagnostic{Code: "HZN1460", Severity: diag.SeverityError, Message: fmt.Sprintf("@%s programs cannot return LSM actions", programSection), Primary: primary, Suggest: `return 0 from tracing programs; LSM actions are only valid in @lsm programs`}, true
+	default:
+		return diag.Diagnostic{}, false
+	}
+}
+
+func (c *funcBodyChecker) checkIf(s ast.IfStmt, locals map[string]valueType) {
+	cond, exprDiags := c.typeOf(s.Cond, locals)
+	c.add(exprDiags...)
+	c.add(validateCondition(cond, s.Cond.GetSpan())...)
+	c.checkStatements(s.Then, cloneValueTypes(locals))
+	c.checkStatements(s.Else, cloneValueTypes(locals))
+}
+
+func (c *funcBodyChecker) checkFor(s ast.ForStmt, locals map[string]valueType) {
+	loopLocals := cloneValueTypes(locals)
+	if s.Init != nil {
+		c.checkStmt(s.Init, loopLocals)
+	}
+	if s.Cond != nil {
+		cond, exprDiags := c.typeOf(s.Cond, loopLocals)
+		c.add(exprDiags...)
+		c.add(validateCondition(cond, s.Cond.GetSpan())...)
+	}
+	if s.Post != nil {
+		c.checkStmt(s.Post, loopLocals)
+	}
+	c.checkStatements(s.Body, cloneValueTypes(loopLocals))
+}
+
+func (c *funcBodyChecker) checkInc(s ast.IncStmt, locals map[string]valueType) {
+	local, ok := locals[s.Name]
+	if !ok {
+		c.add(diag.Diagnostic{Code: "HZN1404", Severity: diag.SeverityError, Message: fmt.Sprintf("unknown identifier %q", s.Name), Primary: s.Span})
+		return
+	}
+	if !isIntegerScalar(local.Name) && local.Name != "untyped_int" {
+		c.add(diag.Diagnostic{Code: "HZN1408", Severity: diag.SeverityError, Message: fmt.Sprintf("%s requires an integer variable, got %s", s.Op, typeName(local)), Primary: s.Span})
+	}
 }
 
 func blockAlwaysReturns(stmts []ast.Stmt) bool {
