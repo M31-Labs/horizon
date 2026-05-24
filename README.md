@@ -150,9 +150,10 @@ hzn diagnose dist/exec.verifier.log --map dist/exec.hznmap.json
 `hzn workbench` is the authoring path: it validates source and writes readable
 BPF C, a source map, typed Go bindings, a capability manifest, diagnostics, and
 a report. Invalid programs still produce `<name>.diagnostics.json` and
-`<name>.report.json`, so editors and automation can show actionable feedback
-without scraping terminal output. Use `-compile` or `hzn build` when the local
-clang/BPF C toolchain should also produce a `.bpf.o`.
+`<name>.report.json`, and clang failures are remapped into the same diagnostics
+artifact, so editors and automation can show actionable feedback without
+scraping terminal output. Use `-compile` or `hzn build` when the local clang/BPF
+C toolchain should also produce a `.bpf.o`.
 
 `hzn doctor` checks the local eBPF C toolchain: clang BPF support, libbpf
 headers, bpftool/LLVM utilities, kernel BTF, and a usable `vmlinux.h`.

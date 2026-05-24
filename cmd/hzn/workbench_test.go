@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -137,9 +138,75 @@ func TestWorkbenchWritesDiagnosticReportForInvalidInput(t *testing.T) {
 	}
 }
 
+func TestWorkbenchReportsClangDiagnostics(t *testing.T) {
+	outDir := t.TempDir()
+	fakeBin := t.TempDir()
+	input := filepath.Join("..", "..", "testdata", "golden", "exec", "input.hzn")
+	cPath := filepath.Join(outDir, "input.bpf.c")
+	fakeClang := filepath.Join(fakeBin, "clang")
+	output := cPath + ":57:5: error: synthetic clang failure"
+	script := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' %q >&2\nexit 1\n", output)
+	if err := os.WriteFile(fakeClang, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake clang: %v", err)
+	}
+	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	if err := run([]string{"workbench", input, "-o", outDir, "-compile"}); err == nil {
+		t.Fatal("run workbench -compile succeeded, want clang error")
+	}
+	if _, err := os.Stat(filepath.Join(outDir, "input.bpf.o")); !os.IsNotExist(err) {
+		t.Fatalf("object artifact should not exist on clang failure: %v", err)
+	}
+
+	var report workbenchReport
+	data, err := os.ReadFile(filepath.Join(outDir, "input.report.json"))
+	if err != nil {
+		t.Fatalf("read report: %v", err)
+	}
+	if err := json.Unmarshal(data, &report); err != nil {
+		t.Fatalf("unmarshal report: %v", err)
+	}
+	if report.Status != "clang_error" {
+		t.Fatalf("status = %q, want clang_error", report.Status)
+	}
+	if report.Clang == "" {
+		t.Fatal("clang output is empty")
+	}
+	if report.DiagnosticCount == 0 || !hasDiagnosticCode(report.Diagnostics, "HZN3100") {
+		t.Fatalf("diagnostics = %#v, want HZN3100", report.Diagnostics)
+	}
+	if report.Diagnostics[0].Primary.File != "../../testdata/golden/exec/input.hzn" {
+		t.Fatalf("primary file = %q, want authored input", report.Diagnostics[0].Primary.File)
+	}
+	if artifactsContain(report.Artifacts, filepath.Join(outDir, "input.bpf.o")) {
+		t.Fatalf("artifacts include missing object: %#v", report.Artifacts)
+	}
+
+	data, err = os.ReadFile(filepath.Join(outDir, "input.diagnostics.json"))
+	if err != nil {
+		t.Fatalf("read diagnostics: %v", err)
+	}
+	var diagnostics []diag.Diagnostic
+	if err := json.Unmarshal(data, &diagnostics); err != nil {
+		t.Fatalf("unmarshal diagnostics: %v", err)
+	}
+	if !hasDiagnosticCode(diagnostics, "HZN3100") {
+		t.Fatalf("diagnostics artifact = %#v, want HZN3100", diagnostics)
+	}
+}
+
 func hasDiagnosticCode(diags []diag.Diagnostic, code string) bool {
 	for _, d := range diags {
 		if d.Code == code {
+			return true
+		}
+	}
+	return false
+}
+
+func artifactsContain(artifacts []string, path string) bool {
+	for _, artifact := range artifacts {
+		if artifact == path {
 			return true
 		}
 	}
