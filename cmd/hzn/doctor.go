@@ -13,6 +13,8 @@ import (
 	"time"
 )
 
+const clangProbeTimeout = 30 * time.Second
+
 func runDoctor(args []string) error {
 	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
 	jsonOut := fs.Bool("json", false, "emit JSON report")
@@ -116,7 +118,7 @@ func checkCommand(cfg doctorConfig, name string, required bool, suggest string) 
 }
 
 func checkClangBPF(cfg doctorConfig, clangPath string) doctorCheck {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), clangProbeTimeout)
 	defer cancel()
 	err := cfg.RunCommand(ctx, clangPath, []string{"-target", "bpf", "-x", "c", "-c", "-o", os.DevNull, "-"}, "int x;\n")
 	if err == nil {
