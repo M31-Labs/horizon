@@ -423,8 +423,10 @@ Horizon makes verifier-sensitive behavior explicit before clang runs:
 - integer literals, literal-backed constants, and literal-backed conversions are checked against their target scalar width before C emission
 - unary negation is only allowed for signed scalar values or direct integer literals; unsigned values must be converted deliberately before signed arithmetic
 - division and modulo by literal zero are rejected before C emission
+- dynamic division and modulo require a divisor proven non-zero by a simple guard or non-zero constant
 - literal shift counts must be non-negative and smaller than the left operand width
 - constants can carry scalar widths, and generated C preserves those widths
+- constants are immutable; use locals for values that change inside a program
 - short variable declarations introduce fresh local names only; use `=` to update existing locals, and do not shadow maps or compiler namespaces
 - every program must return an explicit `i32` on every control-flow path
 - bare `return` is rejected; tracing programs should use `return 0`, while packet and policy programs should return named actions

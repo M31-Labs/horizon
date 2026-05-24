@@ -1,0 +1,9 @@
+package probes
+
+const Denom u32 = 1
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    Denom = u32(2)
+    return 0
+}

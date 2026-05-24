@@ -1,0 +1,12 @@
+package probes
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    denom := u32(1)
+    denom = bpf.current_pid()
+    value := u32(100) / denom
+    if value == 0 {
+        return 0
+    }
+    return 0
+}

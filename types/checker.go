@@ -492,6 +492,7 @@ func constValueType(expr ast.Expr) (valueType, bool) {
 			return valueType{}, false
 		}
 		operand.IntLiteral = negateIntegerLiteral(operand.IntLiteral)
+		operand.NonZero = literalNonZero(operand.IntLiteral)
 		return operand, true
 	default:
 		return valueType{}, false
@@ -503,10 +504,15 @@ func constDeclType(decl ast.ConstDecl) (valueType, bool) {
 		typ := valueType{Name: decl.Type.Name, Ref: decl.Type}
 		if value, ok := constValueType(decl.Value); ok && value.IntLiteral != "" && isIntegerScalar(decl.Type.Name) {
 			typ.IntLiteral = value.IntLiteral
+			typ.NonZero = literalNonZero(value.IntLiteral)
 		}
 		return typ, true
 	}
-	return constValueType(decl.Value)
+	typ, ok := constValueType(decl.Value)
+	if ok && typ.IntLiteral != "" {
+		typ.NonZero = literalNonZero(typ.IntLiteral)
+	}
+	return typ, ok
 }
 
 func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]ast.MapDecl, structs map[string]ast.TypeDecl, consts map[string]ast.ConstDecl) []diag.Diagnostic {
@@ -765,6 +771,8 @@ type valueType struct {
 	MaybeNil     bool
 	Fallible     string
 	IntLiteral   string
+	NonZero      bool
+	Const        bool
 	Void         bool
 	XDPAction    bool
 	TCAction     bool
@@ -803,6 +811,7 @@ func initialFuncLocals(decl ast.FuncDecl, consts map[string]ast.ConstDecl) map[s
 	locals := map[string]valueType{}
 	for name, constant := range consts {
 		if typ, ok := constDeclType(constant); ok {
+			typ.Const = true
 			locals[name] = typ
 		}
 	}
@@ -944,10 +953,26 @@ func (c *funcBodyChecker) checkAssign(s ast.AssignStmt, locals map[string]valueT
 	targetHadErrors := len(targetDiags) > 0
 	c.add(targetDiags...)
 	c.add(valueDiags...)
-	if c.rejectInvalidAssignedValue(s, value, valueDiags) || c.rejectActionAssignment(s, target, value) || targetHadErrors {
+	if c.rejectConstAssignment(s, target) || c.rejectInvalidAssignedValue(s, value, valueDiags) || c.rejectActionAssignment(s, target, value) || targetHadErrors {
 		return
 	}
-	c.validateAssignableTarget(s, target, value)
+	if c.validateAssignableTarget(s, target, value) {
+		c.updateAssignedLocal(s, target, value, locals)
+	}
+}
+
+func (c *funcBodyChecker) rejectConstAssignment(s ast.AssignStmt, target valueType) bool {
+	if !target.Const {
+		return false
+	}
+	c.add(diag.Diagnostic{
+		Code:     "HZN1481",
+		Severity: diag.SeverityError,
+		Message:  "constants cannot be assigned",
+		Primary:  s.Target.GetSpan(),
+		Suggest:  "use `:=` for a fresh local value instead of assigning to a package constant",
+	})
+	return true
 }
 
 func (c *funcBodyChecker) rejectInvalidAssignedValue(s ast.AssignStmt, value valueType, valueDiags []diag.Diagnostic) bool {
@@ -985,10 +1010,11 @@ func actionAssignmentDiagnostic(primary span.Span, target valueType, value value
 	}
 }
 
-func (c *funcBodyChecker) validateAssignableTarget(s ast.AssignStmt, target valueType, value valueType) {
+func (c *funcBodyChecker) validateAssignableTarget(s ast.AssignStmt, target valueType, value valueType) bool {
 	switch {
 	case target.Void:
 		c.add(diag.Diagnostic{Code: "HZN1401", Severity: diag.SeverityError, Message: "assignment target is not addressable", Primary: s.Span})
+		return false
 	case isFixedArray(target):
 		c.add(diag.Diagnostic{
 			Code:     "HZN1431",
@@ -997,8 +1023,10 @@ func (c *funcBodyChecker) validateAssignableTarget(s ast.AssignStmt, target valu
 			Primary:  s.Span,
 			Suggest:  "write fixed array fields through compiler-known helpers such as bpf.current_comm(&event.comm)",
 		})
+		return false
 	case isFixedArray(value):
 		c.add(fixedArrayValueDiagnostic(s.Span))
+		return false
 	case !assignable(target, value):
 		if d, ok := assignabilityDiagnostic(
 			"HZN1402",
@@ -1009,7 +1037,29 @@ func (c *funcBodyChecker) validateAssignableTarget(s ast.AssignStmt, target valu
 		); ok {
 			c.add(d)
 		}
+		return false
 	}
+	return true
+}
+
+func (c *funcBodyChecker) updateAssignedLocal(s ast.AssignStmt, target valueType, value valueType, locals map[string]valueType) {
+	ident, ok := s.Target.(ast.IdentExpr)
+	if !ok || ident.Name == "" {
+		return
+	}
+	if _, ok := locals[ident.Name]; !ok {
+		return
+	}
+	updated := target
+	updated.IntLiteral = ""
+	updated.NonZero = false
+	if value.IntLiteral != "" {
+		updated.IntLiteral = value.IntLiteral
+	}
+	if valueKnownNonZero(value) {
+		updated.NonZero = true
+	}
+	locals[ident.Name] = updated
 }
 
 func (c *funcBodyChecker) checkExprStmt(s ast.ExprStmt, locals map[string]valueType) {
@@ -1104,8 +1154,88 @@ func (c *funcBodyChecker) checkIf(s ast.IfStmt, locals map[string]valueType) {
 	cond, exprDiags := c.typeOf(s.Cond, ifLocals)
 	c.add(exprDiags...)
 	c.add(validateCondition(cond, s.Cond.GetSpan())...)
-	c.checkStatements(s.Then, cloneValueTypes(ifLocals))
-	c.checkStatements(s.Else, cloneValueTypes(ifLocals))
+	thenLocals := cloneValueTypes(ifLocals)
+	elseLocals := cloneValueTypes(ifLocals)
+	thenFacts, elseFacts := nonZeroFacts(s.Cond, ifLocals)
+	applyNonZeroFacts(thenLocals, thenFacts)
+	applyNonZeroFacts(elseLocals, elseFacts)
+	c.checkStatements(s.Then, thenLocals)
+	c.checkStatements(s.Else, elseLocals)
+	if blockAlwaysReturns(s.Then) {
+		applyNonZeroFacts(locals, elseFacts)
+	}
+	if blockAlwaysReturns(s.Else) {
+		applyNonZeroFacts(locals, thenFacts)
+	}
+}
+
+func nonZeroFacts(cond ast.Expr, locals map[string]valueType) (map[string]bool, map[string]bool) {
+	binary, ok := cond.(ast.BinaryExpr)
+	if !ok {
+		return nil, nil
+	}
+	leftName, leftIdent := identName(binary.Left)
+	rightName, rightIdent := identName(binary.Right)
+	leftZero := integerZeroExpr(binary.Left, locals)
+	rightZero := integerZeroExpr(binary.Right, locals)
+	switch binary.Op {
+	case "!=":
+		if leftIdent && rightZero {
+			return map[string]bool{leftName: true}, nil
+		}
+		if rightIdent && leftZero {
+			return map[string]bool{rightName: true}, nil
+		}
+	case "==":
+		if leftIdent && rightZero {
+			return nil, map[string]bool{leftName: true}
+		}
+		if rightIdent && leftZero {
+			return nil, map[string]bool{rightName: true}
+		}
+	case ">", "<":
+		if leftIdent && rightZero {
+			return map[string]bool{leftName: true}, nil
+		}
+		if rightIdent && leftZero {
+			return map[string]bool{rightName: true}, nil
+		}
+	}
+	return nil, nil
+}
+
+func identName(expr ast.Expr) (string, bool) {
+	ident, ok := expr.(ast.IdentExpr)
+	return ident.Name, ok && ident.Name != ""
+}
+
+func integerZeroExpr(expr ast.Expr, locals map[string]valueType) bool {
+	switch e := expr.(type) {
+	case ast.IntExpr:
+		return literalZero(e.Value)
+	case ast.UnaryExpr:
+		if e.Op != "-" {
+			return false
+		}
+		if lit, ok := e.Expr.(ast.IntExpr); ok {
+			return literalZero(negateIntegerLiteral(lit.Value))
+		}
+	case ast.IdentExpr:
+		local, ok := locals[e.Name]
+		return ok && local.IntLiteral != "" && literalZero(local.IntLiteral)
+	}
+	return false
+}
+
+func applyNonZeroFacts(locals map[string]valueType, facts map[string]bool) {
+	for name := range facts {
+		typ, ok := locals[name]
+		if !ok || !integerOperand(typ) {
+			continue
+		}
+		typ.NonZero = true
+		locals[name] = typ
+	}
 }
 
 func (c *funcBodyChecker) checkFor(s ast.ForStmt, locals map[string]valueType) {
@@ -1128,6 +1258,16 @@ func (c *funcBodyChecker) checkInc(s ast.IncStmt, locals map[string]valueType) {
 	local, ok := locals[s.Name]
 	if !ok {
 		c.add(diag.Diagnostic{Code: "HZN1404", Severity: diag.SeverityError, Message: fmt.Sprintf("unknown identifier %q", s.Name), Primary: s.Span})
+		return
+	}
+	if local.Const {
+		c.add(diag.Diagnostic{
+			Code:     "HZN1481",
+			Severity: diag.SeverityError,
+			Message:  "constants cannot be incremented",
+			Primary:  s.Span,
+			Suggest:  "use `:=` for a fresh local counter instead of incrementing a package constant",
+		})
 		return
 	}
 	if !isIntegerScalar(local.Name) && local.Name != "untyped_int" {
@@ -1184,7 +1324,7 @@ func (t exprTyper) typeOf(expr ast.Expr) (valueType, []diag.Diagnostic) {
 	case ast.IdentExpr:
 		return t.ident(e)
 	case ast.IntExpr:
-		return valueType{Name: "untyped_int", IntLiteral: e.Value}, nil
+		return valueType{Name: "untyped_int", IntLiteral: e.Value, NonZero: literalNonZero(e.Value)}, nil
 	case ast.BoolExpr:
 		return valueType{Name: "bool"}, nil
 	case ast.NilExpr:
@@ -1353,6 +1493,7 @@ func (t exprTyper) unary(e ast.UnaryExpr) (valueType, []diag.Diagnostic) {
 		}
 		if operand.Name == "untyped_int" && !operand.Ptr && unaryIntegerLiteralOperand(e.Expr) {
 			operand.IntLiteral = negateIntegerLiteral(operand.IntLiteral)
+			operand.NonZero = literalNonZero(operand.IntLiteral)
 			return operand, diags
 		}
 		if isSignedIntegerScalar(operand.Name) && !operand.Ptr {
@@ -1523,9 +1664,11 @@ func comparable(left valueType, right valueType) bool {
 func integerResult(left valueType, right valueType) valueType {
 	if left.Name != "untyped_int" {
 		left.IntLiteral = ""
+		left.NonZero = false
 		return left
 	}
 	right.IntLiteral = ""
+	right.NonZero = false
 	return right
 }
 
@@ -1588,15 +1731,24 @@ func zeroDivisorDiagnostic(expr ast.BinaryExpr, divisor valueType) (diag.Diagnos
 		return diag.Diagnostic{}, false
 	}
 	value, ok := integerLiteralBig(divisor)
-	if !ok || value.Sign() != 0 {
+	if ok && value.Sign() == 0 {
+		return diag.Diagnostic{
+			Code:     "HZN1478",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("operator %s divisor cannot be literal zero", expr.Op),
+			Primary:  expr.Right.GetSpan(),
+			Suggest:  "use a non-zero constant or branch around dynamic divisors before dividing",
+		}, true
+	}
+	if valueKnownNonZero(divisor) {
 		return diag.Diagnostic{}, false
 	}
 	return diag.Diagnostic{
-		Code:     "HZN1478",
+		Code:     "HZN1480",
 		Severity: diag.SeverityError,
-		Message:  fmt.Sprintf("operator %s divisor cannot be literal zero", expr.Op),
+		Message:  fmt.Sprintf("operator %s divisor must be proven non-zero", expr.Op),
 		Primary:  expr.Right.GetSpan(),
-		Suggest:  "use a non-zero constant or branch around dynamic divisors before dividing",
+		Suggest:  "guard the divisor with `if value == 0 { return 0 }` or use a non-zero constant before dividing",
 	}, true
 }
 
@@ -1883,6 +2035,9 @@ func (t exprTyper) scalarConversion(name string, call ast.CallExpr) (valueType, 
 	arg, diags := t.typeOf(call.Args[0])
 	if arg.IntLiteral != "" {
 		result.IntLiteral = arg.IntLiteral
+	}
+	if valueKnownNonZero(arg) {
+		result.NonZero = true
 	}
 	if arg.Fallible != "" {
 		diags = append(diags, fallibleResultDiagnostic(call.Span, arg.Fallible))
@@ -2258,6 +2413,23 @@ func integerLiteralBig(t valueType) (*big.Int, bool) {
 		return nil, false
 	}
 	return value, true
+}
+
+func literalZero(lit string) bool {
+	value, ok := new(big.Int).SetString(lit, 0)
+	return ok && value.Sign() == 0
+}
+
+func literalNonZero(lit string) bool {
+	value, ok := new(big.Int).SetString(lit, 0)
+	return ok && value.Sign() != 0
+}
+
+func valueKnownNonZero(t valueType) bool {
+	if t.IntLiteral != "" {
+		return literalNonZero(t.IntLiteral)
+	}
+	return t.NonZero
 }
 
 func integerBitWidth(name string) int {

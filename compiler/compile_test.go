@@ -145,6 +145,47 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	}
 }
 
+func TestAnalyzeAllowsGuardedDynamicDivisor(t *testing.T) {
+	result := analyzeSource(t, "divisor.hzn", `package probes
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    denom := bpf.current_pid()
+    if denom == 0 {
+        return 0
+    }
+    value := u32(100) / denom
+    if value == 0 {
+        return 0
+    }
+    return 0
+}
+`)
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+}
+
+func TestAnalyzeAllowsBranchGuardedDynamicDivisor(t *testing.T) {
+	result := analyzeSource(t, "divisor.hzn", `package probes
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    denom := bpf.current_pid()
+    if denom != 0 {
+        value := u32(100) % denom
+        if value == 0 {
+            return 0
+        }
+    }
+    return 0
+}
+`)
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+}
+
 func TestAnalyzeReportsParseDiagnostic(t *testing.T) {
 	result := analyzeSource(t, "bad.hzn", `package probes
 
@@ -169,45 +210,48 @@ func OnExec(ctx tracepoint.Exec) i32 {
 
 func TestAnalyzeInvalidRingbufPrograms(t *testing.T) {
 	tests := map[string]string{
-		"../testdata/invalid/ringbuf_missing_nil_check.hzn":       "HZN2100",
-		"../testdata/invalid/ringbuf_write_after_submit.hzn":      "HZN2103",
-		"../testdata/invalid/ringbuf_double_submit.hzn":           "HZN2102",
-		"../testdata/invalid/ringbuf_live_on_return.hzn":          "HZN2104",
-		"../testdata/invalid/unbounded_loop.hzn":                  "HZN2200",
-		"../testdata/invalid/current_comm_bad_arg.hzn":            "HZN1415",
-		"../testdata/invalid/unknown_event_field.hzn":             "HZN1406",
-		"../testdata/invalid/packet_unproven_read.hzn":            "HZN2600",
-		"../testdata/invalid/stack_too_large.hzn":                 "HZN2700",
-		"../testdata/invalid/missing_return.hzn":                  "HZN1445",
-		"../testdata/invalid/map_update_ignored.hzn":              "HZN1446",
-		"../testdata/invalid/map_lookup_alias.hzn":                "HZN1447",
-		"../testdata/invalid/ringbuf_reservation_alias.hzn":       "HZN1447",
-		"../testdata/invalid/packet_header_alias.hzn":             "HZN1447",
-		"../testdata/invalid/xdp_raw_return.hzn":                  "HZN1448",
-		"../testdata/invalid/cgroup_ip4_bad_octet.hzn":            "HZN1469",
-		"../testdata/invalid/raw_scalar_address.hzn":              "HZN1472",
-		"../testdata/invalid/pointer_deref.hzn":                   "HZN1473",
-		"../testdata/invalid/bare_return.hzn":                     "HZN1476",
-		"../testdata/invalid/division_by_zero.hzn":                "HZN1478",
-		"../testdata/invalid/modulo_by_zero.hzn":                  "HZN1478",
-		"../testdata/invalid/const_division_by_zero.hzn":          "HZN1478",
-		"../testdata/invalid/shift_out_of_range.hzn":              "HZN1479",
-		"../testdata/invalid/negative_shift_count.hzn":            "HZN1479",
-		"../testdata/invalid/const_shift_out_of_range.hzn":        "HZN1479",
-		"../testdata/invalid/huge_shift_count.hzn":                "HZN1479",
-		"../testdata/invalid/conversion_literal_out_of_range.hzn": "HZN1470",
-		"../testdata/invalid/source_pointer_type.hzn":             "HZN1106",
-		"../testdata/invalid/duplicate_struct_field.hzn":          "HZN1107",
-		"../testdata/invalid/recursive_struct.hzn":                "HZN1108",
-		"../testdata/invalid/indirect_recursive_struct.hzn":       "HZN1108",
-		"../testdata/invalid/local_redeclare.hzn":                 "HZN1477",
-		"../testdata/invalid/local_map_shadow.hzn":                "HZN1477",
-		"../testdata/invalid/local_namespace_shadow.hzn":          "HZN1477",
-		"../testdata/invalid/top_level_namespace_shadow.hzn":      "HZN1004",
-		"../testdata/invalid/ringbuf_scalar_value.hzn":            "HZN1209",
-		"../testdata/invalid/struct_compiler_owned_field.hzn":     "HZN1110",
-		"../testdata/invalid/map_compiler_owned_value.hzn":        "HZN1110",
-		"../testdata/invalid/map_compiler_owned_key.hzn":          "HZN1110",
+		"../testdata/invalid/ringbuf_missing_nil_check.hzn":              "HZN2100",
+		"../testdata/invalid/ringbuf_write_after_submit.hzn":             "HZN2103",
+		"../testdata/invalid/ringbuf_double_submit.hzn":                  "HZN2102",
+		"../testdata/invalid/ringbuf_live_on_return.hzn":                 "HZN2104",
+		"../testdata/invalid/unbounded_loop.hzn":                         "HZN2200",
+		"../testdata/invalid/current_comm_bad_arg.hzn":                   "HZN1415",
+		"../testdata/invalid/unknown_event_field.hzn":                    "HZN1406",
+		"../testdata/invalid/packet_unproven_read.hzn":                   "HZN2600",
+		"../testdata/invalid/stack_too_large.hzn":                        "HZN2700",
+		"../testdata/invalid/missing_return.hzn":                         "HZN1445",
+		"../testdata/invalid/map_update_ignored.hzn":                     "HZN1446",
+		"../testdata/invalid/map_lookup_alias.hzn":                       "HZN1447",
+		"../testdata/invalid/ringbuf_reservation_alias.hzn":              "HZN1447",
+		"../testdata/invalid/packet_header_alias.hzn":                    "HZN1447",
+		"../testdata/invalid/xdp_raw_return.hzn":                         "HZN1448",
+		"../testdata/invalid/cgroup_ip4_bad_octet.hzn":                   "HZN1469",
+		"../testdata/invalid/raw_scalar_address.hzn":                     "HZN1472",
+		"../testdata/invalid/pointer_deref.hzn":                          "HZN1473",
+		"../testdata/invalid/bare_return.hzn":                            "HZN1476",
+		"../testdata/invalid/division_by_zero.hzn":                       "HZN1478",
+		"../testdata/invalid/modulo_by_zero.hzn":                         "HZN1478",
+		"../testdata/invalid/const_division_by_zero.hzn":                 "HZN1478",
+		"../testdata/invalid/shift_out_of_range.hzn":                     "HZN1479",
+		"../testdata/invalid/negative_shift_count.hzn":                   "HZN1479",
+		"../testdata/invalid/const_shift_out_of_range.hzn":               "HZN1479",
+		"../testdata/invalid/huge_shift_count.hzn":                       "HZN1479",
+		"../testdata/invalid/conversion_literal_out_of_range.hzn":        "HZN1470",
+		"../testdata/invalid/dynamic_divisor_missing_guard.hzn":          "HZN1480",
+		"../testdata/invalid/reassigned_divisor_loses_nonzero_proof.hzn": "HZN1480",
+		"../testdata/invalid/constant_assignment.hzn":                    "HZN1481",
+		"../testdata/invalid/source_pointer_type.hzn":                    "HZN1106",
+		"../testdata/invalid/duplicate_struct_field.hzn":                 "HZN1107",
+		"../testdata/invalid/recursive_struct.hzn":                       "HZN1108",
+		"../testdata/invalid/indirect_recursive_struct.hzn":              "HZN1108",
+		"../testdata/invalid/local_redeclare.hzn":                        "HZN1477",
+		"../testdata/invalid/local_map_shadow.hzn":                       "HZN1477",
+		"../testdata/invalid/local_namespace_shadow.hzn":                 "HZN1477",
+		"../testdata/invalid/top_level_namespace_shadow.hzn":             "HZN1004",
+		"../testdata/invalid/ringbuf_scalar_value.hzn":                   "HZN1209",
+		"../testdata/invalid/struct_compiler_owned_field.hzn":            "HZN1110",
+		"../testdata/invalid/map_compiler_owned_value.hzn":               "HZN1110",
+		"../testdata/invalid/map_compiler_owned_key.hzn":                 "HZN1110",
 	}
 	for path, code := range tests {
 		result, err := AnalyzePath(path)
