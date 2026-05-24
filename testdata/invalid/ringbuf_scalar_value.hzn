@@ -1,0 +1,3 @@
+package probes
+
+map Events ringbuf[u32]

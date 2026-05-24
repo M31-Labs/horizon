@@ -154,6 +154,7 @@ func TestAnalyzeInvalidRingbufPrograms(t *testing.T) {
 		"../testdata/invalid/local_map_shadow.hzn":           "HZN1477",
 		"../testdata/invalid/local_namespace_shadow.hzn":     "HZN1477",
 		"../testdata/invalid/top_level_namespace_shadow.hzn": "HZN1004",
+		"../testdata/invalid/ringbuf_scalar_value.hzn":       "HZN1209",
 	}
 	for path, code := range tests {
 		result, err := AnalyzePath(path)
@@ -333,6 +334,10 @@ func TestAnalyzeMapMaxEntriesPassesAndLowersToIR(t *testing.T) {
 const CountEntries u32 = 4096
 const RingbufBytes = 262144
 
+type Event struct {
+    pid u32
+}
+
 @max_entries(4096)
 map Counts hash[u32, u32]
 
@@ -340,7 +345,7 @@ map Counts hash[u32, u32]
 map ConstCounts hash[u32, u32]
 
 @max_entries(RingbufBytes)
-map Events ringbuf[u32]
+map Events ringbuf[Event]
 
 @tracepoint("sched:sched_process_exec")
 func OnExec(ctx tracepoint.Exec) i32 {
@@ -541,8 +546,12 @@ func OnExec(ctx tracepoint.Exec) i32 {
 `,
 		"ringbuf non power of two": `package probes
 
+type Event struct {
+    pid u32
+}
+
 @max_entries(3000)
-map Events ringbuf[u32]
+map Events ringbuf[Event]
 
 @tracepoint("sched:sched_process_exec")
 func OnExec(ctx tracepoint.Exec) i32 {

@@ -407,6 +407,7 @@ Horizon makes verifier-sensitive behavior explicit before clang runs:
 - source-authored pointer types such as `*u32` are rejected; nullable pointers only come from compiler-known map lookup, ringbuf reserve, and packet helpers
 - struct fields must be unique, and structs are finite by-value records; recursive struct shapes are rejected before C emission
 - package-scoped declarations cannot use compiler namespace names such as `bpf`, `xdp`, `tc`, `cgroup`, `lsm`, `kprobe`, or `tracepoint`
+- ringbuf maps emit typed events and must use declared struct value types, not scalars or compiler-owned packet/header structs
 - map sizing is explicit through `@max_entries(...)`; integer constants are resolved before C emission, and ringbuf sizes must be powers of two
 - map update/delete results must be checked with an explicit comparison
 - fixed array fields are address-only; pass `&event.comm` directly to helpers instead of copying arrays

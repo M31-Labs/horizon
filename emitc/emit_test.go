@@ -538,6 +538,10 @@ func TestEmitMapMaxEntries(t *testing.T) {
 
 const CountEntries = 4096
 
+type Event struct {
+    pid u32
+}
+
 @max_entries(4096)
 map Counts hash[u32, u32]
 
@@ -545,7 +549,7 @@ map Counts hash[u32, u32]
 map ConstCounts hash[u32, u32]
 
 @max_entries(0x40000)
-map Events ringbuf[u32]
+map Events ringbuf[Event]
 
 @tracepoint("sched:sched_process_exec")
 func OnExec(ctx tracepoint.Exec) i32 {

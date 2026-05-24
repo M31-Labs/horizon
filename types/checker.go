@@ -25,6 +25,7 @@ func CheckPackage(files []ast.File) [][]diag.Diagnostic {
 	structs := builtinStructs()
 	maps := map[string]ast.MapDecl{}
 	consts := map[string]ast.ConstDecl{}
+	userStructs := map[string]ast.TypeDecl{}
 	for i, file := range files {
 		if file.Package == "" {
 			diags[i] = append(diags[i], diag.Diagnostic{
@@ -63,6 +64,7 @@ func CheckPackage(files []ast.File) [][]diag.Diagnostic {
 			if typed, ok := decl.(ast.TypeDecl); ok && typed.Name != "" {
 				knownTypes[typed.Name] = true
 				structs[typed.Name] = typed
+				userStructs[typed.Name] = typed
 			}
 			if mapped, ok := decl.(ast.MapDecl); ok && mapped.Name != "" {
 				maps[mapped.Name] = mapped
@@ -78,7 +80,7 @@ func CheckPackage(files []ast.File) [][]diag.Diagnostic {
 			case ast.TypeDecl:
 				diags[i] = append(diags[i], validateTypeDecl(d, knownTypes, structs)...)
 			case ast.MapDecl:
-				diags[i] = append(diags[i], validateMapDecl(d, knownTypes, consts)...)
+				diags[i] = append(diags[i], validateMapDecl(d, knownTypes, userStructs, consts)...)
 			case ast.FuncDecl:
 				diags[i] = append(diags[i], validateFuncDecl(d, knownTypes, maps, structs, consts)...)
 			case ast.ConstDecl:
@@ -178,7 +180,7 @@ func fixedArrayType(elem string, len string) ast.TypeRef {
 	return ast.TypeRef{Len: len, Elem: &ast.TypeRef{Name: elem}}
 }
 
-func validateMapDecl(decl ast.MapDecl, known map[string]bool, consts map[string]ast.ConstDecl) []diag.Diagnostic {
+func validateMapDecl(decl ast.MapDecl, known map[string]bool, userStructs map[string]ast.TypeDecl, consts map[string]ast.ConstDecl) []diag.Diagnostic {
 	var diags []diag.Diagnostic
 	diags = append(diags, validateMapAttrs(decl, consts)...)
 	switch decl.Kind {
@@ -192,6 +194,15 @@ func validateMapDecl(decl ast.MapDecl, known map[string]bool, consts map[string]
 			})
 		}
 		diags = append(diags, validateTypeRef(decl.Val, known)...)
+		if !decl.Val.IsZero() && ringbufValueNeedsStructDiagnostic(decl.Val, known, userStructs) {
+			diags = append(diags, diag.Diagnostic{
+				Code:     "HZN1209",
+				Severity: diag.SeverityError,
+				Message:  fmt.Sprintf("ringbuf map %q must use a declared struct value type", decl.Name),
+				Primary:  decl.Val.Span,
+				Suggest:  "declare an event record such as `type Event struct { ... }` and use `ringbuf[Event]`",
+			})
+		}
 	case ast.MapKindHash, ast.MapKindArray, ast.MapKindPerCPUHash, ast.MapKindPerCPUArray, ast.MapKindLRUHash, ast.MapKindLRUPerCPU:
 		if decl.Key.IsZero() || decl.Val.IsZero() {
 			diags = append(diags, diag.Diagnostic{
@@ -221,6 +232,16 @@ func validateMapDecl(decl ast.MapDecl, known map[string]bool, consts map[string]
 		})
 	}
 	return diags
+}
+
+func ringbufValueNeedsStructDiagnostic(ref ast.TypeRef, known map[string]bool, userStructs map[string]ast.TypeDecl) bool {
+	if ref.Name == "" {
+		return true
+	}
+	if _, ok := userStructs[ref.Name]; ok {
+		return false
+	}
+	return known[ref.Name]
 }
 
 func validateMapAttrs(decl ast.MapDecl, consts map[string]ast.ConstDecl) []diag.Diagnostic {
