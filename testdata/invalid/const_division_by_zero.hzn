@@ -1,0 +1,12 @@
+package probes
+
+const Zero u32 = 0
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    value := u32(1) / Zero
+    if value == 0 {
+        return 0
+    }
+    return 0
+}

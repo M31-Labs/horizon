@@ -420,7 +420,7 @@ Horizon makes verifier-sensitive behavior explicit before clang runs:
 - parser failures are surfaced as stable diagnostics and never produce generated C
 - integer, bitwise, comparison, and boolean operators are typed before C emission
 - integer width changes are explicit; write `u64(pid)` or `u16(port)` instead of relying on implicit C coercions
-- integer literals are checked against their target scalar width before C emission
+- integer literals, literal-backed constants, and literal-backed conversions are checked against their target scalar width before C emission
 - unary negation is only allowed for signed scalar values or direct integer literals; unsigned values must be converted deliberately before signed arithmetic
 - division and modulo by literal zero are rejected before C emission
 - literal shift counts must be non-negative and smaller than the left operand width

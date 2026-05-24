@@ -1,0 +1,12 @@
+package probes
+
+const Shift u32 = 32
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    value := u32(1) << Shift
+    if value == 0 {
+        return 0
+    }
+    return 0
+}

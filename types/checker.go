@@ -2,6 +2,7 @@ package types
 
 import (
 	"fmt"
+	"math/big"
 	"strconv"
 	"strings"
 
@@ -499,7 +500,11 @@ func constValueType(expr ast.Expr) (valueType, bool) {
 
 func constDeclType(decl ast.ConstDecl) (valueType, bool) {
 	if !decl.Type.IsZero() && !decl.Type.Ptr && decl.Type.Elem == nil && len(decl.Type.Args) == 0 && isScalar(decl.Type.Name) {
-		return valueType{Name: decl.Type.Name, Ref: decl.Type}, true
+		typ := valueType{Name: decl.Type.Name, Ref: decl.Type}
+		if value, ok := constValueType(decl.Value); ok && value.IntLiteral != "" && isIntegerScalar(decl.Type.Name) {
+			typ.IntLiteral = value.IntLiteral
+		}
+		return typ, true
 	}
 	return constValueType(decl.Value)
 }
@@ -1582,8 +1587,8 @@ func zeroDivisorDiagnostic(expr ast.BinaryExpr, divisor valueType) (diag.Diagnos
 	if expr.Op != "/" && expr.Op != "%" {
 		return diag.Diagnostic{}, false
 	}
-	value, ok := integerLiteralValue(divisor)
-	if !ok || value != 0 {
+	value, ok := integerLiteralBig(divisor)
+	if !ok || value.Sign() != 0 {
 		return diag.Diagnostic{}, false
 	}
 	return diag.Diagnostic{
@@ -1596,7 +1601,7 @@ func zeroDivisorDiagnostic(expr ast.BinaryExpr, divisor valueType) (diag.Diagnos
 }
 
 func shiftCountDiagnostic(expr ast.BinaryExpr, value valueType, count valueType) (diag.Diagnostic, bool) {
-	lit, ok := integerLiteralValue(count)
+	lit, ok := integerLiteralBig(count)
 	if !ok {
 		return diag.Diagnostic{}, false
 	}
@@ -1604,7 +1609,7 @@ func shiftCountDiagnostic(expr ast.BinaryExpr, value valueType, count valueType)
 	if width == 0 {
 		return diag.Diagnostic{}, false
 	}
-	if lit < 0 {
+	if lit.Sign() < 0 {
 		return diag.Diagnostic{
 			Code:     "HZN1479",
 			Severity: diag.SeverityError,
@@ -1613,11 +1618,11 @@ func shiftCountDiagnostic(expr ast.BinaryExpr, value valueType, count valueType)
 			Suggest:  "use a shift count from 0 up to one less than the left operand width",
 		}, true
 	}
-	if lit >= int64(width) {
+	if lit.Cmp(big.NewInt(int64(width))) >= 0 {
 		return diag.Diagnostic{
 			Code:     "HZN1479",
 			Severity: diag.SeverityError,
-			Message:  fmt.Sprintf("operator %s shift count %d is outside the %s width", expr.Op, lit, typeName(value)),
+			Message:  fmt.Sprintf("operator %s shift count %s is outside the %s width", expr.Op, lit.String(), typeName(value)),
 			Primary:  expr.Right.GetSpan(),
 			Suggest:  fmt.Sprintf("use a shift count from 0 to %d for %s values", width-1, typeName(value)),
 		}, true
@@ -2197,7 +2202,7 @@ func integerOperandRangeDiagnostic(expr ast.BinaryExpr, left valueType, right va
 }
 
 func integerLiteralRangeDiagnostic(dst valueType, src valueType, primary span.Span) (diag.Diagnostic, bool) {
-	if src.Name != "untyped_int" || src.IntLiteral == "" || !isIntegerScalar(dst.Name) || integerLiteralFitsScalar(src.IntLiteral, dst.Name) {
+	if src.IntLiteral == "" || !integerOperand(src) || !isIntegerScalar(dst.Name) || integerLiteralFitsScalar(src.IntLiteral, dst.Name) {
 		return diag.Diagnostic{}, false
 	}
 	return diag.Diagnostic{
@@ -2244,13 +2249,13 @@ func integerLiteralFitsScalar(lit string, scalar string) bool {
 	}
 }
 
-func integerLiteralValue(t valueType) (int64, bool) {
+func integerLiteralBig(t valueType) (*big.Int, bool) {
 	if t.IntLiteral == "" {
-		return 0, false
+		return nil, false
 	}
-	value, err := strconv.ParseInt(t.IntLiteral, 0, 64)
-	if err != nil {
-		return 0, false
+	value, ok := new(big.Int).SetString(t.IntLiteral, 0)
+	if !ok {
+		return nil, false
 	}
 	return value, true
 }
