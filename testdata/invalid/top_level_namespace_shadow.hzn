@@ -1,0 +1,5 @@
+package probes
+
+type xdp struct {
+    pid u32
+}

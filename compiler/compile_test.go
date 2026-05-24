@@ -153,6 +153,7 @@ func TestAnalyzeInvalidRingbufPrograms(t *testing.T) {
 		"../testdata/invalid/local_redeclare.hzn":            "HZN1477",
 		"../testdata/invalid/local_map_shadow.hzn":           "HZN1477",
 		"../testdata/invalid/local_namespace_shadow.hzn":     "HZN1477",
+		"../testdata/invalid/top_level_namespace_shadow.hzn": "HZN1004",
 	}
 	for path, code := range tests {
 		result, err := AnalyzePath(path)

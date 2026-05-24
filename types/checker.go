@@ -39,6 +39,16 @@ func CheckPackage(files []ast.File) [][]diag.Diagnostic {
 			if name == "" {
 				continue
 			}
+			if compilerNamespace(name) {
+				diags[i] = append(diags[i], diag.Diagnostic{
+					Code:     "HZN1004",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("declaration %q conflicts with a compiler namespace", name),
+					Primary:  decl.GetSpan(),
+					Suggest:  "compiler namespaces such as bpf, xdp, tc, cgroup, lsm, kprobe, kretprobe, and tracepoint are reserved",
+				})
+				continue
+			}
 			if prev, ok := env.Decl(name); ok {
 				diags[i] = append(diags[i], diag.Diagnostic{
 					Code:     "HZN1002",
