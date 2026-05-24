@@ -300,6 +300,12 @@ func validateCallExpr(env *cEnv, expr *ir.Expr) error {
 	if expr.Func == nil {
 		return unsupportedExpr(expr, "call")
 	}
+	if isScalarConversionCall(expr) {
+		if err := validateArgCount(expr, qualifiedName(expr.Func), 1); err != nil {
+			return err
+		}
+		return validateArgs(env, expr.Args)
+	}
 	if expr.Func.Kind == "selector" && expr.Func.Operand != nil && expr.Func.Operand.Kind == "ident" {
 		root := expr.Func.Operand.Name
 		method := expr.Func.Field

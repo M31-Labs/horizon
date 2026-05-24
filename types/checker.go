@@ -1186,6 +1186,9 @@ func typeOfStructLiteral(lit ast.StructLiteralExpr, locals map[string]valueType,
 
 func typeOfCall(call ast.CallExpr, locals map[string]valueType, maps map[string]ast.MapDecl, structs map[string]ast.TypeDecl) (valueType, []diag.Diagnostic) {
 	var diags []diag.Diagnostic
+	if name, ok := identCallTarget(call.Func); ok && isIntegerScalar(name) {
+		return typeOfScalarConversion(name, call, locals, maps, structs)
+	}
 	root, method, ok := selectorParts(call.Func)
 	if !ok {
 		return valueType{}, []diag.Diagnostic{{
@@ -1347,6 +1350,28 @@ func typeOfCall(call ast.CallExpr, locals map[string]valueType, maps map[string]
 	}}
 }
 
+func typeOfScalarConversion(name string, call ast.CallExpr, locals map[string]valueType, maps map[string]ast.MapDecl, structs map[string]ast.TypeDecl) (valueType, []diag.Diagnostic) {
+	if len(call.Args) != 1 {
+		return valueType{Name: name}, []diag.Diagnostic{argCountDiagnostic(call.Span, name, 1, len(call.Args))}
+	}
+	arg, diags := typeOfExpr(call.Args[0], locals, maps, structs)
+	if arg.Fallible != "" {
+		diags = append(diags, fallibleResultDiagnostic(call.Span, arg.Fallible))
+		return valueType{Name: name}, diags
+	}
+	if arg.Void || arg.Ptr || arg.MaybeNil || arg.Resource || !integerOperand(arg) ||
+		arg.XDPAction || arg.TCAction || arg.CgroupAction || arg.LSMAction {
+		diags = append(diags, diag.Diagnostic{
+			Code:     "HZN1463",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("cannot convert %s to %s", typeName(arg), name),
+			Primary:  call.Span,
+			Suggest:  "explicit conversions only work between integer scalar values, for example `u64(pid)`",
+		})
+	}
+	return valueType{Name: name}, diags
+}
+
 func typeOfXDPCall(name string, call ast.CallExpr, locals map[string]valueType, maps map[string]ast.MapDecl, structs map[string]ast.TypeDecl) (valueType, []diag.Diagnostic) {
 	switch name {
 	case "eth", "ipv4", "tcp", "udp":
@@ -1467,6 +1492,14 @@ func selectorParts(expr ast.Expr) (string, string, bool) {
 		return "", "", false
 	}
 	return root.Name, sel.Field, true
+}
+
+func identCallTarget(expr ast.Expr) (string, bool) {
+	ident, ok := expr.(ast.IdentExpr)
+	if !ok {
+		return "", false
+	}
+	return ident.Name, ident.Name != ""
 }
 
 func findField(structDecl ast.TypeDecl, name string) (ast.Field, bool) {

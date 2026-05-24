@@ -744,6 +744,49 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	}
 }
 
+func TestAnalyzeAllowsExplicitIntegerScalarConversions(t *testing.T) {
+	result := analyzeSource(t, "counts.hzn", `package probes
+
+import bpf "m31labs.dev/horizon/runtime/kernel"
+
+type Count struct {
+    pid64 u64
+    port  u16
+}
+
+map Counts hash[u32, Count]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    pid := bpf.current_pid()
+    port := u16(pid & 0xffff)
+    if Counts.update(pid, Count{pid64: u64(pid), port: port}) != 0 {
+        return 0
+    }
+    return 0
+}
+`)
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+}
+
+func TestAnalyzeRejectsNonIntegerScalarConversions(t *testing.T) {
+	result := analyzeSource(t, "flags.hzn", `package probes
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    active := true
+    value := u32(active)
+    if value != 0 {
+        return 0
+    }
+    return 0
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1463")
+}
+
 func TestAnalyzeRejectsNonBoolCondition(t *testing.T) {
 	result := analyzeSource(t, "bad_condition.hzn", `package probes
 

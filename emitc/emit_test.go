@@ -476,6 +476,52 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	}
 }
 
+func TestEmitExplicitIntegerScalarConversions(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "counts.hzn")
+	if err := os.WriteFile(path, []byte(`package probes
+
+import bpf "m31labs.dev/horizon/runtime/kernel"
+
+type Count struct {
+    pid64 u64
+    port  u16
+}
+
+map Counts hash[u32, Count]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    pid := bpf.current_pid()
+    pid64 := u64(pid)
+    port := u16(pid & 0xffff)
+    if Counts.update(pid, Count{pid64: pid64, port: port}) != 0 {
+        return 0
+    }
+    return 0
+}
+`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	result, err := compiler.AnalyzePath(dir)
+	if err != nil {
+		t.Fatalf("AnalyzePath: %v", err)
+	}
+	out, err := Emit(result.Program)
+	if err != nil {
+		t.Fatalf("Emit: %v", err)
+	}
+	for _, want := range []string{
+		"__u64 pid64 = (__u64)(pid);",
+		"__u16 port = (__u16)(pid & 0xffff);",
+		"if (Counts_update(pid, (struct hzn_type_Count){ .pid64 = pid64, .port = port }) != 0) {",
+	} {
+		if !strings.Contains(out.Code, want) {
+			t.Fatalf("generated C missing %q:\n%s", want, out.Code)
+		}
+	}
+}
+
 func TestEmitMapLookupUsesPointerSelector(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "counts.hzn")

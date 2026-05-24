@@ -21,6 +21,7 @@ It keeps the kernel-side language deliberately small:
 - hash and array maps
 - nil-checked map lookups
 - bounded counted loops
+- explicit integer scalar conversions such as `u64(pid)`
 - compiler-known kernel helpers
 - readable generated BPF C
 - source maps with declaration and function/section context for diagnostics
@@ -261,6 +262,7 @@ Horizon makes verifier-sensitive behavior explicit before clang runs:
 - conditions must be typed boolean expressions; integers and pointers need explicit comparison
 - parser failures are surfaced as stable diagnostics and never produce generated C
 - integer, bitwise, comparison, and boolean operators are typed before C emission
+- integer width changes are explicit; write `u64(pid)` or `u16(port)` instead of relying on implicit C coercions
 - every program must return an explicit `i32` on every control-flow path
 - only bounded counted loops are accepted
 - helper availability is checked against the program kind

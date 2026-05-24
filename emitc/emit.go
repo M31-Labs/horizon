@@ -1075,6 +1075,9 @@ func cExprType(expr *ir.Expr, env *cEnv) (ir.Type, bool) {
 		return ir.Type{Name: expr.Name}, true
 	case "call":
 		if name := qualifiedName(expr.Func); name != "" {
+			if isScalarConversionCall(expr) {
+				return ir.Type{Name: name}, true
+			}
 			switch name {
 			case "bpf.current_pid", "bpf.current_ppid", "bpf.current_uid":
 				return ir.Type{Name: "u32"}, true
@@ -1418,6 +1421,10 @@ func cCallExpr(expr *ir.Expr, env *cEnv) string {
 	if expr == nil || expr.Kind != "call" {
 		return "0"
 	}
+	if isScalarConversionCall(expr) && len(expr.Args) == 1 {
+		arg := expr.Args[0]
+		return fmt.Sprintf("(%s)(%s)", cType(ir.Type{Name: qualifiedName(expr.Func)}), cExpr(&arg, env))
+	}
 	if mapName, method, ok := mapMethodCall(expr); ok {
 		args := make([]string, 0, len(expr.Args))
 		for _, arg := range expr.Args {
@@ -1477,6 +1484,22 @@ func cCallExpr(expr *ir.Expr, env *cEnv) string {
 		args = append(args, cExpr(&arg, env))
 	}
 	return cExpr(expr.Func, env) + "(" + strings.Join(args, ", ") + ")"
+}
+
+func isScalarConversionCall(expr *ir.Expr) bool {
+	if expr == nil || expr.Kind != "call" || expr.Func == nil || expr.Func.Kind != "ident" {
+		return false
+	}
+	return isIntegerScalarType(expr.Func.Name)
+}
+
+func isIntegerScalarType(name string) bool {
+	switch name {
+	case "u8", "u16", "u32", "u64", "i8", "i16", "i32", "i64":
+		return true
+	default:
+		return false
+	}
 }
 
 func sizeofExpr(expr *ir.Expr, env *cEnv) string {
