@@ -19,6 +19,7 @@ func runDiagnose(args []string) error {
 	mapPath := fs.String("map", "", "source map path")
 	generatedPath := fs.String("generated", "", "generated BPF C path")
 	jsonOut := fs.Bool("json", false, "emit JSON diagnostics")
+	failOnError := fs.Bool("fail-on-error", false, "return a non-zero diagnostic error when remapped diagnostics contain errors")
 	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
@@ -50,8 +51,10 @@ func runDiagnose(args []string) error {
 			return err
 		}
 		data = append(data, '\n')
-		_, err = os.Stdout.Write(data)
-		return err
+		if _, err := os.Stdout.Write(data); err != nil {
+			return err
+		}
+		return diagnoseExitError(diagnostics, *failOnError)
 	}
 	for _, d := range diagnostics {
 		fmt.Println(d.Format())
@@ -61,7 +64,24 @@ func runDiagnose(args []string) error {
 			}
 		}
 	}
-	return nil
+	return diagnoseExitError(diagnostics, *failOnError)
+}
+
+func diagnoseExitError(diagnostics []diag.Diagnostic, failOnError bool) error {
+	if !failOnError || !diag.HasErrors(diagnostics) {
+		return nil
+	}
+	return errDiagnostics(errorDiagnosticCount(diagnostics))
+}
+
+func errorDiagnosticCount(diagnostics []diag.Diagnostic) int {
+	count := 0
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Severity == "" || diagnostic.Severity == diag.SeverityError {
+			count++
+		}
+	}
+	return count
 }
 
 func readDiagnoseLog(path string) ([]byte, error) {

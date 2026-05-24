@@ -193,6 +193,73 @@ func TestDiagnoseMapsHelperWrapperDiagnosticToAuthoredCall(t *testing.T) {
 	}
 }
 
+func TestDiagnoseFailOnErrorReturnsDiagnosticErrorAfterJSON(t *testing.T) {
+	dir := t.TempDir()
+	sourcePath := filepath.Join(dir, "input.hzn")
+	cPath := filepath.Join(dir, "input.bpf.c")
+	mapPath := filepath.Join(dir, "input.hznmap.json")
+	logPath := filepath.Join(dir, "verifier.log")
+
+	sourceMap := diagnoseTestSourceMap(sourcePath, "input.bpf.c", 2)
+	writeDiagnoseSourceMap(t, mapPath, sourceMap)
+	if err := os.WriteFile(sourcePath, []byte("package probes\n\nfunc OnExec(ctx tracepoint.Exec) i32 {\n    event := ExecEvents.reserve()\n    if event == nil {\n        return 0\n    bad_access()\n}\n"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	if err := os.WriteFile(cPath, []byte("int OnExec(void *ctx) {\n    bad_access();\n}\n"), 0o644); err != nil {
+		t.Fatalf("write generated C: %v", err)
+	}
+	if err := os.WriteFile(logPath, []byte("0: R1=ctx() R10=fp0\n; bad_access();\ninvalid mem access 'scalar'\n"), 0o644); err != nil {
+		t.Fatalf("write log: %v", err)
+	}
+
+	stdout, err := captureStdout(t, func() error {
+		return run([]string{"diagnose", logPath, "-map", mapPath, "-json", "-fail-on-error"})
+	})
+	if err == nil || err.Error() != "1 diagnostic(s)" {
+		t.Fatalf("run diagnose -fail-on-error error = %v, want one diagnostic error", err)
+	}
+
+	var diagnostics []diag.Diagnostic
+	if err := json.Unmarshal([]byte(stdout), &diagnostics); err != nil {
+		t.Fatalf("unmarshal diagnostics after failed diagnose: %v\n%s", err, stdout)
+	}
+	if len(diagnostics) != 1 || diagnostics[0].Severity != diag.SeverityError {
+		t.Fatalf("diagnostics = %#v, want one error diagnostic", diagnostics)
+	}
+	if diagnostics[0].Source == nil || !strings.Contains(diagnostics[0].Source.Text, "bad_access") {
+		t.Fatalf("source context = %#v, want authored source line", diagnostics[0].Source)
+	}
+}
+
+func TestDiagnoseFailOnErrorIgnoresWarnings(t *testing.T) {
+	dir := t.TempDir()
+	sourcePath := filepath.Join(dir, "input.hzn")
+	cPath := filepath.Join(dir, "input.bpf.c")
+	mapPath := filepath.Join(dir, "input.hznmap.json")
+	logPath := filepath.Join(dir, "clang.log")
+
+	sourceMap := diagnoseTestSourceMap(sourcePath, cPath, 2)
+	writeDiagnoseSourceMap(t, mapPath, sourceMap)
+	if err := os.WriteFile(logPath, []byte(fmt.Sprintf("%s:2:5: warning: synthetic clang warning\n", cPath)), 0o644); err != nil {
+		t.Fatalf("write log: %v", err)
+	}
+
+	stdout, err := captureStdout(t, func() error {
+		return run([]string{"diagnose", logPath, "-map", mapPath, "-json", "-fail-on-error"})
+	})
+	if err != nil {
+		t.Fatalf("run diagnose warning -fail-on-error: %v", err)
+	}
+
+	var diagnostics []diag.Diagnostic
+	if err := json.Unmarshal([]byte(stdout), &diagnostics); err != nil {
+		t.Fatalf("unmarshal diagnostics: %v\n%s", err, stdout)
+	}
+	if len(diagnostics) != 1 || diagnostics[0].Severity != diag.SeverityWarning {
+		t.Fatalf("diagnostics = %#v, want one warning diagnostic", diagnostics)
+	}
+}
+
 func TestDiagnoseAddsVerifierSpecificSuggestions(t *testing.T) {
 	tests := map[string]string{
 		"unreleased reference id=3 alloc_insn=8": "ringbuf reservation",

@@ -312,6 +312,7 @@ sudo go run ./examples/tcpass/cmd/tcpass -obj dist/tc.bpf.o -iface lo
 hzn build ./examples/xdpdrop -o dist
 sudo go run ./examples/xdpdrop/cmd/xdpdrop -obj dist/xdp.bpf.o -iface lo
 hzn diagnose dist/exec.verifier.log --map dist/exec.hznmap.json
+hzn diagnose dist/exec.verifier.log --map dist/exec.hznmap.json -json -fail-on-error
 ```
 
 `hzn fmt` gives `.hzn` files a canonical AST-based style for local editing and
@@ -337,6 +338,11 @@ section, and AST node. Common verifier failures also carry Horizon-specific
 remediation hints for nil checks, ringbuf lifetimes, bounded loops, helper
 availability, and stack usage. Use `-compile` or `hzn build` when the local
 clang/BPF C toolchain should also produce a `.bpf.o`.
+
+`hzn diagnose` remaps clang and verifier logs through an `.hznmap.json` source
+map. By default it exits successfully when it can explain the log, even when the
+log contains errors. Use `-fail-on-error` in CI or editor tasks that should exit
+non-zero after emitting remapped diagnostics.
 
 Generated Go bindings expose typed helpers around the loaded objects: ringbuf
 maps get `Read<Name>(context.Context, func(Event) error)`, hash maps get
