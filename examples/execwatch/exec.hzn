@@ -3,9 +3,9 @@ package probes
 import bpf "m31labs.dev/horizon/runtime/kernel"
 
 type ExecEvent struct {
-    pid  u32
+    pid u32
     ppid u32
-    uid  u32
+    uid u32
     comm [16]u8
 }
 
@@ -18,13 +18,10 @@ func OnExec(ctx tracepoint.Exec) i32 {
     if event == nil {
         return 0
     }
-
     event.pid = bpf.current_pid()
     event.ppid = bpf.current_ppid()
     event.uid = bpf.current_uid()
     bpf.current_comm(&event.comm)
-
     ExecEvents.submit(event)
     return 0
 }
-

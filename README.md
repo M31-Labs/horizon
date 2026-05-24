@@ -186,6 +186,9 @@ func DenyFileOpen(ctx lsm.Context) i32 {
 ```sh
 hzn check ./examples/execwatch
 hzn check ./examples/execwatch -json
+hzn fmt ./examples/execwatch
+hzn fmt ./examples -w
+hzn fmt ./examples -check
 hzn doctor
 make setup-vmlinux
 hzn workbench ./examples/execwatch -o dist
@@ -209,6 +212,11 @@ hzn build ./examples/xdpdrop -o dist
 sudo go run ./examples/xdpdrop/cmd/xdpdrop -obj dist/xdp.bpf.o -iface lo
 hzn diagnose dist/exec.verifier.log --map dist/exec.hznmap.json
 ```
+
+`hzn fmt` gives `.hzn` files a canonical AST-based style for local editing and
+CI. Use `-w` to update files in place and `-check` to fail when files need
+formatting. The v0 formatter refuses files with line comments until comment
+preservation is implemented.
 
 `hzn workbench` is the authoring path: it validates source and writes readable
 BPF C, a source map, typed Go bindings, a capability manifest, diagnostics, and
