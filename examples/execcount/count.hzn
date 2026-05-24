@@ -16,7 +16,9 @@ func OnExec(ctx tracepoint.Exec) i32 {
     pid := bpf.current_pid()
     count := ExecCounts.lookup(pid)
     if count == nil {
-        ExecCounts.update(pid, Count{seen: FirstSeen})
+        if ExecCounts.update(pid, Count{seen: FirstSeen}) != 0 {
+            return 0
+        }
         return 0
     }
 

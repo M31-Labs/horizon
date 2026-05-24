@@ -39,6 +39,7 @@ func TestAnalyzeInvalidRingbufPrograms(t *testing.T) {
 		"../testdata/invalid/packet_unproven_read.hzn":       "HZN2600",
 		"../testdata/invalid/stack_too_large.hzn":            "HZN2700",
 		"../testdata/invalid/missing_return.hzn":             "HZN1445",
+		"../testdata/invalid/map_update_ignored.hzn":         "HZN1446",
 	}
 	for path, code := range tests {
 		result, err := AnalyzePath(path)
@@ -318,7 +319,9 @@ map Counts hash[u32, Count]
 @tracepoint("sched:sched_process_exec")
 func OnExec(ctx tracepoint.Exec) i32 {
     pid := bpf.current_pid()
-    Counts.update(pid, Count{seen: pid})
+    if Counts.update(pid, Count{seen: pid}) != 0 {
+        return 0
+    }
     return 0
 }
 `), 0o600); err != nil {
@@ -347,7 +350,9 @@ map Counts hash[u32, Count]
 @tracepoint("sched:sched_process_exec")
 func OnExec(ctx tracepoint.Exec) i32 {
     pid := bpf.current_pid()
-    Counts.update(pid, Count{missing: pid})
+    if Counts.update(pid, Count{missing: pid}) != 0 {
+        return 0
+    }
     return 0
 }
 `), 0o600); err != nil {
@@ -362,6 +367,65 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	}
 }
 
+func TestAnalyzeRejectsStoredFallibleMapResult(t *testing.T) {
+	result := analyzeSource(t, "counts.hzn", `package probes
+
+type Count struct {
+    seen u32
+}
+
+map Counts hash[u32, Count]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    pid := bpf.current_pid()
+    err := Counts.update(pid, Count{seen: pid})
+    if err != 0 {
+        return 0
+    }
+    return 0
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1446")
+}
+
+func TestAnalyzeRejectsIgnoredFallibleMapDelete(t *testing.T) {
+	result := analyzeSource(t, "counts.hzn", `package probes
+
+map Counts hash[u32, u32]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    pid := bpf.current_pid()
+    Counts.delete(pid)
+    return 0
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1446")
+}
+
+func TestAnalyzeRejectsFallibleMapResultInArithmetic(t *testing.T) {
+	result := analyzeSource(t, "counts.hzn", `package probes
+
+type Count struct {
+    seen u32
+}
+
+map Counts hash[u32, Count]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    pid := bpf.current_pid()
+    value := Counts.update(pid, Count{seen: pid}) + 1
+    if value != 0 {
+        return 0
+    }
+    return 0
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1446")
+}
+
 func TestAnalyzeAllowsIntegerConstInExpressions(t *testing.T) {
 	result := analyzeSource(t, "counts.hzn", `package probes
 
@@ -374,7 +438,9 @@ map Counts hash[u32, u32]
 @tracepoint("sched:sched_process_exec")
 func OnExec(ctx tracepoint.Exec) i32 {
     pid := bpf.current_pid()
-    Counts.update(pid, FirstSeen)
+    if Counts.update(pid, FirstSeen) != 0 {
+        return 0
+    }
     return 0
 }
 `)
@@ -413,7 +479,9 @@ func OnExec(ctx tracepoint.Exec) i32 {
     pid := bpf.current_pid()
     bucket := (pid & Mask) + 1
     if bucket != 0 && pid > 0 {
-        Counts.update(bucket, pid)
+        if Counts.update(bucket, pid) != 0 {
+            return 0
+        }
     }
     return 0
 }

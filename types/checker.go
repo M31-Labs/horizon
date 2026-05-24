@@ -394,6 +394,7 @@ type valueType struct {
 	Ptr      bool
 	Resource bool
 	MaybeNil bool
+	Fallible string
 	Void     bool
 }
 
@@ -415,6 +416,10 @@ func validateFuncBody(decl ast.FuncDecl, maps map[string]ast.MapDecl, structs ma
 		case ast.ShortVarStmt:
 			typ, exprDiags := typeOfExpr(s.Value, locals, maps, structs)
 			diags = append(diags, exprDiags...)
+			if typ.Fallible != "" {
+				diags = append(diags, fallibleResultDiagnostic(s.Span, typ.Fallible))
+				break
+			}
 			if typ.Void {
 				diags = append(diags, diag.Diagnostic{
 					Code:     "HZN1409",
@@ -437,6 +442,10 @@ func validateFuncBody(decl ast.FuncDecl, maps map[string]ast.MapDecl, structs ma
 			targetHadErrors := len(targetDiags) > 0
 			diags = append(diags, targetDiags...)
 			diags = append(diags, valueDiags...)
+			if value.Fallible != "" {
+				diags = append(diags, fallibleResultDiagnostic(s.Span, value.Fallible))
+				break
+			}
 			if targetHadErrors {
 				break
 			}
@@ -466,8 +475,11 @@ func validateFuncBody(decl ast.FuncDecl, maps map[string]ast.MapDecl, structs ma
 				})
 			}
 		case ast.ExprStmt:
-			_, exprDiags := typeOfExpr(s.Expr, locals, maps, structs)
+			typ, exprDiags := typeOfExpr(s.Expr, locals, maps, structs)
 			diags = append(diags, exprDiags...)
+			if typ.Fallible != "" {
+				diags = append(diags, fallibleResultDiagnostic(s.Span, typ.Fallible))
+			}
 		case ast.ReturnStmt:
 			value, exprDiags := typeOfExpr(s.Value, locals, maps, structs)
 			diags = append(diags, exprDiags...)
@@ -700,6 +712,16 @@ func typeOfBinaryExpr(expr ast.BinaryExpr, left valueType, right valueType) (val
 	if left.Void || right.Void {
 		return valueType{Void: true}, nil
 	}
+	if left.Fallible != "" || right.Fallible != "" {
+		if fallibleResultIsChecked(expr.Op, left, right) {
+			return valueType{Name: "bool"}, nil
+		}
+		operation := left.Fallible
+		if operation == "" {
+			operation = right.Fallible
+		}
+		return valueType{Void: true}, []diag.Diagnostic{fallibleResultDiagnostic(expr.Span, operation)}
+	}
 	switch {
 	case isLogicalOp(expr.Op):
 		if left.Name == "bool" && right.Name == "bool" && !left.Ptr && !right.Ptr {
@@ -802,6 +824,22 @@ func isComparisonOp(op string) bool {
 	default:
 		return false
 	}
+}
+
+func fallibleResultIsChecked(op string, left valueType, right valueType) bool {
+	if !isEqualityOp(op) && !isComparisonOp(op) {
+		return false
+	}
+	if left.Fallible != "" && right.Fallible != "" {
+		return false
+	}
+	if left.Fallible != "" {
+		return integerOperand(left) && integerOperand(right) && compatibleIntegerOperands(left, right)
+	}
+	if right.Fallible != "" {
+		return integerOperand(left) && integerOperand(right) && compatibleIntegerOperands(left, right)
+	}
+	return false
 }
 
 func isShiftOp(op string) bool {
@@ -925,7 +963,7 @@ func typeOfCall(call ast.CallExpr, locals map[string]valueType, maps map[string]
 		case "update":
 			if len(call.Args) != 2 {
 				diags = append(diags, argCountDiagnostic(call.Span, root+".update", 2, len(call.Args)))
-				return valueType{Name: "i64"}, diags
+				return valueType{Name: "i64", Fallible: root + ".update"}, diags
 			}
 			if m.Kind != ast.MapKindHash && m.Kind != ast.MapKindArray {
 				diags = append(diags, diag.Diagnostic{
@@ -955,11 +993,11 @@ func typeOfCall(call ast.CallExpr, locals map[string]valueType, maps map[string]
 					Primary:  call.Span,
 				})
 			}
-			return valueType{Name: "i64"}, diags
+			return valueType{Name: "i64", Fallible: root + ".update"}, diags
 		case "delete":
 			if len(call.Args) != 1 {
 				diags = append(diags, argCountDiagnostic(call.Span, root+".delete", 1, len(call.Args)))
-				return valueType{Name: "i64"}, diags
+				return valueType{Name: "i64", Fallible: root + ".delete"}, diags
 			}
 			if m.Kind != ast.MapKindHash {
 				diags = append(diags, diag.Diagnostic{
@@ -979,7 +1017,7 @@ func typeOfCall(call ast.CallExpr, locals map[string]valueType, maps map[string]
 					Primary:  call.Span,
 				})
 			}
-			return valueType{Name: "i64"}, diags
+			return valueType{Name: "i64", Fallible: root + ".delete"}, diags
 		case "reserve":
 			if len(call.Args) != 0 {
 				diags = append(diags, argCountDiagnostic(call.Span, root+".reserve", 0, len(call.Args)))
@@ -1166,6 +1204,19 @@ func fixedArrayValueDiagnostic(primary span.Span) diag.Diagnostic {
 		Message:  "fixed array values are address-only in Horizon v0",
 		Primary:  primary,
 		Suggest:  "pass a field address such as &event.comm directly to a compiler-known helper instead of copying the array",
+	}
+}
+
+func fallibleResultDiagnostic(primary span.Span, operation string) diag.Diagnostic {
+	if operation == "" {
+		operation = "map operation"
+	}
+	return diag.Diagnostic{
+		Code:     "HZN1446",
+		Severity: diag.SeverityError,
+		Message:  fmt.Sprintf("fallible %s result must be checked with a direct comparison", operation),
+		Primary:  primary,
+		Suggest:  fmt.Sprintf("compare the result explicitly, for example `if %s(...) != 0 { return 0 }`", operation),
 	}
 }
 

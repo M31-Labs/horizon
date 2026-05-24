@@ -128,12 +128,16 @@ map Counts hash[u32, u32]
 @tracepoint("sched:sched_process_exec")
 func OnExec(ctx tracepoint.Exec) i32 {
     pid := bpf.current_pid()
-    Counts.update(pid, pid)
+    if Counts.update(pid, pid) != 0 {
+        return 0
+    }
     value := Counts.lookup(pid)
     if value == nil {
         return 0
     }
-    Counts.delete(pid)
+    if Counts.delete(pid) != 0 {
+        return 0
+    }
     return 0
 }
 `), 0o600); err != nil {
@@ -154,9 +158,9 @@ func OnExec(ctx tracepoint.Exec) i32 {
 		"static __always_inline __u32 *Counts_lookup(__u32 key)",
 		"static __always_inline long Counts_update(__u32 key, __u32 value)",
 		"static __always_inline long Counts_delete(__u32 key)",
-		"Counts_update(pid, pid);",
+		"if (Counts_update(pid, pid) != 0) {",
 		"__u32 *value = Counts_lookup(pid);",
-		"Counts_delete(pid);",
+		"if (Counts_delete(pid) != 0) {",
 	} {
 		if !strings.Contains(out.Code, want) {
 			t.Fatalf("generated C missing %q:\n%s", want, out.Code)
@@ -181,7 +185,9 @@ func OnExec(ctx tracepoint.Exec) i32 {
     state := Count{seen: pid}
     state.seen = bpf.current_pid()
     seen := state.seen
-    Counts.update(pid, state)
+    if Counts.update(pid, state) != 0 {
+        return 0
+    }
     return 0
 }
 `), 0o600); err != nil {
@@ -203,7 +209,7 @@ func OnExec(ctx tracepoint.Exec) i32 {
 		"struct Count state = (struct Count){ .seen = pid };",
 		"state.seen = hzn_current_pid();",
 		"__u32 seen = state.seen;",
-		"Counts_update(pid, state);",
+		"if (Counts_update(pid, state) != 0) {",
 	} {
 		if !strings.Contains(out.Code, want) {
 			t.Fatalf("generated C missing %q:\n%s", want, out.Code)
@@ -280,7 +286,9 @@ map Counts hash[u32, u32]
 @tracepoint("sched:sched_process_exec")
 func OnExec(ctx tracepoint.Exec) i32 {
     pid := bpf.current_pid()
-    Counts.update(pid, FirstSeen)
+    if Counts.update(pid, FirstSeen) != 0 {
+        return 0
+    }
     return 0
 }
 `), 0o600); err != nil {
@@ -296,7 +304,7 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	}
 	for _, want := range []string{
 		"static const __u64 FirstSeen = 1;",
-		"Counts_update(pid, FirstSeen);",
+		"if (Counts_update(pid, FirstSeen) != 0) {",
 	} {
 		if !strings.Contains(out.Code, want) {
 			t.Fatalf("generated C missing %q:\n%s", want, out.Code)
@@ -320,7 +328,9 @@ func OnExec(ctx tracepoint.Exec) i32 {
     pid := bpf.current_pid()
     bucket := (pid & Mask) + 1
     if bucket != 0 && pid > 0 {
-        Counts.update(bucket, pid)
+        if Counts.update(bucket, pid) != 0 {
+            return 0
+        }
     }
     return 0
 }
@@ -339,7 +349,7 @@ func OnExec(ctx tracepoint.Exec) i32 {
 		"static const __u64 Mask = 0x0f;",
 		"__u32 bucket = (pid & Mask) + 1;",
 		"if ((bucket != 0) && (pid > 0)) {",
-		"Counts_update(bucket, pid);",
+		"if (Counts_update(bucket, pid) != 0) {",
 	} {
 		if !strings.Contains(out.Code, want) {
 			t.Fatalf("generated C missing %q:\n%s", want, out.Code)

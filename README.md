@@ -76,7 +76,9 @@ map Counts hash[u32, Count]
 @tracepoint("sched:sched_process_exec")
 func OnExec(ctx tracepoint.Exec) i32 {
     pid := bpf.current_pid()
-    Counts.update(pid, Count{seen: FirstSeen})
+    if Counts.update(pid, Count{seen: FirstSeen}) != 0 {
+        return 0
+    }
 
     count := Counts.lookup(pid)
     if count == nil {
@@ -198,6 +200,7 @@ Horizon makes verifier-sensitive behavior explicit before clang runs:
 - ringbuf reservations must be nil-checked, submitted, or discarded exactly once
 - writes after ringbuf submit/discard are rejected
 - map lookup results must be nil-checked before field access
+- map update/delete results must be checked with an explicit comparison
 - fixed array fields are address-only; pass `&event.comm` directly to helpers instead of copying arrays
 - conditions must be typed boolean expressions; integers and pointers need explicit comparison
 - integer, bitwise, comparison, and boolean operators are typed before C emission
