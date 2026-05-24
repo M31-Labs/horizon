@@ -1,4 +1,13 @@
 OUT ?= dist
+HZN_EXAMPLES := \
+	./examples/cgroupconnect \
+	./examples/execwatch \
+	./examples/execcount \
+	./examples/lsmfile \
+	./examples/openwatch \
+	./examples/tcpconnect \
+	./examples/tcpass \
+	./examples/xdpdrop
 
 .PHONY: test check ci ci-go ci-clang fmt-check doctor setup-vmlinux workbench build-example build-examples clang-smoke
 
@@ -31,14 +40,13 @@ build-example:
 	go run ./cmd/hzn build ./examples/execwatch -o $(OUT)
 
 build-examples:
-	go run ./cmd/hzn build ./examples/cgroupconnect -o $(OUT)
-	go run ./cmd/hzn build ./examples/execwatch -o $(OUT)
-	go run ./cmd/hzn build ./examples/execcount -o $(OUT)
-	go run ./cmd/hzn build ./examples/lsmfile -o $(OUT)
-	go run ./cmd/hzn build ./examples/openwatch -o $(OUT)
-	go run ./cmd/hzn build ./examples/tcpconnect -o $(OUT)
-	go run ./cmd/hzn build ./examples/tcpass -o $(OUT)
-	go run ./cmd/hzn build ./examples/xdpdrop -o $(OUT)
+	@for example in $(HZN_EXAMPLES); do \
+		if [ "$${GITHUB_ACTIONS:-}" = "true" ]; then echo "::group::hzn build $$example"; fi; \
+		echo "hzn build $$example"; \
+		go run ./cmd/hzn build "$$example" -o "$(OUT)"; status=$$?; \
+		if [ "$${GITHUB_ACTIONS:-}" = "true" ]; then echo "::endgroup::"; fi; \
+		if [ $$status -ne 0 ]; then exit $$status; fi; \
+	done
 
 clang-smoke:
 	go test ./cmd/hzn -tags clang_smoke
