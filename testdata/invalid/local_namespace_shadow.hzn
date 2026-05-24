@@ -1,0 +1,7 @@
+package probes
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    bpf := 1
+    return 0
+}

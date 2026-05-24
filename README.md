@@ -417,6 +417,7 @@ Horizon makes verifier-sensitive behavior explicit before clang runs:
 - integer literals are checked against their target scalar width before C emission
 - unary negation is only allowed for signed scalar values or direct integer literals; unsigned values must be converted deliberately before signed arithmetic
 - constants can carry scalar widths, and generated C preserves those widths
+- short variable declarations introduce fresh local names only; use `=` to update existing locals, and do not shadow maps or compiler namespaces
 - every program must return an explicit `i32` on every control-flow path
 - bare `return` is rejected; tracing programs should use `return 0`, while packet and policy programs should return named actions
 - only bounded counted loops with numeric literal or integer const upper bounds are accepted

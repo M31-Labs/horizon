@@ -1,0 +1,8 @@
+package probes
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    pid := bpf.current_pid()
+    pid := bpf.current_uid()
+    return 0
+}

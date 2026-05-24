@@ -796,6 +796,11 @@ func (c *funcBodyChecker) checkStmt(stmt ast.Stmt, locals map[string]valueType) 
 func (c *funcBodyChecker) checkShortVar(s ast.ShortVarStmt, locals map[string]valueType) {
 	typ, exprDiags := c.typeOf(s.Value, locals)
 	c.add(exprDiags...)
+	nameInvalid := false
+	if d, ok := c.shortVarNameDiagnostic(s, locals); ok {
+		c.add(d)
+		nameInvalid = true
+	}
 	switch {
 	case typ.Fallible != "":
 		c.add(fallibleResultDiagnostic(s.Span, typ.Fallible))
@@ -810,13 +815,56 @@ func (c *funcBodyChecker) checkShortVar(s ast.ShortVarStmt, locals map[string]va
 		c.add(fixedArrayLocalDiagnostic(s.Span, s.Name, typ))
 	case len(exprDiags) == 0 && isTrackedPointer(typ) && !directTrackedPointerSource(s.Value, c.maps):
 		c.add(trackedPointerAliasDiagnostic(s.Span, s.Name, typ))
-		if s.Name != "" {
+		if s.Name != "" && !nameInvalid {
 			locals[s.Name] = typ
 		}
 	default:
-		if s.Name != "" {
+		if s.Name != "" && !nameInvalid {
 			locals[s.Name] = typ
 		}
+	}
+}
+
+func (c *funcBodyChecker) shortVarNameDiagnostic(s ast.ShortVarStmt, locals map[string]valueType) (diag.Diagnostic, bool) {
+	if s.Name == "" {
+		return diag.Diagnostic{}, false
+	}
+	if _, ok := locals[s.Name]; ok {
+		return diag.Diagnostic{
+			Code:     "HZN1477",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("local %q is already in scope", s.Name),
+			Primary:  s.Span,
+			Suggest:  "use `=` to update an existing local, or choose a fresh name for a new value",
+		}, true
+	}
+	if _, ok := c.maps[s.Name]; ok {
+		return diag.Diagnostic{
+			Code:     "HZN1477",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("local %q conflicts with a map declaration", s.Name),
+			Primary:  s.Span,
+			Suggest:  "choose a local name that does not hide a package-scoped map",
+		}, true
+	}
+	if compilerNamespace(s.Name) {
+		return diag.Diagnostic{
+			Code:     "HZN1477",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("local %q conflicts with a compiler namespace", s.Name),
+			Primary:  s.Span,
+			Suggest:  "compiler namespaces such as bpf, xdp, tc, cgroup, lsm, kprobe, and tracepoint are reserved",
+		}, true
+	}
+	return diag.Diagnostic{}, false
+}
+
+func compilerNamespace(name string) bool {
+	switch name {
+	case "bpf", "xdp", "tc", "cgroup", "lsm", "kprobe", "kretprobe", "tracepoint":
+		return true
+	default:
+		return false
 	}
 }
 

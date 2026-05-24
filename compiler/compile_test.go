@@ -150,6 +150,9 @@ func TestAnalyzeInvalidRingbufPrograms(t *testing.T) {
 		"../testdata/invalid/duplicate_struct_field.hzn":     "HZN1107",
 		"../testdata/invalid/recursive_struct.hzn":           "HZN1108",
 		"../testdata/invalid/indirect_recursive_struct.hzn":  "HZN1108",
+		"../testdata/invalid/local_redeclare.hzn":            "HZN1477",
+		"../testdata/invalid/local_map_shadow.hzn":           "HZN1477",
+		"../testdata/invalid/local_namespace_shadow.hzn":     "HZN1477",
 	}
 	for path, code := range tests {
 		result, err := AnalyzePath(path)
