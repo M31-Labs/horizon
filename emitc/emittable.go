@@ -283,7 +283,7 @@ func validateSelectorExpr(env *cEnv, expr *ir.Expr) error {
 			return nil
 		}
 		switch selectorRoot(expr) {
-		case "bpf", "xdp", "tc", "cgroup", "lsm":
+		case "bpf", "xdp", "tc", "cgroup", "lsm", "kprobe", "kretprobe":
 			return unsupportedExpr(expr, name)
 		}
 	}
@@ -327,6 +327,18 @@ func validateCallExpr(env *cEnv, expr *ir.Expr) error {
 			}
 			return validateArgs(env, expr.Args)
 		}
+		if root == "kprobe" {
+			if err := validateKprobeCall(expr, method); err != nil {
+				return err
+			}
+			return validateArgs(env, expr.Args)
+		}
+		if root == "kretprobe" {
+			if err := validateKretprobeCall(expr, method); err != nil {
+				return err
+			}
+			return validateArgs(env, expr.Args)
+		}
 		if m, ok := env.maps[root]; ok {
 			if err := validateMapCall(expr, m, method); err != nil {
 				return err
@@ -363,6 +375,24 @@ func validateCgroupCall(expr *ir.Expr, method string) error {
 		return validateArgCount(expr, "cgroup.dst_port", 1)
 	default:
 		return unsupportedExpr(expr, "cgroup."+method)
+	}
+}
+
+func validateKprobeCall(expr *ir.Expr, method string) error {
+	switch method {
+	case "arg1", "arg2", "arg3", "arg4", "arg5":
+		return validateArgCount(expr, "kprobe."+method, 1)
+	default:
+		return unsupportedExpr(expr, "kprobe."+method)
+	}
+}
+
+func validateKretprobeCall(expr *ir.Expr, method string) error {
+	switch method {
+	case "ret":
+		return validateArgCount(expr, "kretprobe.ret", 1)
+	default:
+		return unsupportedExpr(expr, "kretprobe."+method)
 	}
 }
 

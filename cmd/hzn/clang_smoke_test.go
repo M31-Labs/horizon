@@ -60,7 +60,20 @@ import bpf "m31labs.dev/horizon/runtime/kernel"
 
 @kprobe("do_sys_openat2")
 func OnOpen(ctx kprobe.Context) i32 {
+    dfd := i32(kprobe.arg1(ctx))
+    if dfd < 0 {
+        return 0
+    }
     bpf.current_pid()
+    return 0
+}
+
+@kretprobe("do_sys_openat2")
+func OnOpenReturn(ctx kretprobe.Context) i32 {
+    rc := kretprobe.ret(ctx)
+    if rc < 0 {
+        return 0
+    }
     return 0
 }
 `), 0o600); err != nil {

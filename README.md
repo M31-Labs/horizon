@@ -24,6 +24,7 @@ It keeps the kernel-side language deliberately small:
 - explicit integer scalar conversions such as `u64(pid)`
 - explicitly typed constants such as `const Port u16 = 443`
 - compiler-known kernel helpers
+- typed kprobe argument and kretprobe return helpers
 - readable generated BPF C
 - source maps with declaration and function/section context for diagnostics
 - typed Go bindings and Continuum capability manifests
@@ -121,19 +122,44 @@ func DropTCP(ctx xdp.Context) i32 {
 }
 ```
 
-Tracing programs can also attach to kernel symbols with explicit kprobe section
-attributes. v0 keeps kprobe contexts opaque; use compiler-known helpers and
-typed maps/events rather than raw register arithmetic.
+Tracing programs can also attach to kernel symbols with explicit kprobe and
+kretprobe section attributes. Probe contexts stay opaque; use compiler-known
+helpers such as `kprobe.arg1(ctx)` and `kretprobe.ret(ctx)` rather than raw
+register arithmetic.
 
 ```go
 package probes
 
 import bpf "m31labs.dev/horizon/runtime/kernel"
 
+type OpenEvent struct {
+    pid u32
+    dfd i32
+}
+
+map OpenEvents ringbuf[OpenEvent]
+
 @capability("kernel.file.open.observe")
 @kprobe("do_sys_openat2")
 func OnOpen(ctx kprobe.Context) i32 {
-    bpf.current_pid()
+    event := OpenEvents.reserve()
+    if event == nil {
+        return 0
+    }
+
+    event.pid = bpf.current_pid()
+    event.dfd = i32(kprobe.arg1(ctx))
+
+    OpenEvents.submit(event)
+    return 0
+}
+
+@kretprobe("do_sys_openat2")
+func OnOpenReturn(ctx kretprobe.Context) i32 {
+    rc := kretprobe.ret(ctx)
+    if rc < 0 {
+        return 0
+    }
     return 0
 }
 ```
@@ -275,6 +301,7 @@ Horizon makes verifier-sensitive behavior explicit before clang runs:
 - every program must return an explicit `i32` on every control-flow path
 - only bounded counted loops with numeric literal or integer const upper bounds are accepted
 - helper availability is checked against the program kind
+- kprobe arguments and kretprobe return registers are exposed through typed helper calls, not direct `pt_regs` access
 - packet headers returned by `xdp.eth(ctx)`, `xdp.ipv4(ctx)`, `xdp.tcp(ctx)`, and `xdp.udp(ctx)` must be nil-checked before field access
 - XDP programs must return named actions such as `xdp.Pass` and `xdp.Drop`, not raw integers
 - TC programs must declare `@tc("ingress")` or `@tc("egress")` and return named actions such as `tc.OK` and `tc.Shot`, not raw integers

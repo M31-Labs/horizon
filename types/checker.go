@@ -1294,6 +1294,12 @@ func (t exprTyper) call(call ast.CallExpr) (valueType, []diag.Diagnostic) {
 			Suggest:  "use named LSM action constants such as lsm.Allow in return statements",
 		}}
 	}
+	if root == "kprobe" {
+		return t.kprobeCall(method, call)
+	}
+	if root == "kretprobe" {
+		return t.kretprobeCall(method, call)
+	}
 	if m, ok := t.maps[root]; ok {
 		switch method {
 		case "lookup":
@@ -1518,6 +1524,56 @@ func (t exprTyper) cgroupCall(name string, call ast.CallExpr) (valueType, []diag
 			Suggest:  "use cgroup.dst_port(ctx) or named actions such as cgroup.Allow",
 		}}
 	}
+}
+
+func (t exprTyper) kprobeCall(name string, call ast.CallExpr) (valueType, []diag.Diagnostic) {
+	if !isKprobeArgHelper(name) {
+		return valueType{}, []diag.Diagnostic{{
+			Code:     "HZN1464",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("unknown kprobe helper kprobe.%s", name),
+			Primary:  call.Span,
+			Suggest:  "use kprobe.arg1(ctx) through kprobe.arg5(ctx) for typed register arguments",
+		}}
+	}
+	if len(call.Args) != 1 {
+		return valueType{Name: "u64"}, []diag.Diagnostic{argCountDiagnostic(call.Span, "kprobe."+name, 1, len(call.Args))}
+	}
+	arg, diags := t.typeOf(call.Args[0])
+	if !assignable(valueType{Name: "kprobe.Context"}, arg) {
+		diags = append(diags, diag.Diagnostic{
+			Code:     "HZN1465",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("kprobe.%s expects kprobe.Context, got %s", name, typeName(arg)),
+			Primary:  call.Span,
+		})
+	}
+	return valueType{Name: "u64"}, diags
+}
+
+func (t exprTyper) kretprobeCall(name string, call ast.CallExpr) (valueType, []diag.Diagnostic) {
+	if name != "ret" {
+		return valueType{}, []diag.Diagnostic{{
+			Code:     "HZN1466",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("unknown kretprobe helper kretprobe.%s", name),
+			Primary:  call.Span,
+			Suggest:  "use kretprobe.ret(ctx) for the typed return register value",
+		}}
+	}
+	if len(call.Args) != 1 {
+		return valueType{Name: "i64"}, []diag.Diagnostic{argCountDiagnostic(call.Span, "kretprobe.ret", 1, len(call.Args))}
+	}
+	arg, diags := t.typeOf(call.Args[0])
+	if !assignable(valueType{Name: "kretprobe.Context"}, arg) {
+		diags = append(diags, diag.Diagnostic{
+			Code:     "HZN1467",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("kretprobe.ret expects kretprobe.Context, got %s", typeName(arg)),
+			Primary:  call.Span,
+		})
+	}
+	return valueType{Name: "i64"}, diags
 }
 
 func (t exprTyper) helperCall(name string, call ast.CallExpr) (valueType, []diag.Diagnostic) {
@@ -1754,6 +1810,15 @@ func isScalar(name string) bool {
 func isIntegerScalar(name string) bool {
 	switch name {
 	case "u8", "u16", "u32", "u64", "i8", "i16", "i32", "i64":
+		return true
+	default:
+		return false
+	}
+}
+
+func isKprobeArgHelper(name string) bool {
+	switch name {
+	case "arg1", "arg2", "arg3", "arg4", "arg5":
 		return true
 	default:
 		return false

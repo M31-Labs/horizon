@@ -1262,6 +1262,31 @@ func OnOpen(ctx kprobe.Context) i32 {
 	}
 }
 
+func TestAnalyzeKprobeArgumentHelpersPass(t *testing.T) {
+	result := analyzeSource(t, "open.hzn", `package probes
+
+type ArgEvent struct {
+    dfd i32
+}
+
+map Events ringbuf[ArgEvent]
+
+@kprobe("do_sys_openat2")
+func OnOpen(ctx kprobe.Context) i32 {
+    event := Events.reserve()
+    if event == nil {
+        return 0
+    }
+    event.dfd = i32(kprobe.arg1(ctx))
+    Events.submit(event)
+    return 0
+}
+`)
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+}
+
 func TestAnalyzeKretprobeProgramPasses(t *testing.T) {
 	result := analyzeSource(t, "open.hzn", `package probes
 
@@ -1276,6 +1301,53 @@ func OnOpenReturn(ctx kretprobe.Context) i32 {
 	if len(result.Program.Functions) != 1 || result.Program.Functions[0].Section.Kind != ir.ProgramKretprobe {
 		t.Fatalf("functions = %#v, want one kretprobe function", result.Program.Functions)
 	}
+}
+
+func TestAnalyzeKretprobeReturnHelperPasses(t *testing.T) {
+	result := analyzeSource(t, "open.hzn", `package probes
+
+@kretprobe("do_sys_openat2")
+func OnOpenReturn(ctx kretprobe.Context) i32 {
+    rc := kretprobe.ret(ctx)
+    if rc < 0 {
+        return 0
+    }
+    return 0
+}
+`)
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+}
+
+func TestAnalyzeRejectsKprobeHelperWrongContext(t *testing.T) {
+	result := analyzeSource(t, "open.hzn", `package probes
+
+@kprobe("do_sys_openat2")
+func OnOpen(ctx kprobe.Context) i32 {
+    value := kprobe.arg1(1)
+    if value != 0 {
+        return 0
+    }
+    return 0
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1465")
+}
+
+func TestAnalyzeRejectsKretprobeHelperWrongContext(t *testing.T) {
+	result := analyzeSource(t, "open.hzn", `package probes
+
+@kretprobe("do_sys_openat2")
+func OnOpenReturn(ctx kretprobe.Context) i32 {
+    value := kretprobe.ret(1)
+    if value != 0 {
+        return 0
+    }
+    return 0
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1467")
 }
 
 func TestAnalyzeRejectsKprobeWrongContext(t *testing.T) {

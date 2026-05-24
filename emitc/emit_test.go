@@ -693,6 +693,69 @@ func OnOpen(ctx kprobe.Context) i32 {
 	}
 }
 
+func TestEmitProbeContextHelpers(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "open.hzn")
+	if err := os.WriteFile(path, []byte(`package probes
+
+type Event struct {
+    dfd i32
+    rc  i64
+}
+
+map Events ringbuf[Event]
+
+@kprobe("do_sys_openat2")
+func OnOpen(ctx kprobe.Context) i32 {
+    event := Events.reserve()
+    if event == nil {
+        return 0
+    }
+    event.dfd = i32(kprobe.arg1(ctx))
+    Events.submit(event)
+    return 0
+}
+
+@kretprobe("do_sys_openat2")
+func OnOpenReturn(ctx kretprobe.Context) i32 {
+    rc := kretprobe.ret(ctx)
+    if rc < 0 {
+        return 0
+    }
+    return 0
+}
+`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	result, err := compiler.AnalyzePath(dir)
+	if err != nil {
+		t.Fatalf("AnalyzePath: %v", err)
+	}
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+	out, err := Emit(result.Program)
+	if err != nil {
+		t.Fatalf("Emit: %v", err)
+	}
+	for _, want := range []string{
+		"static __always_inline __u64 hzn_kprobe_arg1(struct pt_regs *ctx)",
+		"return (__u64)PT_REGS_PARM1(ctx);",
+		"static __always_inline __s64 hzn_kretprobe_ret(struct pt_regs *ctx)",
+		"return (__s64)PT_REGS_RC(ctx);",
+		"event->dfd = (__s32)(hzn_kprobe_arg1(ctx));",
+		"__s64 rc = hzn_kretprobe_ret(ctx);",
+		`SEC("kretprobe/do_sys_openat2")`,
+	} {
+		if !strings.Contains(out.Code, want) {
+			t.Fatalf("generated C missing %q:\n%s", want, out.Code)
+		}
+	}
+	if strings.Contains(out.Code, "hzn_kprobe_arg2") {
+		t.Fatalf("generated C contains unused arg2 helper:\n%s", out.Code)
+	}
+}
+
 func TestEmitTCProgram(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "tc.hzn")

@@ -75,6 +75,7 @@ func (e *cEmitter) emitPreamble() {
 	e.b.WriteString("char LICENSE[] SEC(\"license\") = \"GPL\";\n")
 	emitScalarABIAssertions(&e.b)
 	emitHelperWrappers(&e.b, e.usage)
+	emitProbeContextHelpers(&e.b, e.usage)
 	if e.usage.hasXDPPacketHelpers() {
 		emitXDPPacketHelpers(&e.b, e.usage)
 	}
@@ -321,6 +322,8 @@ type cUsage struct {
 	mapMethods    map[string]map[string]bool
 	xdpHelpers    map[string]bool
 	cgroupHelpers map[string]bool
+	kprobeHelpers map[string]bool
+	kretHelpers   map[string]bool
 	maps          map[string]ir.Map
 	boolTypes     bool
 }
@@ -338,6 +341,8 @@ func newCUsage() cUsage {
 		mapMethods:    map[string]map[string]bool{},
 		xdpHelpers:    map[string]bool{},
 		cgroupHelpers: map[string]bool{},
+		kprobeHelpers: map[string]bool{},
+		kretHelpers:   map[string]bool{},
 		maps:          map[string]ir.Map{},
 	}
 }
@@ -457,6 +462,12 @@ func (u *cUsage) observeExpr(expr *ir.Expr) {
 	if helper, ok := cgroupHelperCall(expr); ok {
 		u.cgroupHelpers[helper] = true
 	}
+	if helper, ok := kprobeContextCall(expr); ok {
+		u.kprobeHelpers[helper] = true
+	}
+	if helper, ok := kretprobeContextCall(expr); ok {
+		u.kretHelpers[helper] = true
+	}
 }
 
 func (u *cUsage) walkExprChildren(expr *ir.Expr) {
@@ -492,6 +503,10 @@ func (u cUsage) hasEndianHelpers() bool {
 
 func (u cUsage) hasBool() bool {
 	return u.boolTypes
+}
+
+func (u cUsage) hasProbeContextHelpers() bool {
+	return len(u.kprobeHelpers) > 0 || len(u.kretHelpers) > 0
 }
 
 func typeUsesBool(typ ir.Type) bool {
@@ -549,6 +564,39 @@ static __always_inline __u32 hzn_current_uid(void) {
 		b.WriteString(`
 static __always_inline long hzn_current_comm(void *dst, __u32 size) {
     return bpf_get_current_comm(dst, size);
+}
+`)
+	}
+}
+
+func emitProbeContextHelpers(b *strings.Builder, usage cUsage) {
+	if !usage.hasProbeContextHelpers() {
+		return
+	}
+	type probeArg struct {
+		Name  string
+		Macro string
+	}
+	for _, arg := range []probeArg{
+		{Name: "arg1", Macro: "PT_REGS_PARM1"},
+		{Name: "arg2", Macro: "PT_REGS_PARM2"},
+		{Name: "arg3", Macro: "PT_REGS_PARM3"},
+		{Name: "arg4", Macro: "PT_REGS_PARM4"},
+		{Name: "arg5", Macro: "PT_REGS_PARM5"},
+	} {
+		if !usage.kprobeHelpers[arg.Name] {
+			continue
+		}
+		fmt.Fprintf(b, `
+static __always_inline __u64 hzn_kprobe_%s(struct pt_regs *ctx) {
+    return (__u64)%s(ctx);
+}
+`, arg.Name, arg.Macro)
+	}
+	if usage.kretHelpers["ret"] {
+		b.WriteString(`
+static __always_inline __s64 hzn_kretprobe_ret(struct pt_regs *ctx) {
+    return (__s64)PT_REGS_RC(ctx);
 }
 `)
 	}
@@ -1325,6 +1373,10 @@ func knownCallType(name string) (ir.Type, bool) {
 		return ir.Type{Name: "u16"}, true
 	case "cgroup.dst_port":
 		return ir.Type{Name: "u16"}, true
+	case "kprobe.arg1", "kprobe.arg2", "kprobe.arg3", "kprobe.arg4", "kprobe.arg5":
+		return ir.Type{Name: "u64"}, true
+	case "kretprobe.ret":
+		return ir.Type{Name: "i64"}, true
 	default:
 		return ir.Type{}, false
 	}
@@ -1756,6 +1808,14 @@ func (e cExprEmitter) knownCall(expr *ir.Expr, name string) (string, bool) {
 		return e.oneArgCall(expr, func(arg ir.Expr) string {
 			return fmt.Sprintf("bpf_ntohs((__u16)%s->user_port)", e.emit(&arg))
 		})
+	case "kprobe.arg1", "kprobe.arg2", "kprobe.arg3", "kprobe.arg4", "kprobe.arg5":
+		return e.oneArgCall(expr, func(arg ir.Expr) string {
+			return fmt.Sprintf("hzn_%s(%s)", strings.ReplaceAll(name, ".", "_"), e.emit(&arg))
+		})
+	case "kretprobe.ret":
+		return e.oneArgCall(expr, func(arg ir.Expr) string {
+			return fmt.Sprintf("hzn_kretprobe_ret(%s)", e.emit(&arg))
+		})
 	default:
 		return "", false
 	}
@@ -1900,6 +1960,34 @@ func cgroupHelperCall(expr *ir.Expr) (string, bool) {
 	default:
 		return "", false
 	}
+}
+
+func kprobeContextCall(expr *ir.Expr) (string, bool) {
+	if expr == nil || expr.Kind != "call" || expr.Func == nil || expr.Func.Kind != "selector" {
+		return "", false
+	}
+	if expr.Func.Operand == nil || expr.Func.Operand.Kind != "ident" || expr.Func.Operand.Name != "kprobe" {
+		return "", false
+	}
+	switch expr.Func.Field {
+	case "arg1", "arg2", "arg3", "arg4", "arg5":
+		return expr.Func.Field, true
+	default:
+		return "", false
+	}
+}
+
+func kretprobeContextCall(expr *ir.Expr) (string, bool) {
+	if expr == nil || expr.Kind != "call" || expr.Func == nil || expr.Func.Kind != "selector" {
+		return "", false
+	}
+	if expr.Func.Operand == nil || expr.Func.Operand.Kind != "ident" || expr.Func.Operand.Name != "kretprobe" {
+		return "", false
+	}
+	if expr.Func.Field == "ret" {
+		return expr.Func.Field, true
+	}
+	return "", false
 }
 
 func mapMethodCall(expr *ir.Expr) (string, string, bool) {
