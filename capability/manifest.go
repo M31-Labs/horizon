@@ -19,13 +19,14 @@ type Program struct {
 }
 
 type Capability struct {
-	Name    string    `json:"name"`
-	Kind    string    `json:"kind"`
-	Danger  string    `json:"danger"`
-	Program string    `json:"program"`
-	Section string    `json:"section"`
-	Emits   string    `json:"emits,omitempty"`
-	Maps    MapAccess `json:"maps"`
+	Name         string        `json:"name"`
+	Kind         string        `json:"kind"`
+	Danger       string        `json:"danger"`
+	Program      string        `json:"program"`
+	Section      string        `json:"section"`
+	Emits        string        `json:"emits,omitempty"`
+	Maps         MapAccess     `json:"maps"`
+	Requirements *Requirements `json:"requirements,omitempty"`
 }
 
 type MapAccess struct {

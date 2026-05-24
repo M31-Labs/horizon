@@ -230,6 +230,9 @@ func validateManifestCapabilities(caps []Capability, programs map[string]bool, m
 		if cap.Section == "" {
 			return validationErrorf("capability %q section is required", cap.Name)
 		}
+		if err := validateRequirements(cap.Requirements); err != nil {
+			return validationErrorf("capability %q requirements: %v", cap.Name, err)
+		}
 		if validateSchemaRefs && cap.Emits != "" {
 			if err := validateTypeRefs(cap.Emits, types); err != nil {
 				return validationErrorf("capability %q emits: %v", cap.Name, err)

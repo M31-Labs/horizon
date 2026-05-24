@@ -12,6 +12,7 @@ func FromIR(program ir.Program) Manifest {
 	if requirements.MinKernel != "" {
 		manifest.Requirements = &requirements
 	}
+	functions := functionsByName(program.Functions)
 	for _, fn := range program.Functions {
 		var caps []string
 		for _, cap := range program.Capabilities {
@@ -28,7 +29,7 @@ func FromIR(program ir.Program) Manifest {
 		})
 	}
 	for _, cap := range program.Capabilities {
-		manifest.Capabilities = append(manifest.Capabilities, Capability{
+		out := Capability{
 			Name:    cap.Name,
 			Kind:    string(cap.Kind),
 			Danger:  string(cap.Danger),
@@ -40,7 +41,14 @@ func FromIR(program ir.Program) Manifest {
 				Write:  cap.Maps.Write,
 				Events: cap.Maps.Events,
 			},
-		})
+		}
+		if fn, ok := functions[cap.Program]; ok {
+			requirements := requirementsForCapability(program, cap, fn)
+			if requirements.MinKernel != "" {
+				out.Requirements = &requirements
+			}
+		}
+		manifest.Capabilities = append(manifest.Capabilities, out)
 	}
 	for _, m := range program.Maps {
 		manifest.Maps = append(manifest.Maps, Map{
@@ -75,6 +83,14 @@ func FromIR(program ir.Program) Manifest {
 		manifest.Types = append(manifest.Types, schema)
 	}
 	return manifest
+}
+
+func functionsByName(functions []ir.Function) map[string]ir.Function {
+	out := make(map[string]ir.Function, len(functions))
+	for _, fn := range functions {
+		out[fn.Name] = fn
+	}
+	return out
 }
 
 func manifestSection(section ir.Section) string {

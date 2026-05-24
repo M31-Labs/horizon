@@ -12,16 +12,49 @@ func requirementsFromIR(program ir.Program) Requirements {
 	var reqs requirementBuilder
 	for _, fn := range program.Functions {
 		reqs.addProgram(string(fn.Section.Kind), programMinKernel(fn.Section.Kind))
-		for _, block := range fn.Body {
-			for _, stmt := range block.Statements {
-				reqs.walkStatement(stmt)
-			}
-		}
+		reqs.walkFunction(fn)
 	}
 	for _, m := range program.Maps {
 		reqs.addMap(string(m.Kind), mapMinKernel(m.Kind))
 	}
 	return reqs.build()
+}
+
+func requirementsForCapability(program ir.Program, cap ir.Capability, fn ir.Function) Requirements {
+	var reqs requirementBuilder
+	reqs.addProgram(string(fn.Section.Kind), programMinKernel(fn.Section.Kind))
+	reqs.walkFunction(fn)
+	maps := mapsByName(program.Maps)
+	for _, name := range capabilityMapNames(cap.Maps) {
+		if m, ok := maps[name]; ok {
+			reqs.addMap(string(m.Kind), mapMinKernel(m.Kind))
+		}
+	}
+	return reqs.build()
+}
+
+func mapsByName(maps []ir.Map) map[string]ir.Map {
+	out := make(map[string]ir.Map, len(maps))
+	for _, m := range maps {
+		out[m.Name] = m
+	}
+	return out
+}
+
+func capabilityMapNames(access ir.CapabilityMapAccess) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, names := range [][]string{access.Read, access.Write, access.Events} {
+		for _, name := range names {
+			if name == "" || seen[name] {
+				continue
+			}
+			seen[name] = true
+			out = append(out, name)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 type requirementBuilder struct {
@@ -98,6 +131,14 @@ func maxRequirementKernel(reqs Requirements) string {
 		max = maxKernelVersion(max, item.MinKernel)
 	}
 	return max
+}
+
+func (b *requirementBuilder) walkFunction(fn ir.Function) {
+	for _, block := range fn.Body {
+		for _, stmt := range block.Statements {
+			b.walkStatement(stmt)
+		}
+	}
 }
 
 func (b *requirementBuilder) walkStatement(stmt ir.Statement) {

@@ -220,6 +220,9 @@ func TestFromIRIncludesKernelRequirements(t *testing.T) {
 			Danger:  ir.DangerObserve,
 			Program: "OnExec",
 			Section: "tracepoint/sched:sched_process_exec",
+			Maps: ir.CapabilityMapAccess{
+				Events: []string{"Events"},
+			},
 		}},
 	})
 	if err := Validate(m); err != nil {
@@ -241,6 +244,19 @@ func TestFromIRIncludesKernelRequirements(t *testing.T) {
 	requireFeature(t, m.Requirements.Helpers, "bpf_ktime_get_ns", "4.1")
 	requireFeature(t, m.Requirements.Helpers, "bpf_ringbuf_reserve", "5.8")
 	requireFeature(t, m.Requirements.Helpers, "bpf_ringbuf_submit", "5.8")
+
+	if len(m.Capabilities) != 1 || m.Capabilities[0].Requirements == nil {
+		t.Fatalf("capabilities = %#v, want per-capability requirements", m.Capabilities)
+	}
+	capReqs := m.Capabilities[0].Requirements
+	if capReqs.MinKernel != "5.8" {
+		t.Fatalf("capability min_kernel = %q, want 5.8", capReqs.MinKernel)
+	}
+	requireFeature(t, capReqs.Programs, "tracepoint", "4.7")
+	requireFeature(t, capReqs.Maps, "ringbuf", "5.8")
+	rejectFeature(t, capReqs.Maps, "lru_percpu_hash")
+	requireFeature(t, capReqs.Helpers, "bpf_probe_read_user_str", "5.5")
+	requireFeature(t, capReqs.Helpers, "bpf_ringbuf_submit", "5.8")
 }
 
 func requireFeature(t *testing.T, items []FeatureRequirement, name string, minKernel string) {
@@ -254,6 +270,15 @@ func requireFeature(t *testing.T, items []FeatureRequirement, name string, minKe
 		}
 	}
 	t.Fatalf("requirements missing %s in %#v", name, items)
+}
+
+func rejectFeature(t *testing.T, items []FeatureRequirement, name string) {
+	t.Helper()
+	for _, item := range items {
+		if item.Name == name {
+			t.Fatalf("requirements include unexpected %s in %#v", name, items)
+		}
+	}
 }
 
 func TestValidateRejectsInvalidTypeLayoutMetadata(t *testing.T) {
@@ -373,6 +398,21 @@ func TestValidateRejectsUnsupportedEnumValues(t *testing.T) {
 				MinKernel: "4.1",
 				Maps:      []FeatureRequirement{{Name: "ringbuf", MinKernel: "5.8"}},
 			},
+		},
+		"capability requirement": {
+			Schema:  SchemaV0,
+			Package: "probes",
+			Capabilities: []Capability{{
+				Name:    "kernel.process.exec.observe",
+				Kind:    "source",
+				Danger:  "observe",
+				Program: "OnExec",
+				Section: "tracepoint/sched/sched_process_exec",
+				Requirements: &Requirements{
+					MinKernel: "5.8",
+					Helpers:   []FeatureRequirement{{Name: "bpf_unknown", MinKernel: "5.8"}},
+				},
+			}},
 		},
 	}
 	for name, manifest := range tests {
