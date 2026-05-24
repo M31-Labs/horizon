@@ -26,29 +26,37 @@ func AttachSourceContexts(diags []Diagnostic, sources map[span.FileID][]byte) []
 }
 
 func AttachSourceContext(d Diagnostic, source []byte) Diagnostic {
-	if d.Primary.IsZero() || d.Primary.Start.Line <= 0 {
-		return d
-	}
-	text, ok := sourceLine(source, d.Primary.Start.Line)
+	context, ok := SourceContext(d.Primary, source)
 	if !ok {
 		return d
 	}
-	start := d.Primary.Start.Column
+	d.Source = context
+	return d
+}
+
+func SourceContext(sp span.Span, source []byte) (*Source, bool) {
+	if sp.IsZero() || sp.Start.Line <= 0 {
+		return nil, false
+	}
+	text, ok := sourceLine(source, sp.Start.Line)
+	if !ok {
+		return nil, false
+	}
+	start := sp.Start.Column
 	if start <= 0 {
 		start = 1
 	}
-	end := d.Primary.End.Column
-	if d.Primary.End.Line != d.Primary.Start.Line || end <= start {
+	end := sp.End.Column
+	if sp.End.Line != sp.Start.Line || end <= start {
 		end = start + 1
 	}
-	d.Source = &Source{
-		Line:      d.Primary.Start.Line,
+	return &Source{
+		Line:      sp.Start.Line,
 		Column:    start,
 		EndColumn: end,
 		Text:      text,
 		Marker:    markerFor(text, start, end),
-	}
-	return d
+	}, true
 }
 
 func sourceLine(source []byte, line int) (string, bool) {

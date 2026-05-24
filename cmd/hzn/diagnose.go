@@ -61,6 +61,12 @@ func runDiagnose(args []string) error {
 		for _, label := range d.Labels {
 			if label.Message == "generated BPF C" && !label.Span.IsZero() {
 				fmt.Printf("  generated: %s:%d:%d\n", label.Span.File, label.Span.Start.Line, label.Span.Start.Column)
+				if label.Source != nil && label.Source.Text != "" {
+					fmt.Printf("  %4d | %s\n", label.Source.Line, label.Source.Text)
+					if label.Source.Marker != "" {
+						fmt.Printf("       | %s\n", label.Source.Marker)
+					}
+				}
 			}
 		}
 	}
@@ -133,10 +139,10 @@ func diagnosticsFromVerifierLog(raw string, sourceMap ir.SourceMap, generated []
 	if len(remapped) == 0 {
 		remapped = []verifier.Diagnostic{{Message: raw, Severity: "error", Raw: raw}}
 	}
-	return diagnosticsFromVerifier(remapped)
+	return diagnosticsFromVerifier(remapped, generated)
 }
 
-func diagnosticsFromVerifier(remapped []verifier.Diagnostic) []diag.Diagnostic {
+func diagnosticsFromVerifier(remapped []verifier.Diagnostic, generated []byte) []diag.Diagnostic {
 	out := make([]diag.Diagnostic, 0, len(remapped))
 	for _, d := range remapped {
 		severity := diag.Severity(d.Severity)
@@ -154,10 +160,14 @@ func diagnosticsFromVerifier(remapped []verifier.Diagnostic) []diag.Diagnostic {
 			converted.Primary = d.Generated
 		}
 		if !d.Generated.IsZero() {
-			converted.Labels = append(converted.Labels, diag.Label{
+			label := diag.Label{
 				Span:    d.Generated,
 				Message: "generated BPF C",
-			})
+			}
+			if source, ok := diag.SourceContext(d.Generated, generated); ok {
+				label.Source = source
+			}
+			converted.Labels = append(converted.Labels, label)
 			converted.Notes = append(converted.Notes, fmt.Sprintf("generated BPF C: %s:%d:%d", d.Generated.File, d.Generated.Start.Line, d.Generated.Start.Column))
 		}
 		if d.Function != "" || d.Section != "" || d.Node != "" {

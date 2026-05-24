@@ -21,9 +21,7 @@ func TestWorkbenchWritesAuthoringArtifactsWithoutObject(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(outDir, "input.bpf.o"), []byte("stale"), 0o644); err != nil {
 		t.Fatalf("write stale object: %v", err)
 	}
-	if err := run([]string{"workbench", input, "-o", outDir}); err != nil {
-		t.Fatalf("run workbench: %v", err)
-	}
+	requireRunQuietly(t, []string{"workbench", input, "-o", outDir})
 
 	for _, name := range []string{
 		"input.bpf.c",
@@ -311,9 +309,7 @@ func OnExec(ctx tracepoint.Exec) i32 {
 func TestWorkbenchGeneratesTypedMapBindingsForExecCount(t *testing.T) {
 	outDir := t.TempDir()
 	input := filepath.Join("..", "..", "examples", "execcount")
-	if err := run([]string{"workbench", input, "-o", outDir}); err != nil {
-		t.Fatalf("run workbench: %v", err)
-	}
+	requireRunQuietly(t, []string{"workbench", input, "-o", outDir})
 	bindings, err := os.ReadFile(filepath.Join(outDir, "count.bindings.go"))
 	if err != nil {
 		t.Fatalf("read bindings: %v", err)
@@ -351,7 +347,7 @@ func TestWorkbenchWritesDiagnosticReportForInvalidInput(t *testing.T) {
 	outDir := t.TempDir()
 	input := filepath.Join("..", "..", "testdata", "invalid", "packet_unproven_read.hzn")
 	stale := writeStaleArtifacts(t, artifactPathsFor(outDir, "packet_unproven_read").allArtifacts()...)
-	if err := run([]string{"workbench", input, "-o", outDir}); err == nil {
+	if _, err := runQuietly(t, []string{"workbench", input, "-o", outDir}); err == nil {
 		t.Fatal("run workbench succeeded, want diagnostics error")
 	}
 
@@ -624,7 +620,7 @@ func TestWorkbenchReportsClangDiagnostics(t *testing.T) {
 	}
 	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	if err := run([]string{"workbench", input, "-o", outDir, "-compile"}); err == nil {
+	if _, err := runQuietly(t, []string{"workbench", input, "-o", outDir, "-compile"}); err == nil {
 		t.Fatal("run workbench -compile succeeded, want clang error")
 	}
 	if _, err := os.Stat(filepath.Join(outDir, "input.bpf.o")); !os.IsNotExist(err) {
@@ -655,6 +651,9 @@ func TestWorkbenchReportsClangDiagnostics(t *testing.T) {
 	}
 	if report.Diagnostics[0].Primary.File != "../../testdata/golden/exec/input.hzn" {
 		t.Fatalf("primary file = %q, want authored input", report.Diagnostics[0].Primary.File)
+	}
+	if source := generatedBPFLabelSource(report.Diagnostics[0]); source == nil || source.Text == "" || source.Marker == "" {
+		t.Fatalf("generated label source = %#v, want generated C context", source)
 	}
 	assertSourceDetail(t, report, input)
 	if artifactsContain(report.Artifacts, filepath.Join(outDir, "input.bpf.o")) {
@@ -687,6 +686,55 @@ func hasDiagnosticCode(diags []diag.Diagnostic, code string) bool {
 		}
 	}
 	return false
+}
+
+func requireRunQuietly(t *testing.T, args []string) {
+	t.Helper()
+	output, err := runQuietly(t, args)
+	if err != nil {
+		t.Fatalf("run hzn %s: %v%s", strings.Join(args, " "), err, capturedOutput(output))
+	}
+}
+
+func runQuietly(t *testing.T, args []string) (string, error) {
+	t.Helper()
+	return captureOutput(t, func() error {
+		return run(args)
+	})
+}
+
+func capturedOutput(output string) string {
+	if output == "" {
+		return ""
+	}
+	return "\noutput:\n" + output
+}
+
+func captureOutput(t *testing.T, fn func() error) (string, error) {
+	t.Helper()
+	oldStdout := os.Stdout
+	oldStderr := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe output: %v", err)
+	}
+	os.Stdout = w
+	os.Stderr = w
+	runErr := fn()
+	closeErr := w.Close()
+	os.Stdout = oldStdout
+	os.Stderr = oldStderr
+	data, readErr := io.ReadAll(r)
+	if err := r.Close(); readErr == nil {
+		readErr = err
+	}
+	if readErr != nil {
+		t.Fatalf("read output: %v", readErr)
+	}
+	if runErr == nil {
+		runErr = closeErr
+	}
+	return string(data), runErr
 }
 
 func artifactsContain(artifacts []string, path string) bool {

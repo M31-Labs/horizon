@@ -56,8 +56,10 @@ bindings-smoke:
 	for example in $(HZN_EXAMPLES); do \
 		if [ "$${GITHUB_ACTIONS:-}" = "true" ]; then echo "::group::hzn bindgen $$example"; fi; \
 		rm -f "$$tmp"/*.go; \
+		rm -f "$$tmp/test.log"; \
 		echo "hzn bindgen $$example"; \
-		go run ./cmd/hzn bindgen "$$example" -o "$$tmp/bindings.go" && go test "./$$tmp"; status=$$?; \
+		go run ./cmd/hzn bindgen "$$example" -o "$$tmp/bindings.go" && go test "./$$tmp" >"$$tmp/test.log" 2>&1; status=$$?; \
+		if [ $$status -ne 0 ] && [ -s "$$tmp/test.log" ]; then cat "$$tmp/test.log"; fi; \
 		if [ "$${GITHUB_ACTIONS:-}" = "true" ]; then echo "::endgroup::"; fi; \
 		if [ $$status -ne 0 ]; then exit $$status; fi; \
 	done

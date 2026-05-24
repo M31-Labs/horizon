@@ -35,9 +35,7 @@ func TestWorkbenchCompileSmoke(t *testing.T) {
 	requireClangSmoke(t)
 	outDir := t.TempDir()
 	input := filepath.Join("..", "..", "examples", "execwatch")
-	if err := run([]string{"workbench", input, "-o", outDir, "-compile"}); err != nil {
-		t.Fatalf("workbench -compile: %v", err)
-	}
+	requireRunQuietly(t, []string{"workbench", input, "-o", outDir, "-compile"})
 	for _, name := range []string{
 		"exec.bpf.c",
 		"exec.bpf.o",
@@ -94,9 +92,7 @@ func OnOpenReturn(ctx kretprobe.Context) i32 {
 		t.Fatalf("WriteFile: %v", err)
 	}
 	outDir := t.TempDir()
-	if err := run([]string{"workbench", srcDir, "-o", outDir, "-compile"}); err != nil {
-		t.Fatalf("workbench -compile: %v", err)
-	}
+	requireRunQuietly(t, []string{"workbench", srcDir, "-o", outDir, "-compile"})
 	for _, name := range []string{
 		"open.bpf.c",
 		"open.bpf.o",
@@ -125,9 +121,7 @@ func PassIngress(ctx tc.Context) i32 {
 		t.Fatalf("WriteFile: %v", err)
 	}
 	outDir := t.TempDir()
-	if err := run([]string{"workbench", srcDir, "-o", outDir, "-compile"}); err != nil {
-		t.Fatalf("workbench -compile: %v", err)
-	}
+	requireRunQuietly(t, []string{"workbench", srcDir, "-o", outDir, "-compile"})
 	for _, name := range []string{
 		"tc.bpf.c",
 		"tc.bpf.o",
@@ -171,9 +165,7 @@ func BlockSMTP(ctx cgroup.Connect) i32 {
 		t.Fatalf("WriteFile: %v", err)
 	}
 	outDir := t.TempDir()
-	if err := run([]string{"workbench", srcDir, "-o", outDir, "-compile"}); err != nil {
-		t.Fatalf("workbench -compile: %v", err)
-	}
+	requireRunQuietly(t, []string{"workbench", srcDir, "-o", outDir, "-compile"})
 	for _, name := range []string{
 		"connect.bpf.c",
 		"connect.bpf.o",
@@ -202,9 +194,7 @@ func AllowFileOpen(ctx lsm.Context) i32 {
 		t.Fatalf("WriteFile: %v", err)
 	}
 	outDir := t.TempDir()
-	if err := run([]string{"workbench", srcDir, "-o", outDir, "-compile"}); err != nil {
-		t.Fatalf("workbench -compile: %v", err)
-	}
+	requireRunQuietly(t, []string{"workbench", srcDir, "-o", outDir, "-compile"})
 	for _, name := range []string{
 		"lsm.bpf.c",
 		"lsm.bpf.o",
@@ -248,9 +238,7 @@ func OnExec(ctx tracepoint.Exec) i32 {
 		t.Fatalf("WriteFile: %v", err)
 	}
 	outDir := t.TempDir()
-	if err := run([]string{"workbench", srcDir, "-o", outDir, "-compile"}); err != nil {
-		t.Fatalf("workbench -compile: %v", err)
-	}
+	requireRunQuietly(t, []string{"workbench", srcDir, "-o", outDir, "-compile"})
 	data, err := os.ReadFile(filepath.Join(outDir, "flags.bpf.c"))
 	if err != nil {
 		t.Fatalf("read generated C: %v", err)
@@ -278,9 +266,7 @@ func OnExec(ctx tracepoint.Exec) i32 {
 		t.Fatalf("WriteFile: %v", err)
 	}
 	outDir := t.TempDir()
-	if err := run([]string{"workbench", srcDir, "-o", outDir, "-compile"}); err != nil {
-		t.Fatalf("workbench -compile: %v", err)
-	}
+	requireRunQuietly(t, []string{"workbench", srcDir, "-o", outDir, "-compile"})
 	data, err := os.ReadFile(filepath.Join(outDir, "loop.bpf.c"))
 	if err != nil {
 		t.Fatalf("read generated C: %v", err)
@@ -313,9 +299,7 @@ func OnExec(ctx tracepoint.Exec) i32 {
 		t.Fatalf("WriteFile: %v", err)
 	}
 	outDir := t.TempDir()
-	if err := run([]string{"workbench", srcDir, "-o", outDir, "-compile"}); err != nil {
-		t.Fatalf("workbench -compile: %v", err)
-	}
+	requireRunQuietly(t, []string{"workbench", srcDir, "-o", outDir, "-compile"})
 	data, err := os.ReadFile(filepath.Join(outDir, "file.bpf.c"))
 	if err != nil {
 		t.Fatalf("read generated C: %v", err)

@@ -18,6 +18,7 @@ const (
 type Label struct {
 	Span    span.Span `json:"span"`
 	Message string    `json:"message"`
+	Source  *Source   `json:"source,omitempty"`
 }
 
 type Diagnostic struct {

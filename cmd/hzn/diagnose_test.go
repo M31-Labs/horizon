@@ -107,6 +107,40 @@ func TestDiagnoseLoadsGeneratedSourceBesideSourceMap(t *testing.T) {
 	if diagnostics[0].Source == nil || diagnostics[0].Source.Line != 7 || !strings.Contains(diagnostics[0].Source.Text, "bad_access") {
 		t.Fatalf("source context = %#v, want authored source line", diagnostics[0].Source)
 	}
+	generatedSource := generatedBPFLabelSource(diagnostics[0])
+	if generatedSource == nil || !strings.Contains(generatedSource.Text, "bad_access();") || generatedSource.Marker == "" {
+		t.Fatalf("generated source context = %#v, want generated BPF C line", generatedSource)
+	}
+}
+
+func TestDiagnoseTextIncludesGeneratedSourceContext(t *testing.T) {
+	dir := t.TempDir()
+	sourcePath := filepath.Join(dir, "input.hzn")
+	cPath := filepath.Join(dir, "input.bpf.c")
+	mapPath := filepath.Join(dir, "input.hznmap.json")
+	logPath := filepath.Join(dir, "verifier.log")
+
+	sourceMap := diagnoseTestSourceMap(sourcePath, "input.bpf.c", 2)
+	writeDiagnoseSourceMap(t, mapPath, sourceMap)
+	if err := os.WriteFile(sourcePath, []byte("package probes\n\nfunc OnExec(ctx tracepoint.Exec) i32 {\n    event := ExecEvents.reserve()\n    if event == nil {\n        return 0\n    bad_access()\n}\n"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	if err := os.WriteFile(cPath, []byte("int OnExec(void *ctx) {\n    bad_access();\n}\n"), 0o644); err != nil {
+		t.Fatalf("write generated C: %v", err)
+	}
+	if err := os.WriteFile(logPath, []byte("0: R1=ctx() R10=fp0\n; bad_access();\ninvalid mem access 'scalar'\n"), 0o644); err != nil {
+		t.Fatalf("write log: %v", err)
+	}
+
+	stdout, err := captureStdout(t, func() error {
+		return run([]string{"diagnose", logPath, "-map", mapPath})
+	})
+	if err != nil {
+		t.Fatalf("run diagnose: %v", err)
+	}
+	if !strings.Contains(stdout, "generated: input.bpf.c:2:1") || !strings.Contains(stdout, "bad_access();") {
+		t.Fatalf("stdout missing generated source context:\n%s", stdout)
+	}
 }
 
 func TestDiagnoseGeneratedFlagTakesValue(t *testing.T) {
@@ -430,4 +464,13 @@ func hasNoteContaining(diagnostic diag.Diagnostic, needle string) bool {
 		}
 	}
 	return false
+}
+
+func generatedBPFLabelSource(diagnostic diag.Diagnostic) *diag.Source {
+	for _, label := range diagnostic.Labels {
+		if label.Message == "generated BPF C" {
+			return label.Source
+		}
+	}
+	return nil
 }

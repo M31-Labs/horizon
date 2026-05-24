@@ -17,7 +17,7 @@ func OnExec(ctx tracepoint.Exec)i32{return 0}
 		t.Fatalf("write input: %v", err)
 	}
 
-	err := run([]string{"fmt", dir, "-check"})
+	_, err := runQuietly(t, []string{"fmt", dir, "-check"})
 	if err == nil || !strings.Contains(err.Error(), "need formatting") {
 		t.Fatalf("run fmt -check error = %v, want formatting error", err)
 	}
