@@ -1,8 +1,12 @@
 package compiler
 
 import (
+	"errors"
+	"fmt"
+
 	"m31labs.dev/horizon/ast"
 	"m31labs.dev/horizon/compiler/diag"
+	"m31labs.dev/horizon/compiler/span"
 	"m31labs.dev/horizon/ir"
 	"m31labs.dev/horizon/parser"
 	htypes "m31labs.dev/horizon/types"
@@ -33,20 +37,41 @@ func AnalyzePath(root string) (*Result, error) {
 	var result Result
 	packageName := ""
 	files := make([]ast.File, 0, len(paths))
+	fileIndexes := make([]int, 0, len(paths))
+	hadFrontEndError := false
 	for _, path := range paths {
 		parsed, err := parser.ParsePath(path)
 		if err != nil {
-			return nil, err
+			hadFrontEndError = true
+			d := frontEndDiagnostic(path, err)
+			result.Files = append(result.Files, FileResult{
+				Path:        path,
+				Diagnostics: []diag.Diagnostic{d},
+			})
+			result.Diagnostics = append(result.Diagnostics, d)
+			continue
 		}
 		file, err := ast.Build(parsed)
 		if err != nil {
-			return nil, err
+			hadFrontEndError = true
+			d := frontEndDiagnostic(path, err)
+			result.Files = append(result.Files, FileResult{
+				Path:        path,
+				Package:     parsed.Package,
+				Diagnostics: []diag.Diagnostic{d},
+			})
+			result.Diagnostics = append(result.Diagnostics, d)
+			continue
 		}
+		fileIndexes = append(fileIndexes, len(result.Files))
 		files = append(files, *file)
 		result.Files = append(result.Files, FileResult{
 			Path:    path,
 			Package: file.Package,
 		})
+	}
+	if hadFrontEndError {
+		return &result, nil
 	}
 	typeDiags := htypes.CheckPackage(files)
 	for i, file := range files {
@@ -63,7 +88,7 @@ func AnalyzePath(root string) (*Result, error) {
 				})
 			}
 		}
-		result.Files[i].Diagnostics = diags
+		result.Files[fileIndexes[i]].Diagnostics = diags
 		result.Diagnostics = append(result.Diagnostics, diags...)
 	}
 	program, lowerDiags := ir.FromAST(mergeASTFiles(files, packageName))
@@ -86,4 +111,23 @@ func mergeASTFiles(files []ast.File, packageName string) ast.File {
 		merged.Decls = append(merged.Decls, file.Decls...)
 	}
 	return merged
+}
+
+func frontEndDiagnostic(path string, err error) diag.Diagnostic {
+	var parseErr *parser.ParseError
+	if errors.As(err, &parseErr) {
+		return diag.Diagnostic{
+			Code:     "HZN0100",
+			Severity: diag.SeverityError,
+			Message:  parseErr.Message,
+			Primary:  parseErr.Span(),
+			Suggest:  "fix the Horizon syntax before typechecking or C emission can continue",
+		}
+	}
+	return diag.Diagnostic{
+		Code:     "HZN0200",
+		Severity: diag.SeverityError,
+		Message:  fmt.Sprintf("could not build Horizon AST: %v", err),
+		Primary:  span.Span{File: span.FileID(path)},
+	}
 }

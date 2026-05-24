@@ -161,6 +161,72 @@ func TestWorkbenchJSONOutputForInvalidInput(t *testing.T) {
 	}
 }
 
+func TestWorkbenchWritesDiagnosticReportForSyntaxError(t *testing.T) {
+	outDir := t.TempDir()
+	sourcePath := filepath.Join(t.TempDir(), "syntax_error.hzn")
+	if err := os.WriteFile(sourcePath, []byte(`package probes
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    if {
+        return 0
+    }
+}
+`), 0o600); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	stale := writeStaleArtifacts(t, artifactPathsFor(outDir, "syntax_error").allArtifacts()...)
+	stdout, err := captureStdout(t, func() error {
+		return run([]string{"workbench", sourcePath, "-o", outDir, "-json"})
+	})
+	if err == nil {
+		t.Fatal("run workbench -json succeeded, want syntax diagnostic error")
+	}
+
+	var report workbenchReport
+	if err := json.Unmarshal([]byte(stdout), &report); err != nil {
+		t.Fatalf("unmarshal stdout report: %v\n%s", err, stdout)
+	}
+	if report.Status != "diagnostic_error" {
+		t.Fatalf("status = %q, want diagnostic_error", report.Status)
+	}
+	assertReportProvenance(t, report)
+	assertRemovedStaleArtifacts(t, report, stale)
+	if report.DiagnosticCount != 1 || !hasDiagnosticCode(report.Diagnostics, "HZN0100") {
+		t.Fatalf("diagnostics = %#v, want one HZN0100", report.Diagnostics)
+	}
+	if report.Diagnostics[0].Primary.File != "syntax_error.hzn" && string(report.Diagnostics[0].Primary.File) != sourcePath {
+		t.Fatalf("primary file = %q, want source path", report.Diagnostics[0].Primary.File)
+	}
+	if len(report.Artifacts) != 2 {
+		t.Fatalf("artifacts = %d, want diagnostics and report only", len(report.Artifacts))
+	}
+	assertArtifactDetail(t, report, "diagnostics")
+	for _, name := range []string{
+		"syntax_error.bpf.c",
+		"syntax_error.hznmap.json",
+		"syntax_error.bindings.go",
+		"syntax_error.cap.json",
+		"syntax_error.bpf.o",
+	} {
+		if _, err := os.Stat(filepath.Join(outDir, name)); !os.IsNotExist(err) {
+			t.Fatalf("generated artifact %s should not exist for syntax error: %v", name, err)
+		}
+	}
+
+	data, err := os.ReadFile(filepath.Join(outDir, "syntax_error.diagnostics.json"))
+	if err != nil {
+		t.Fatalf("read diagnostics: %v", err)
+	}
+	var diagnostics []diag.Diagnostic
+	if err := json.Unmarshal(data, &diagnostics); err != nil {
+		t.Fatalf("unmarshal diagnostics: %v", err)
+	}
+	if !hasDiagnosticCode(diagnostics, "HZN0100") {
+		t.Fatalf("diagnostics artifact = %#v, want HZN0100", diagnostics)
+	}
+}
+
 func TestWorkbenchGeneratesTypedMapBindingsForExecCount(t *testing.T) {
 	outDir := t.TempDir()
 	input := filepath.Join("..", "..", "examples", "execcount")

@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"errors"
 	"testing"
 
 	gotreesitter "github.com/odvcencio/gotreesitter"
@@ -241,6 +242,32 @@ func DropAll(ctx xdp.Context) i32 {
 	}
 	if countNamedDescendants(file.Tree.RootNode(), file.Lang, "attribute") != 1 {
 		t.Fatalf("attribute count = %d, want 1", countNamedDescendants(file.Tree.RootNode(), file.Lang, "attribute"))
+	}
+}
+
+func TestParseRejectsTrailingInvalidSource(t *testing.T) {
+	src := SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
+
+@tracepoint("sched:sched_process_exec")
+func F(ctx tracepoint.Exec) i32 {
+    if {
+        return 0
+    }
+}
+`)}
+	_, err := ParseSource(src)
+	if err == nil {
+		t.Fatal("ParseSource succeeded, want parse error")
+	}
+	var parseErr *ParseError
+	if !errors.As(err, &parseErr) {
+		t.Fatalf("error = %T %v, want ParseError", err, err)
+	}
+	if parseErr.Line == 0 || parseErr.Column == 0 {
+		t.Fatalf("parse error position = %d:%d, want source position", parseErr.Line, parseErr.Column)
+	}
+	if parseErr.StartByte == 0 || parseErr.EndByte <= parseErr.StartByte {
+		t.Fatalf("parse error bytes = %d..%d, want non-empty span", parseErr.StartByte, parseErr.EndByte)
 	}
 }
 

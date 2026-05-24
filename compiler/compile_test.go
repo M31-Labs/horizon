@@ -103,6 +103,28 @@ type Event struct {
 	requireDiagnosticCode(t, result, "HZN1002")
 }
 
+func TestAnalyzeReportsParseDiagnostic(t *testing.T) {
+	result := analyzeSource(t, "bad.hzn", `package probes
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    if {
+        return 0
+    }
+}
+`)
+	requireDiagnosticCode(t, result, "HZN0100")
+	if len(result.Program.Functions) != 0 {
+		t.Fatalf("functions = %#v, want none when parsing fails", result.Program.Functions)
+	}
+	if len(result.Files) != 1 || len(result.Files[0].Diagnostics) != 1 {
+		t.Fatalf("file diagnostics = %#v, want one parse diagnostic", result.Files)
+	}
+	if result.Files[0].Diagnostics[0].Primary.File == "" {
+		t.Fatalf("parse diagnostic primary span is empty: %#v", result.Files[0].Diagnostics[0])
+	}
+}
+
 func TestAnalyzeInvalidRingbufPrograms(t *testing.T) {
 	tests := map[string]string{
 		"../testdata/invalid/ringbuf_missing_nil_check.hzn":  "HZN2100",

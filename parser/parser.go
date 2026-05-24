@@ -40,6 +40,21 @@ func ParseSource(source SourceFile) (*File, error) {
 	if root.HasError() {
 		return nil, parseProblem(source.Path, root, source.Bytes, lang)
 	}
+	if offset, ok := firstTrailingSourceByte(source.Bytes, int(root.EndByte())); ok {
+		line, column := pointForOffset(source.Bytes, offset)
+		end := snippetEnd(source.Bytes, offset)
+		endLine, endColumn := pointForOffset(source.Bytes, end)
+		return nil, &ParseError{
+			Path:      source.Path,
+			Line:      line,
+			Column:    column,
+			EndLine:   endLine,
+			EndColumn: endColumn,
+			StartByte: offset,
+			EndByte:   end,
+			Message:   trailingSourceMessage(source.Bytes, offset),
+		}
+	}
 	return &File{
 		Source:  source,
 		Tree:    tree,
@@ -61,11 +76,16 @@ func parseProblem(path string, root *gotreesitter.Node, source []byte, lang *got
 		return &ParseError{Path: path, Line: 1, Column: 1, Message: "parse error"}
 	}
 	point := node.StartPoint()
+	end := node.EndPoint()
 	return &ParseError{
-		Path:    path,
-		Line:    int(point.Row) + 1,
-		Column:  int(point.Column) + 1,
-		Message: parseProblemMessage(node, source, lang),
+		Path:      path,
+		Line:      int(point.Row) + 1,
+		Column:    int(point.Column) + 1,
+		EndLine:   int(end.Row) + 1,
+		EndColumn: int(end.Column) + 1,
+		StartByte: int(node.StartByte()),
+		EndByte:   int(node.EndByte()),
+		Message:   parseProblemMessage(node, source, lang),
 	}
 }
 
@@ -100,6 +120,65 @@ func parseProblemMessage(node *gotreesitter.Node, source []byte, lang *gotreesit
 		return fmt.Sprintf("parse error near %q", snippet)
 	}
 	return "parse error"
+}
+
+func firstTrailingSourceByte(source []byte, start int) (int, bool) {
+	for i := start; i < len(source); {
+		switch source[i] {
+		case ' ', '\t', '\f', '\r', '\n':
+			i++
+			continue
+		case '/':
+			if i+1 < len(source) && source[i+1] == '/' {
+				i += 2
+				for i < len(source) && source[i] != '\n' && source[i] != '\r' {
+					i++
+				}
+				continue
+			}
+		}
+		return i, true
+	}
+	return 0, false
+}
+
+func pointForOffset(source []byte, offset int) (int, int) {
+	line, column := 1, 1
+	if offset > len(source) {
+		offset = len(source)
+	}
+	for i := 0; i < offset; i++ {
+		if source[i] == '\n' {
+			line++
+			column = 1
+			continue
+		}
+		column++
+	}
+	return line, column
+}
+
+func snippetEnd(source []byte, start int) int {
+	end := start
+	for end < len(source) && source[end] != '\n' && source[end] != '\r' {
+		end++
+	}
+	if end == start && end < len(source) {
+		end++
+	}
+	return end
+}
+
+func trailingSourceMessage(source []byte, offset int) string {
+	snippet := strings.TrimSpace(string(source[offset:snippetEnd(source, offset)]))
+	snippet = strings.Join(strings.Fields(snippet), " ")
+	if len(snippet) > 40 {
+		snippet = snippet[:37] + "..."
+	}
+	if snippet != "" {
+		return fmt.Sprintf("parse error near %q", snippet)
+	}
+	return "parse error: unexpected trailing source"
 }
 
 func firstNamedDescendant(node *gotreesitter.Node, lang *gotreesitter.Language, typ string) *gotreesitter.Node {

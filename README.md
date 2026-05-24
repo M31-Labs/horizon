@@ -162,9 +162,10 @@ a report with source file hashes plus artifact kinds, byte sizes, and SHA-256
 hashes. Each run removes stale artifacts for the target output base before
 writing new ones, records replaced paths, and includes generator/timestamp
 provenance in the report. Invalid programs still produce
-`<name>.diagnostics.json` and `<name>.report.json`, and clang failures are
-remapped into the same diagnostics artifact, so editors and automation can show
-actionable feedback without scraping terminal output. Remapped diagnostics keep
+`<name>.diagnostics.json` and `<name>.report.json`, including parser failures
+before typechecking or C emission can run. Clang failures are remapped into the
+same diagnostics artifact, so editors and automation can show actionable
+feedback without scraping terminal output. Remapped diagnostics keep
 the generated BPF C location plus source-map metadata such as Horizon function,
 section, and AST node. Use `-compile` or `hzn build` when the local clang/BPF C
 toolchain should also produce a `.bpf.o`.
@@ -206,6 +207,7 @@ Horizon makes verifier-sensitive behavior explicit before clang runs:
 - map update/delete results must be checked with an explicit comparison
 - fixed array fields are address-only; pass `&event.comm` directly to helpers instead of copying arrays
 - conditions must be typed boolean expressions; integers and pointers need explicit comparison
+- parser failures are surfaced as stable diagnostics and never produce generated C
 - integer, bitwise, comparison, and boolean operators are typed before C emission
 - every program must return an explicit `i32` on every control-flow path
 - only bounded counted loops are accepted
