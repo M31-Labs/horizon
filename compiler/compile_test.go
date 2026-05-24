@@ -40,6 +40,9 @@ func TestAnalyzeInvalidRingbufPrograms(t *testing.T) {
 		"../testdata/invalid/stack_too_large.hzn":            "HZN2700",
 		"../testdata/invalid/missing_return.hzn":             "HZN1445",
 		"../testdata/invalid/map_update_ignored.hzn":         "HZN1446",
+		"../testdata/invalid/map_lookup_alias.hzn":           "HZN1447",
+		"../testdata/invalid/ringbuf_reservation_alias.hzn":  "HZN1447",
+		"../testdata/invalid/packet_header_alias.hzn":        "HZN1447",
 	}
 	for path, code := range tests {
 		result, err := AnalyzePath(path)
@@ -302,6 +305,91 @@ func OnExec(ctx tracepoint.Exec) i32 {
 `)
 	if diag.HasErrors(result.Diagnostics) {
 		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+}
+
+func TestAnalyzeRejectsTrackedPointerAliases(t *testing.T) {
+	tests := map[string]string{
+		"map lookup alias": `package probes
+
+type Count struct {
+    seen u32
+}
+
+map Counts hash[u32, Count]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    pid := bpf.current_pid()
+    count := Counts.lookup(pid)
+    alias := count
+    if alias == nil {
+        return 0
+    }
+    alias.seen = 1
+    return 0
+}
+`,
+		"map lookup assignment": `package probes
+
+type Count struct {
+    seen u32
+}
+
+map Counts hash[u32, Count]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    pid := bpf.current_pid()
+    count := Counts.lookup(pid)
+    count = Counts.lookup(pid)
+    if count == nil {
+        return 0
+    }
+    count.seen = 1
+    return 0
+}
+`,
+		"ringbuf reservation alias": `package probes
+
+type Event struct {
+    pid u32
+}
+
+map Events ringbuf[Event]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    event := Events.reserve()
+    if event == nil {
+        return 0
+    }
+    alias := event
+    Events.submit(alias)
+    return 0
+}
+`,
+		"packet header alias": `package probes
+
+@xdp
+func DropIPv4(ctx xdp.Context) i32 {
+    eth := xdp.eth(ctx)
+    alias := eth
+    if alias == nil {
+        return xdp.Pass
+    }
+    if xdp.ntohs(alias.proto) == xdp.EtherTypeIPv4 {
+        return xdp.Drop
+    }
+    return xdp.Pass
+}
+`,
+	}
+	for name, source := range tests {
+		t.Run(name, func(t *testing.T) {
+			result := analyzeSource(t, "alias.hzn", source)
+			requireDiagnosticCode(t, result, "HZN1447")
+		})
 	}
 }
 

@@ -1,0 +1,14 @@
+package probes
+
+@xdp
+func Bad(ctx xdp.Context) i32 {
+    eth := xdp.eth(ctx)
+    alias := eth
+    if alias == nil {
+        return xdp.Pass
+    }
+    if xdp.ntohs(alias.proto) == xdp.EtherTypeIPv4 {
+        return xdp.Drop
+    }
+    return xdp.Pass
+}

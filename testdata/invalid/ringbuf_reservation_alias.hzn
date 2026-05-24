@@ -1,0 +1,18 @@
+package probes
+
+type Event struct {
+    pid u32
+}
+
+map Events ringbuf[Event]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    event := Events.reserve()
+    if event == nil {
+        return 0
+    }
+    alias := event
+    Events.submit(alias)
+    return 0
+}

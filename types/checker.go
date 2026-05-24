@@ -433,6 +433,13 @@ func validateFuncBody(decl ast.FuncDecl, maps map[string]ast.MapDecl, structs ma
 				diags = append(diags, fixedArrayLocalDiagnostic(s.Span, s.Name, typ))
 				break
 			}
+			if len(exprDiags) == 0 && isTrackedPointer(typ) && !directTrackedPointerSource(s.Value, maps) {
+				diags = append(diags, trackedPointerAliasDiagnostic(s.Span, s.Name, typ))
+				if s.Name != "" {
+					locals[s.Name] = typ
+				}
+				break
+			}
 			if s.Name != "" {
 				locals[s.Name] = typ
 			}
@@ -444,6 +451,10 @@ func validateFuncBody(decl ast.FuncDecl, maps map[string]ast.MapDecl, structs ma
 			diags = append(diags, valueDiags...)
 			if value.Fallible != "" {
 				diags = append(diags, fallibleResultDiagnostic(s.Span, value.Fallible))
+				break
+			}
+			if len(valueDiags) == 0 && isTrackedPointer(value) {
+				diags = append(diags, trackedPointerAliasDiagnostic(s.Span, "", value))
 				break
 			}
 			if targetHadErrors {
@@ -1181,6 +1192,71 @@ func assignable(dst, src valueType) bool {
 
 func isFixedArray(t valueType) bool {
 	return t.Ref.Len != "" && t.Ref.Elem != nil
+}
+
+func isTrackedPointer(t valueType) bool {
+	return t.MaybeNil || t.Resource
+}
+
+func directTrackedPointerSource(expr ast.Expr, maps map[string]ast.MapDecl) bool {
+	call, ok := expr.(ast.CallExpr)
+	if !ok {
+		return false
+	}
+	root, method, ok := selectorParts(call.Func)
+	if !ok {
+		return false
+	}
+	if root == "xdp" {
+		return isXDPPacketHeaderHelper(method)
+	}
+	m, ok := maps[root]
+	if !ok {
+		return false
+	}
+	switch method {
+	case "lookup":
+		return m.Kind == ast.MapKindHash || m.Kind == ast.MapKindArray
+	case "reserve":
+		return m.Kind == ast.MapKindRingbuf
+	default:
+		return false
+	}
+}
+
+func isXDPPacketHeaderHelper(name string) bool {
+	switch name {
+	case "eth", "ipv4", "tcp", "udp":
+		return true
+	default:
+		return false
+	}
+}
+
+func trackedPointerAliasDiagnostic(primary span.Span, name string, typ valueType) diag.Diagnostic {
+	target := "tracked pointer result"
+	if name != "" {
+		target = fmt.Sprintf("local %q", name)
+	}
+	return diag.Diagnostic{
+		Code:     "HZN1447",
+		Severity: diag.SeverityError,
+		Message:  fmt.Sprintf("%s cannot copy or alias a %s", target, trackedPointerKind(typ)),
+		Primary:  primary,
+		Suggest:  "bind lookup, reserve, and packet header results directly once, nil-check that binding, and use that same name",
+	}
+}
+
+func trackedPointerKind(typ valueType) string {
+	if typ.Resource {
+		return "ringbuf reservation"
+	}
+	switch typ.Name {
+	case "xdp.Eth", "xdp.IPv4", "xdp.TCP", "xdp.UDP":
+		return "packet header pointer"
+	default:
+		return "map lookup pointer"
+	}
 }
 
 func fixedArrayLocalDiagnostic(primary span.Span, name string, typ valueType) diag.Diagnostic {

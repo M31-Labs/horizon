@@ -64,6 +64,8 @@ func AnalyzePath(root string) (*Result, error) {
 		result.Diagnostics = append(result.Diagnostics, diags...)
 	}
 	result.Program = ir.Merge(programs...)
-	result.Diagnostics = append(result.Diagnostics, validate.Program(result.Program)...)
+	if !diag.HasErrors(result.Diagnostics) {
+		result.Diagnostics = append(result.Diagnostics, validate.Program(result.Program)...)
+	}
 	return &result, nil
 }
