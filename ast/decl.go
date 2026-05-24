@@ -79,6 +79,28 @@ func (d ConstDecl) GetSpan() span.Span {
 	return d.Span
 }
 
+type EnumDecl struct {
+	Name   string
+	Type   TypeRef
+	Values []EnumValue
+	Span   span.Span
+}
+
+func (EnumDecl) declNode() {}
+func (d EnumDecl) GetSpan() span.Span {
+	return d.Span
+}
+
+type EnumValue struct {
+	Name  string
+	Value Expr
+	Span  span.Span
+}
+
+func (v EnumValue) GetSpan() span.Span {
+	return v.Span
+}
+
 type CapabilityDecl struct {
 	Name  string
 	Value string

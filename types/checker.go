@@ -69,6 +69,35 @@ func CheckPackage(files []ast.File) [][]diag.Diagnostic {
 				structs[typed.Name] = typed
 				userStructs[typed.Name] = typed
 			}
+			if enum, ok := decl.(ast.EnumDecl); ok {
+				for _, value := range enum.Values {
+					if value.Name == "" {
+						continue
+					}
+					if compilerNamespace(value.Name) {
+						diags[i] = append(diags[i], diag.Diagnostic{
+							Code:     "HZN1004",
+							Severity: diag.SeverityError,
+							Message:  fmt.Sprintf("declaration %q conflicts with a compiler namespace", value.Name),
+							Primary:  value.Span,
+							Suggest:  "compiler namespaces such as bpf, xdp, tc, cgroup, lsm, kprobe, kretprobe, and tracepoint are reserved",
+						})
+						continue
+					}
+					if prev, ok := env.Decl(value.Name); ok {
+						diags[i] = append(diags[i], diag.Diagnostic{
+							Code:     "HZN1002",
+							Severity: diag.SeverityError,
+							Message:  fmt.Sprintf("duplicate declaration %q", value.Name),
+							Primary:  value.Span,
+							Notes:    []string{fmt.Sprintf("previous declaration at line %d", prev.GetSpan().Start.Line)},
+						})
+						continue
+					}
+					env.Add(value.Name, value)
+					consts[value.Name] = enumValueConst(enum, value)
+				}
+			}
 			if mapped, ok := decl.(ast.MapDecl); ok && mapped.Name != "" {
 				maps[mapped.Name] = mapped
 			}
@@ -96,6 +125,8 @@ func CheckPackage(files []ast.File) [][]diag.Diagnostic {
 				diags[i] = append(diags[i], callGraphDiags[d.Name]...)
 			case ast.ConstDecl:
 				diags[i] = append(diags[i], validateConstDecl(d, knownTypes)...)
+			case ast.EnumDecl:
+				diags[i] = append(diags[i], validateEnumDecl(d, knownTypes)...)
 			case ast.CapabilityDecl:
 				diags[i] = append(diags[i], validateCapabilityDecl(d)...)
 			}
@@ -114,10 +145,21 @@ func declName(decl ast.Decl) string {
 		return d.Name
 	case ast.ConstDecl:
 		return d.Name
+	case ast.EnumDecl:
+		return d.Name
 	case ast.CapabilityDecl:
 		return d.Name
 	default:
 		return ""
+	}
+}
+
+func enumValueConst(enum ast.EnumDecl, value ast.EnumValue) ast.ConstDecl {
+	return ast.ConstDecl{
+		Name:  value.Name,
+		Type:  enum.Type,
+		Value: value.Value,
+		Span:  value.Span,
 	}
 }
 
@@ -486,6 +528,64 @@ func validateConstDecl(decl ast.ConstDecl, known map[string]bool) []diag.Diagnos
 			decl.Value.GetSpan(),
 		); ok {
 			diags = append(diags, d)
+		}
+	}
+	return diags
+}
+
+func validateEnumDecl(decl ast.EnumDecl, known map[string]bool) []diag.Diagnostic {
+	var diags []diag.Diagnostic
+	diags = append(diags, validateTypeRef(decl.Type, known)...)
+	enumTypeValid := !decl.Type.IsZero() && !decl.Type.Ptr && decl.Type.Elem == nil && len(decl.Type.Args) == 0 && isIntegerScalar(decl.Type.Name)
+	if !enumTypeValid {
+		diags = append(diags, diag.Diagnostic{
+			Code:     "HZN1120",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("enum %q must use a scalar integer backing type", decl.Name),
+			Primary:  decl.Type.Span,
+			Suggest:  "use an explicit integer type such as u8, u16, u32, u64, i32, or i64",
+		})
+	}
+	if len(decl.Values) == 0 {
+		return append(diags, diag.Diagnostic{
+			Code:     "HZN1121",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("enum %q must declare at least one value", decl.Name),
+			Primary:  decl.Span,
+		})
+	}
+	for _, value := range decl.Values {
+		if value.Value == nil {
+			diags = append(diags, diag.Diagnostic{
+				Code:     "HZN1122",
+				Severity: diag.SeverityError,
+				Message:  fmt.Sprintf("enum value %q is missing a value", value.Name),
+				Primary:  value.Span,
+			})
+			continue
+		}
+		typ, ok := constValueType(value.Value)
+		if !ok || typ.Name == "bool" {
+			diags = append(diags, diag.Diagnostic{
+				Code:     "HZN1122",
+				Severity: diag.SeverityError,
+				Message:  fmt.Sprintf("enum value %q must be an integer literal", value.Name),
+				Primary:  value.Value.GetSpan(),
+				Suggest:  "enum values are explicit integer constants; write a literal such as 0, 1, or -1",
+			})
+			continue
+		}
+		if enumTypeValid {
+			target := valueType{Name: decl.Type.Name, Ref: decl.Type}
+			if d, ok := assignabilityDiagnostic(
+				"HZN1123",
+				fmt.Sprintf("cannot assign %s to enum value %q of type %s", typeName(typ), value.Name, typeName(target)),
+				target,
+				typ,
+				value.Value.GetSpan(),
+			); ok {
+				diags = append(diags, d)
+			}
 		}
 	}
 	return diags

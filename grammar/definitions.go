@@ -21,6 +21,7 @@ func defineSourceFile(g *grammargen.Grammar) {
 		grammargen.Sym("import_declaration"),
 		grammargen.Sym("type_declaration"),
 		grammargen.Sym("const_declaration"),
+		grammargen.Sym("enum_declaration"),
 		grammargen.Sym("capability_declaration"),
 		grammargen.Sym("map_declaration"),
 		grammargen.Sym("function_declaration"),
@@ -53,6 +54,27 @@ func defineDeclarations(g *grammargen.Grammar) {
 		grammargen.Str("const"),
 		grammargen.Field("name", grammargen.Sym("identifier")),
 		grammargen.Optional(grammargen.Field("type", grammargen.Sym("type_ref"))),
+		grammargen.Str("="),
+		grammargen.Field("value", grammargen.Sym("expression")),
+	))
+
+	g.Define("enum_declaration", grammargen.Seq(
+		grammargen.Str("enum"),
+		grammargen.Field("name", grammargen.Sym("identifier")),
+		grammargen.Field("type", grammargen.Sym("type_ref")),
+		grammargen.Str("{"),
+		grammargen.Repeat(grammargen.Sym("_terminator")),
+		grammargen.Repeat(grammargen.Seq(
+			grammargen.Sym("enum_value"),
+			grammargen.Repeat1(grammargen.Sym("_terminator")),
+		)),
+		grammargen.Optional(grammargen.Sym("enum_value")),
+		grammargen.Repeat(grammargen.Sym("_terminator")),
+		grammargen.Str("}"),
+	))
+
+	g.Define("enum_value", grammargen.Seq(
+		grammargen.Field("name", grammargen.Sym("identifier")),
 		grammargen.Str("="),
 		grammargen.Field("value", grammargen.Sym("expression")),
 	))

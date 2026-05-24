@@ -27,6 +27,7 @@ It keeps the kernel-side language deliberately small:
 - explicit integer scalar conversions such as `u64(pid)`
 - explicitly typed constants such as `const Port u16 = 443`
 - signed constants such as `const Errno i32 = -1`
+- typed enum value groups for named integer actions and flags
 - named capability aliases such as `capability ExecObserve = "kernel.process.exec.observe"`
 - scalar user helper functions that lower to `static __always_inline` C
 - compiler-known kernel helpers
@@ -92,6 +93,25 @@ capability ExecObserve = "kernel.process.exec.observe"
 @tracepoint("sched:sched_process_exec")
 func OnExec(ctx tracepoint.Exec) i32 {
     return 0
+}
+```
+
+Use `enum` for named integer value sets. Enum values are explicit, typed
+constants; Horizon does not infer iota-like values or widen them through C's
+usual implicit conversions.
+
+```go
+enum Verdict i32 {
+    VerdictPass = 0
+    VerdictDrop = 1
+}
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    if bpf.current_pid() == 0 {
+        return VerdictPass
+    }
+    return VerdictDrop
 }
 ```
 
@@ -474,6 +494,7 @@ Horizon makes verifier-sensitive behavior explicit before clang runs:
 - dynamic shift counts must be proven non-negative and below the shifted value width with a simple guard
 - constants can carry scalar widths, and generated C preserves those widths
 - constants are immutable; use locals for values that change inside a program
+- enum values are explicit typed integer constants; there is no implicit iota or untyped C enum widening
 - sectionless functions are user helpers, not eBPF programs; they are emitted as `static __always_inline` C, must be non-recursive, and currently accept and return only scalar or bool values
 - eBPF entrypoint functions cannot be called like helpers; share logic through sectionless helpers so attachable programs remain explicit
 - short variable declarations introduce fresh local names only; use `=` to update existing locals, and do not shadow maps or compiler namespaces

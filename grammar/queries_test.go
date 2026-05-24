@@ -13,6 +13,11 @@ import bpf "m31labs.dev/horizon/runtime/kernel"
 
 const EventBytes u32 = 262144
 
+enum PacketAction i32 {
+    PacketPass = 2
+    PacketDrop = 1
+}
+
 capability DropCapability = "kernel.network.xdp.drop"
 
 type Event struct {
@@ -54,11 +59,11 @@ func TestQueriesCompile(t *testing.T) {
 func TestHighlightsQueryCoversCurrentLanguageSurface(t *testing.T) {
 	captures := queryCaptures(t, HighlightsQuery, []byte(queryFixture))
 
-	assertCaptureContains(t, captures, "keyword", "package", "import", "const", "capability", "type", "struct", "map", "func", "if", "return")
+	assertCaptureContains(t, captures, "keyword", "package", "import", "const", "enum", "capability", "type", "struct", "map", "func", "if", "return")
 	assertCaptureContains(t, captures, "attribute", "max_entries", "capability", "xdp")
 	assertCaptureContains(t, captures, "comment", "// keep packet access typed and nil-checked")
 	assertCaptureContains(t, captures, "string", `"m31labs.dev/horizon/runtime/kernel"`, `"kernel.network.xdp.drop"`)
-	assertCaptureContains(t, captures, "number", "262144", "443")
+	assertCaptureContains(t, captures, "number", "262144", "2", "1", "443")
 	assertCaptureContains(t, captures, "constant.builtin", "nil", "true")
 	assertCaptureContains(t, captures, "function", "DropTCP")
 	assertCaptureContains(t, captures, "function.method", "tcp", "ntohs")
@@ -72,7 +77,9 @@ func TestLocalsQueryCapturesScopesDefinitionsAndReferences(t *testing.T) {
 
 	assertCaptureContains(t, captures, "local.definition.function", "DropTCP")
 	assertCaptureContains(t, captures, "local.definition.type", "Event")
+	assertCaptureContains(t, captures, "local.definition.enum", "PacketAction")
 	assertCaptureContains(t, captures, "local.definition.constant", "EventBytes")
+	assertCaptureContains(t, captures, "local.definition.constant", "PacketPass", "PacketDrop")
 	assertCaptureContains(t, captures, "local.definition.capability", "DropCapability")
 	assertCaptureContains(t, captures, "local.definition.map", "Events")
 	assertCaptureContains(t, captures, "local.definition.parameter", "ctx")
@@ -87,9 +94,12 @@ func TestLocalsQueryCapturesScopesDefinitionsAndReferences(t *testing.T) {
 func TestSymbolsQueryCapturesAuthoringOutline(t *testing.T) {
 	captures := queryCaptures(t, SymbolsQuery, []byte(queryFixture))
 
-	assertCaptureContains(t, captures, "name", "probes", "bpf", "EventBytes", "DropCapability", "Event", "pid", "ok", "Events", "max_entries", "capability", "xdp", "DropTCP")
+	assertCaptureContains(t, captures, "name", "probes", "bpf", "EventBytes", "PacketAction", "PacketPass", "PacketDrop", "DropCapability", "Event", "pid", "ok", "Events", "max_entries", "capability", "xdp", "DropTCP")
 	if len(captures["definition.function"]) == 0 {
 		t.Fatal("definition.function captures = 0, want function outline entry")
+	}
+	if len(captures["definition.enum"]) == 0 {
+		t.Fatal("definition.enum captures = 0, want enum outline entry")
 	}
 	if len(captures["definition.capability"]) == 0 {
 		t.Fatal("definition.capability captures = 0, want capability outline entry")

@@ -11,6 +11,12 @@
 (const_declaration
   name: (identifier) @local.definition.constant)
 
+(enum_declaration
+  name: (identifier) @local.definition.enum)
+
+(enum_value
+  name: (identifier) @local.definition.constant)
+
 (capability_declaration
   name: (identifier) @local.definition.capability)
 

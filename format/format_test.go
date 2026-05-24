@@ -179,6 +179,28 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	}
 }
 
+func TestSourceFormatsEnums(t *testing.T) {
+	got, err := Source(parser.SourceFile{Path: "enum.hzn", Bytes: []byte(`package probes
+enum Verdict i32{
+Pass=0
+Drop=1
+}
+`)})
+	if err != nil {
+		t.Fatalf("Source: %v", err)
+	}
+	want := `package probes
+
+enum Verdict i32 {
+    Pass = 0
+    Drop = 1
+}
+`
+	if string(got) != want {
+		t.Fatalf("formatted source mismatch\nwant:\n%s\ngot:\n%s", want, got)
+	}
+}
+
 func TestSourceFormatsSignedIntegerLiterals(t *testing.T) {
 	got, err := Source(parser.SourceFile{Path: "signed.hzn", Bytes: []byte(`package probes
 const Negative i32=-1

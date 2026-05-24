@@ -440,6 +440,40 @@ const HTTPS u16 = 443
 	}
 }
 
+func TestBuildEnumDeclaration(t *testing.T) {
+	parsed, err := parser.ParseSource(parser.SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
+
+enum Verdict i32 {
+    VerdictPass = 0
+    VerdictDrop = 1
+}
+`)})
+	if err != nil {
+		t.Fatalf("ParseSource: %v", err)
+	}
+	file, err := Build(parsed)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(file.Decls) != 1 {
+		t.Fatalf("decls = %d, want 1", len(file.Decls))
+	}
+	decl, ok := file.Decls[0].(EnumDecl)
+	if !ok {
+		t.Fatalf("decl[0] = %T, want EnumDecl", file.Decls[0])
+	}
+	if decl.Name != "Verdict" || decl.Type.Name != "i32" || len(decl.Values) != 2 {
+		t.Fatalf("enum decl = %#v, want Verdict i32 with two values", decl)
+	}
+	if decl.Values[0].Name != "VerdictPass" {
+		t.Fatalf("enum values = %#v, want VerdictPass first", decl.Values)
+	}
+	value, ok := decl.Values[1].Value.(IntExpr)
+	if !ok || value.Value != "1" {
+		t.Fatalf("second enum value = %#v, want integer literal 1", decl.Values[1].Value)
+	}
+}
+
 func TestBuildConstBeforeFunction(t *testing.T) {
 	parsed, err := parser.ParseSource(parser.SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
 

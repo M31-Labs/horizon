@@ -27,6 +27,8 @@ func Build(parsed *parser.File) (*File, error) {
 			file.Decls = append(file.Decls, buildFuncDecl(parsed, child))
 		case "const_declaration":
 			file.Decls = append(file.Decls, buildConstDecl(parsed, child))
+		case "enum_declaration":
+			file.Decls = append(file.Decls, buildEnumDecl(parsed, child))
 		case "capability_declaration":
 			file.Decls = append(file.Decls, buildCapabilityDecl(parsed, child))
 		}
@@ -174,6 +176,22 @@ func buildConstDecl(parsed *parser.File, n *gotreesitter.Node) ConstDecl {
 		Value: buildExpr(parsed, value),
 		Span:  spanForNode(parsed.Source.FileID, n),
 	}
+}
+
+func buildEnumDecl(parsed *parser.File, n *gotreesitter.Node) EnumDecl {
+	decl := EnumDecl{
+		Name: text(parsed, n.ChildByFieldName("name", parsed.Lang)),
+		Type: buildTypeRef(parsed, n.ChildByFieldName("type", parsed.Lang)),
+		Span: spanForNode(parsed.Source.FileID, n),
+	}
+	for _, child := range namedDescendantsOfType(parsed, n, "enum_value") {
+		decl.Values = append(decl.Values, EnumValue{
+			Name:  text(parsed, child.ChildByFieldName("name", parsed.Lang)),
+			Value: buildExpr(parsed, child.ChildByFieldName("value", parsed.Lang)),
+			Span:  spanForNode(parsed.Source.FileID, child),
+		})
+	}
+	return decl
 }
 
 func buildCapabilityDecl(parsed *parser.File, n *gotreesitter.Node) CapabilityDecl {

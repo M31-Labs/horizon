@@ -115,13 +115,19 @@ func resolveMapMaxEntries(files []ast.File) {
 	consts := map[string]string{}
 	for _, file := range files {
 		for _, decl := range file.Decls {
-			constant, ok := decl.(ast.ConstDecl)
-			if !ok {
-				continue
-			}
-			value, ok := constant.Value.(ast.IntExpr)
-			if ok {
-				consts[constant.Name] = value.Value
+			switch d := decl.(type) {
+			case ast.ConstDecl:
+				value, ok := d.Value.(ast.IntExpr)
+				if ok {
+					consts[d.Name] = value.Value
+				}
+			case ast.EnumDecl:
+				for _, enumValue := range d.Values {
+					value, ok := enumValue.Value.(ast.IntExpr)
+					if ok {
+						consts[enumValue.Name] = value.Value
+					}
+				}
 			}
 		}
 	}

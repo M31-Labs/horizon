@@ -809,6 +809,46 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	}
 }
 
+func TestEmitEnumConstants(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "verdict.hzn")
+	if err := os.WriteFile(path, []byte(`package probes
+
+enum Verdict i32 {
+    VerdictPass = 0
+    VerdictDrop = 1
+}
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    if bpf.current_pid() == 0 {
+        return VerdictPass
+    }
+    return VerdictDrop
+}
+`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	result, err := compiler.AnalyzePath(dir)
+	if err != nil {
+		t.Fatalf("AnalyzePath: %v", err)
+	}
+	out, err := Emit(result.Program)
+	if err != nil {
+		t.Fatalf("Emit: %v", err)
+	}
+	for _, want := range []string{
+		"static const __s32 hzn_const_VerdictPass = 0;",
+		"static const __s32 hzn_const_VerdictDrop = 1;",
+		"return hzn_const_VerdictPass;",
+		"return hzn_const_VerdictDrop;",
+	} {
+		if !strings.Contains(out.Code, want) {
+			t.Fatalf("generated C missing %q:\n%s", want, out.Code)
+		}
+	}
+}
+
 func TestEmitNegativeSignedIntegerLiterals(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "signed.hzn")

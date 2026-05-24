@@ -7,6 +7,12 @@
 (const_declaration
   name: (identifier) @name) @definition.constant
 
+(enum_declaration
+  name: (identifier) @name) @definition.enum
+
+(enum_value
+  name: (identifier) @name) @definition.constant
+
 (capability_declaration
   name: (identifier) @name) @definition.capability
 

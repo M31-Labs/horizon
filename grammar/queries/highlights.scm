@@ -2,6 +2,7 @@
 (import_declaration "import" @keyword)
 (type_declaration "type" @keyword)
 (const_declaration "const" @keyword)
+(enum_declaration "enum" @keyword)
 (capability_declaration "capability" @keyword)
 (function_declaration "func" @keyword)
 (map_declaration "map" @keyword)
@@ -50,6 +51,12 @@
   name: (identifier) @variable)
 
 (const_declaration
+  name: (identifier) @constant)
+
+(enum_declaration
+  name: (identifier) @type)
+
+(enum_value
   name: (identifier) @constant)
 
 (capability_declaration

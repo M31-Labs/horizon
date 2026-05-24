@@ -1364,6 +1364,48 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	}
 }
 
+func TestAnalyzeAllowsTypedEnumValuesInExpressions(t *testing.T) {
+	result := analyzeSource(t, "verdict.hzn", `package probes
+
+enum Verdict i32 {
+    VerdictPass = 0
+    VerdictDrop = 1
+}
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    if bpf.current_pid() == 0 {
+        return VerdictPass
+    }
+    return VerdictDrop
+}
+`)
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+	if len(result.Program.Constants) != 2 || result.Program.Constants[0].Type.Name != "i32" || result.Program.Constants[1].Name != "VerdictDrop" {
+		t.Fatalf("constants = %#v, want typed enum values lowered as constants", result.Program.Constants)
+	}
+}
+
+func TestAnalyzeAllowsEnumValueForMapMaxEntries(t *testing.T) {
+	result := analyzeSource(t, "maps.hzn", `package probes
+
+enum MapSize u32 {
+    CountEntries = 4096
+}
+
+@max_entries(CountEntries)
+map Counts hash[u32, u64]
+`)
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+	if len(result.Program.Maps) != 1 || result.Program.Maps[0].MaxEntries != "4096" {
+		t.Fatalf("maps = %#v, want enum-backed max_entries resolved to 4096", result.Program.Maps)
+	}
+}
+
 func TestAnalyzeUsesTypedConstWidth(t *testing.T) {
 	result := analyzeSource(t, "counts.hzn", `package probes
 
@@ -1606,6 +1648,51 @@ func OnExec(ctx tracepoint.Exec) i32 {
 }
 `)
 	requireDiagnosticCode(t, result, "HZN1105")
+}
+
+func TestAnalyzeRejectsInvalidEnumBackingType(t *testing.T) {
+	result := analyzeSource(t, "enum.hzn", `package probes
+
+enum Flag bool {
+    FlagOn = 1
+}
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    return 0
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1120")
+}
+
+func TestAnalyzeRejectsEnumNonIntegerValue(t *testing.T) {
+	result := analyzeSource(t, "enum.hzn", `package probes
+
+enum Flag u32 {
+    FlagOn = true
+}
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    return 0
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1122")
+}
+
+func TestAnalyzeRejectsEnumValueOutOfRange(t *testing.T) {
+	result := analyzeSource(t, "enum.hzn", `package probes
+
+enum Small u8 {
+    TooBig = 256
+}
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    return 0
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1470")
 }
 
 func TestAnalyzeRejectsNonScalarConstType(t *testing.T) {

@@ -22,6 +22,8 @@ func FromAST(file ast.File) (Program, []diag.Diagnostic) {
 			program.Structs = append(program.Structs, buildStruct(d))
 		case ast.ConstDecl:
 			program.Constants = append(program.Constants, buildConst(d))
+		case ast.EnumDecl:
+			program.Constants = append(program.Constants, buildEnumConsts(d)...)
 		case ast.CapabilityDecl:
 			capabilityAliases[d.Name] = d.Value
 		case ast.MapDecl:
@@ -90,6 +92,19 @@ func buildConst(decl ast.ConstDecl) Const {
 		Value: buildExpr(decl.Value),
 		Span:  decl.Span,
 	}
+}
+
+func buildEnumConsts(decl ast.EnumDecl) []Const {
+	out := make([]Const, 0, len(decl.Values))
+	for _, value := range decl.Values {
+		out = append(out, Const{
+			Name:  value.Name,
+			Type:  buildType(decl.Type),
+			Value: buildExpr(value.Value),
+			Span:  value.Span,
+		})
+	}
+	return out
 }
 
 func buildStruct(decl ast.TypeDecl) Struct {

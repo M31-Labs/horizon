@@ -158,6 +158,16 @@ func (b *builder) decl(decl ast.Decl) {
 		}
 		line += " = " + expr(d.Value)
 		b.lineWithComment(line, d.Span.Start.Line)
+	case ast.EnumDecl:
+		b.lineWithComment("enum "+d.Name+" "+typeRef(d.Type)+" {", d.Span.Start.Line)
+		b.indent++
+		for _, value := range d.Values {
+			b.flushCommentsBefore(value.Span.Start.Line)
+			b.lineWithComment(value.Name+" = "+expr(value.Value), value.Span.Start.Line)
+		}
+		b.flushCommentsBefore(d.Span.End.Line)
+		b.indent--
+		b.lineWithComment("}", d.Span.End.Line)
 	case ast.CapabilityDecl:
 		b.lineWithComment("capability "+d.Name+" = "+strconv.Quote(d.Value), d.Span.Start.Line)
 	case ast.MapDecl:
