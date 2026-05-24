@@ -236,6 +236,20 @@ func sectionFromAttrs(attrs []ast.Attr) Section {
 				Kind: ProgramXDP,
 				Name: "xdp",
 			}
+		case "kprobe":
+			attach := stringArg(attr)
+			return Section{
+				Kind:   ProgramKprobe,
+				Attach: attach,
+				Name:   "kprobe/" + attach,
+			}
+		case "kretprobe":
+			attach := stringArg(attr)
+			return Section{
+				Kind:   ProgramKretprobe,
+				Attach: attach,
+				Name:   "kretprobe/" + attach,
+			}
 		}
 	}
 	return Section{}
@@ -459,6 +473,9 @@ func manifestSection(section Section) string {
 	}
 	if section.Kind == ProgramXDP {
 		return "xdp"
+	}
+	if (section.Kind == ProgramKprobe || section.Kind == ProgramKretprobe) && section.Attach != "" {
+		return string(section.Kind) + "/" + section.Attach
 	}
 	return section.Name
 }

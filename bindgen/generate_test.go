@@ -41,3 +41,41 @@ func TestGenerateXDPAttachBindings(t *testing.T) {
 		}
 	}
 }
+
+func TestGenerateKprobeAttachBindings(t *testing.T) {
+	code, err := Generate(ir.Program{
+		Package: "probes",
+		Functions: []ir.Function{{
+			Name: "OnOpen",
+			Section: ir.Section{
+				Kind:   ir.ProgramKprobe,
+				Attach: "do_sys_openat2",
+				Name:   "kprobe/do_sys_openat2",
+			},
+		}, {
+			Name: "OnOpenReturn",
+			Section: ir.Section{
+				Kind:   ir.ProgramKretprobe,
+				Attach: "do_sys_openat2",
+				Name:   "kretprobe/do_sys_openat2",
+			},
+		}},
+	}, "bindings")
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	for _, want := range []string{
+		`"github.com/cilium/ebpf/link"`,
+		"func (o *Objects) AttachOnOpen() (link.Link, error)",
+		`return link.Kprobe("do_sys_openat2", o.OnOpen, nil)`,
+		"func (o *Objects) AttachOnOpenReturn() (link.Link, error)",
+		`return link.Kretprobe("do_sys_openat2", o.OnOpenReturn, nil)`,
+	} {
+		if !strings.Contains(code, want) {
+			t.Fatalf("generated bindings missing %q:\n%s", want, code)
+		}
+	}
+	if strings.Contains(code, `"net"`) {
+		t.Fatalf("generated kprobe bindings unexpectedly import net:\n%s", code)
+	}
+}

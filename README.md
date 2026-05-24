@@ -8,6 +8,7 @@ verifier-friendly eBPF programs that lower to readable BPF C.
 It keeps the kernel-side language deliberately small:
 
 - tracepoint programs
+- kprobe and kretprobe programs
 - XDP programs
 - typed structs and fixed arrays
 - ringbuf event output
@@ -106,6 +107,23 @@ func DropTCP(ctx xdp.Context) i32 {
 }
 ```
 
+Tracing programs can also attach to kernel symbols with explicit kprobe section
+attributes. v0 keeps kprobe contexts opaque; use compiler-known helpers and
+typed maps/events rather than raw register arithmetic.
+
+```go
+package probes
+
+import bpf "m31labs.dev/horizon/runtime/kernel"
+
+@capability("kernel.file.open.observe")
+@kprobe("do_sys_openat2")
+func OnOpen(ctx kprobe.Context) i32 {
+    bpf.current_pid()
+    return 0
+}
+```
+
 ## Commands
 
 ```sh
@@ -150,6 +168,7 @@ Horizon makes verifier-sensitive behavior explicit before clang runs:
 
 ## Status
 
-Pre-alpha. The current implementation targets tracepoint and XDP programs with
-typed ringbuf event output, typed hash/array map access, bounded loops,
-generated BPF C, clang builds, Go bindings, and Continuum capability manifests.
+Pre-alpha. The current implementation targets tracepoint, kprobe/kretprobe, and
+XDP programs with typed ringbuf event output, typed hash/array map access,
+bounded loops, generated BPF C, clang builds, Go bindings, and Continuum
+capability manifests.

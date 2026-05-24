@@ -74,6 +74,10 @@ func emitAttach(b *bytes.Buffer, fn ir.Function) {
 		emitTracepointAttach(b, fn)
 	case ir.ProgramXDP:
 		emitXDPAttach(b, fn)
+	case ir.ProgramKprobe:
+		emitKprobeAttach(b, fn, "Kprobe")
+	case ir.ProgramKretprobe:
+		emitKprobeAttach(b, fn, "Kretprobe")
 	}
 }
 
@@ -114,6 +118,21 @@ func (o *Objects) Attach%sInterface(name string) (link.Link, error) {
 }
 
 `, field, field, fn.Name, field, field, field)
+}
+
+func emitKprobeAttach(b *bytes.Buffer, fn ir.Function, linkFunc string) {
+	if fn.Section.Attach == "" {
+		return
+	}
+	field := exported(fn.Name)
+	fmt.Fprintf(b, `func (o *Objects) Attach%s() (link.Link, error) {
+	if o == nil || o.%s == nil {
+		return nil, fmt.Errorf("%s program is not loaded")
+	}
+	return link.%s(%q, o.%s, nil)
+}
+
+`, field, field, fn.Name, linkFunc, fn.Section.Attach, field)
 }
 
 func emitImports(b *bytes.Buffer, program ir.Program) {
@@ -165,7 +184,7 @@ func hasRingbuf(program ir.Program) bool {
 func hasAttach(program ir.Program) bool {
 	for _, fn := range program.Functions {
 		switch fn.Section.Kind {
-		case ir.ProgramTracepoint, ir.ProgramXDP:
+		case ir.ProgramTracepoint, ir.ProgramXDP, ir.ProgramKprobe, ir.ProgramKretprobe:
 			return true
 		}
 	}

@@ -89,13 +89,15 @@ func builtinTypes() map[string]bool {
 	return map[string]bool{
 		"u8": true, "u16": true, "u32": true, "u64": true,
 		"i8": true, "i16": true, "i32": true, "i64": true,
-		"bool":            true,
-		"tracepoint.Exec": true,
-		"xdp.Context":     true,
-		"xdp.Eth":         true,
-		"xdp.IPv4":        true,
-		"xdp.TCP":         true,
-		"xdp.UDP":         true,
+		"bool":              true,
+		"tracepoint.Exec":   true,
+		"xdp.Context":       true,
+		"xdp.Eth":           true,
+		"xdp.IPv4":          true,
+		"xdp.TCP":           true,
+		"xdp.UDP":           true,
+		"kprobe.Context":    true,
+		"kretprobe.Context": true,
 	}
 }
 
@@ -207,7 +209,7 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 			Severity: diag.SeverityError,
 			Message:  fmt.Sprintf("function %q is missing an eBPF program section", decl.Name),
 			Primary:  decl.Span,
-			Suggest:  `add @tracepoint("category:event") or @xdp above the function`,
+			Suggest:  `add @tracepoint("category:event"), @xdp, @kprobe("symbol"), or @kretprobe("symbol") above the function`,
 		})
 	} else if len(sections) > 1 {
 		diags = append(diags, diag.Diagnostic{
@@ -215,7 +217,7 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 			Severity: diag.SeverityError,
 			Message:  fmt.Sprintf("function %q has multiple eBPF program sections", decl.Name),
 			Primary:  decl.Span,
-			Suggest:  "use exactly one section attribute such as @tracepoint(...) or @xdp",
+			Suggest:  "use exactly one section attribute such as @tracepoint(...), @xdp, @kprobe(...), or @kretprobe(...)",
 		})
 	}
 	for _, attr := range decl.Attrs {
@@ -235,6 +237,24 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 					Code:     "HZN1309",
 					Severity: diag.SeverityError,
 					Message:  "@xdp does not take arguments; choose the interface at attach time",
+					Primary:  attr.Span,
+				})
+			}
+		case "kprobe":
+			if len(attr.Args) != 1 {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1310",
+					Severity: diag.SeverityError,
+					Message:  "@kprobe requires one kernel symbol string argument",
+					Primary:  attr.Span,
+				})
+			}
+		case "kretprobe":
+			if len(attr.Args) != 1 {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1311",
+					Severity: diag.SeverityError,
+					Message:  "@kretprobe requires one kernel symbol string argument",
 					Primary:  attr.Span,
 				})
 			}
@@ -319,6 +339,10 @@ func sectionAttrs(attrs []ast.Attr) []sectionSpec {
 			out = append(out, sectionSpec{Attr: attr, Context: "tracepoint.Exec"})
 		case "xdp":
 			out = append(out, sectionSpec{Attr: attr, Context: "xdp.Context"})
+		case "kprobe":
+			out = append(out, sectionSpec{Attr: attr, Context: "kprobe.Context"})
+		case "kretprobe":
+			out = append(out, sectionSpec{Attr: attr, Context: "kretprobe.Context"})
 		}
 	}
 	return out

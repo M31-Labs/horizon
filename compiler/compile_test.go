@@ -319,6 +319,63 @@ func DropAll(ctx tracepoint.Exec) i32 {
 	requireDiagnosticCode(t, result, "HZN1308")
 }
 
+func TestAnalyzeKprobeProgramPasses(t *testing.T) {
+	result := analyzeSource(t, "open.hzn", `package probes
+
+import bpf "m31labs.dev/horizon/runtime/kernel"
+
+@capability("kernel.file.open.observe")
+@kprobe("do_sys_openat2")
+func OnOpen(ctx kprobe.Context) i32 {
+    bpf.current_pid()
+    return 0
+}
+`)
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+	if len(result.Program.Functions) != 1 || result.Program.Functions[0].Section.Kind != ir.ProgramKprobe {
+		t.Fatalf("functions = %#v, want one kprobe function", result.Program.Functions)
+	}
+	if result.Program.Functions[0].Section.Attach != "do_sys_openat2" {
+		t.Fatalf("attach = %q, want do_sys_openat2", result.Program.Functions[0].Section.Attach)
+	}
+	manifest := capability.FromIR(result.Program)
+	if len(manifest.Programs) != 1 || manifest.Programs[0].Section != "kprobe/do_sys_openat2" || manifest.Programs[0].Kind != "kprobe" {
+		t.Fatalf("program manifest = %#v, want kprobe section", manifest.Programs)
+	}
+	if len(manifest.Capabilities) != 1 || manifest.Capabilities[0].Section != "kprobe/do_sys_openat2" || manifest.Capabilities[0].Danger != "observe" {
+		t.Fatalf("capability manifest = %#v, want kprobe observe capability", manifest.Capabilities)
+	}
+}
+
+func TestAnalyzeKretprobeProgramPasses(t *testing.T) {
+	result := analyzeSource(t, "open.hzn", `package probes
+
+@kretprobe("do_sys_openat2")
+func OnOpenReturn(ctx kretprobe.Context) i32 {
+    return 0
+}
+`)
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+	if len(result.Program.Functions) != 1 || result.Program.Functions[0].Section.Kind != ir.ProgramKretprobe {
+		t.Fatalf("functions = %#v, want one kretprobe function", result.Program.Functions)
+	}
+}
+
+func TestAnalyzeRejectsKprobeWrongContext(t *testing.T) {
+	result := analyzeSource(t, "open.hzn", `package probes
+
+@kprobe("do_sys_openat2")
+func OnOpen(ctx tracepoint.Exec) i32 {
+    return 0
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1308")
+}
+
 func TestAnalyzeRejectsUnknownXDPAction(t *testing.T) {
 	result := analyzeSource(t, "xdp.hzn", `package probes
 

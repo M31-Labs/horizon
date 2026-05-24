@@ -26,7 +26,7 @@ func ValidateHelpers(program ir.Program) []diag.Diagnostic {
 		for _, line := range bodyLines(fn) {
 			for _, match := range helperCallRE.FindAllStringSubmatch(line, -1) {
 				helper := match[1]
-				if allowed[helper] && fn.Section.Kind == ir.ProgramTracepoint {
+				if allowed[helper] && isTracingProgram(fn.Section.Kind) {
 					continue
 				}
 				diags = append(diags, diag.Diagnostic{
@@ -52,7 +52,7 @@ func validateTypedHelpers(fn ir.Function, allowed map[string]bool) []diag.Diagno
 			return
 		}
 		helper := name[len("bpf."):]
-		if allowed[helper] && fn.Section.Kind == ir.ProgramTracepoint {
+		if allowed[helper] && isTracingProgram(fn.Section.Kind) {
 			return
 		}
 		diags = append(diags, diag.Diagnostic{
@@ -63,6 +63,15 @@ func validateTypedHelpers(fn ir.Function, allowed map[string]bool) []diag.Diagno
 		})
 	})
 	return diags
+}
+
+func isTracingProgram(kind ir.ProgramKind) bool {
+	switch kind {
+	case ir.ProgramTracepoint, ir.ProgramKprobe, ir.ProgramKretprobe:
+		return true
+	default:
+		return false
+	}
 }
 
 func walkStatements(stmts []ir.Statement, visit func(*ir.Expr)) {

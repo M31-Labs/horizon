@@ -537,6 +537,8 @@ func cContext(fn ir.Function) string {
 		return "struct trace_event_raw_" + cIdent(event) + " *ctx"
 	case ir.ProgramXDP:
 		return "struct xdp_md *ctx"
+	case ir.ProgramKprobe, ir.ProgramKretprobe:
+		return "struct pt_regs *ctx"
 	default:
 		return "void *ctx"
 	}

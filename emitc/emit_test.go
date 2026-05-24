@@ -244,3 +244,37 @@ func DropTCP(ctx xdp.Context) i32 {
 		}
 	}
 }
+
+func TestEmitKprobeProgram(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "open.hzn")
+	if err := os.WriteFile(path, []byte(`package probes
+
+import bpf "m31labs.dev/horizon/runtime/kernel"
+
+@kprobe("do_sys_openat2")
+func OnOpen(ctx kprobe.Context) i32 {
+    bpf.current_pid()
+    return 0
+}
+`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	result, err := compiler.AnalyzePath(dir)
+	if err != nil {
+		t.Fatalf("AnalyzePath: %v", err)
+	}
+	out, err := Emit(result.Program)
+	if err != nil {
+		t.Fatalf("Emit: %v", err)
+	}
+	for _, want := range []string{
+		`SEC("kprobe/do_sys_openat2")`,
+		"int OnOpen(struct pt_regs *ctx) {",
+		"hzn_current_pid();",
+	} {
+		if !strings.Contains(out.Code, want) {
+			t.Fatalf("generated C missing %q:\n%s", want, out.Code)
+		}
+	}
+}

@@ -5,6 +5,8 @@ type ProgramKind string
 const (
 	ProgramTracepoint ProgramKind = "tracepoint"
 	ProgramXDP        ProgramKind = "xdp"
+	ProgramKprobe     ProgramKind = "kprobe"
+	ProgramKretprobe  ProgramKind = "kretprobe"
 )
 
 type Section struct {
