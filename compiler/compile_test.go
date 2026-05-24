@@ -141,6 +141,7 @@ func TestAnalyzeInvalidRingbufPrograms(t *testing.T) {
 		"../testdata/invalid/map_lookup_alias.hzn":           "HZN1447",
 		"../testdata/invalid/ringbuf_reservation_alias.hzn":  "HZN1447",
 		"../testdata/invalid/packet_header_alias.hzn":        "HZN1447",
+		"../testdata/invalid/xdp_raw_return.hzn":             "HZN1448",
 	}
 	for path, code := range tests {
 		result, err := AnalyzePath(path)
@@ -816,6 +817,55 @@ func DropTCP(ctx xdp.Context) i32 {
 	if len(manifest.Capabilities) != 1 || manifest.Capabilities[0].Section != "xdp" || manifest.Capabilities[0].Danger != "drop" {
 		t.Fatalf("capability manifest = %#v, want xdp drop capability section", manifest.Capabilities)
 	}
+}
+
+func TestAnalyzeAllowsLocalXDPActionReturn(t *testing.T) {
+	result := analyzeSource(t, "xdp.hzn", `package probes
+
+@xdp
+func Pass(ctx xdp.Context) i32 {
+    action := xdp.Pass
+    return action
+}
+`)
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+}
+
+func TestAnalyzeRejectsRawIntegerXDPReturn(t *testing.T) {
+	result := analyzeSource(t, "xdp.hzn", `package probes
+
+@xdp
+func DropAll(ctx xdp.Context) i32 {
+    return 0
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1448")
+}
+
+func TestAnalyzeRejectsRawIntegerAssignedToXDPAction(t *testing.T) {
+	result := analyzeSource(t, "xdp.hzn", `package probes
+
+@xdp
+func DropAll(ctx xdp.Context) i32 {
+    action := xdp.Pass
+    action = 0
+    return action
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1448")
+}
+
+func TestAnalyzeRejectsXDPActionOutsideXDPReturn(t *testing.T) {
+	result := analyzeSource(t, "trace.hzn", `package probes
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    return xdp.Drop
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1449")
 }
 
 func TestAnalyzeRejectsXDPHelperUnavailable(t *testing.T) {

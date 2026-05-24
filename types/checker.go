@@ -338,7 +338,7 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 			Primary:  decl.Return.Span,
 		})
 	}
-	diags = append(diags, validateFuncBody(decl, maps, structs, consts)...)
+	diags = append(diags, validateFuncBody(decl, maps, structs, consts, sections)...)
 	return diags
 }
 
@@ -412,21 +412,26 @@ func validateSectionSignature(decl ast.FuncDecl, section sectionSpec) []diag.Dia
 }
 
 type valueType struct {
-	Name     string
-	Ref      ast.TypeRef
-	Ptr      bool
-	Resource bool
-	MaybeNil bool
-	Fallible string
-	Void     bool
+	Name      string
+	Ref       ast.TypeRef
+	Ptr       bool
+	Resource  bool
+	MaybeNil  bool
+	Fallible  string
+	Void      bool
+	XDPAction bool
 }
 
-func validateFuncBody(decl ast.FuncDecl, maps map[string]ast.MapDecl, structs map[string]ast.TypeDecl, consts map[string]ast.ConstDecl) []diag.Diagnostic {
+func validateFuncBody(decl ast.FuncDecl, maps map[string]ast.MapDecl, structs map[string]ast.TypeDecl, consts map[string]ast.ConstDecl, sections []sectionSpec) []diag.Diagnostic {
 	locals := map[string]valueType{}
 	for name, constant := range consts {
 		if typ, ok := constValueType(constant.Value); ok {
 			locals[name] = typ
 		}
+	}
+	programSection := ""
+	if len(sections) == 1 {
+		programSection = sections[0].Attr.Name
 	}
 	var diags []diag.Diagnostic
 	for _, param := range decl.Params {
@@ -482,6 +487,16 @@ func validateFuncBody(decl ast.FuncDecl, maps map[string]ast.MapDecl, structs ma
 				diags = append(diags, trackedPointerAliasDiagnostic(s.Span, "", value))
 				break
 			}
+			if target.XDPAction && !value.XDPAction {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1448",
+					Severity: diag.SeverityError,
+					Message:  "XDP action locals can only be assigned named xdp actions",
+					Primary:  s.Span,
+					Suggest:  "assign xdp.Pass, xdp.Drop, xdp.Aborted, xdp.Tx, or xdp.Redirect",
+				})
+				break
+			}
 			if targetHadErrors {
 				break
 			}
@@ -526,6 +541,22 @@ func validateFuncBody(decl ast.FuncDecl, maps map[string]ast.MapDecl, structs ma
 					Message:  "fixed array values cannot be returned in Horizon v0",
 					Primary:  s.Span,
 					Suggest:  "keep fixed arrays inside typed records and pass field addresses to compiler-known helpers",
+				})
+			} else if programSection == "xdp" && !value.XDPAction {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1448",
+					Severity: diag.SeverityError,
+					Message:  "XDP programs must return a named xdp action",
+					Primary:  s.Span,
+					Suggest:  "return xdp.Pass, xdp.Drop, xdp.Aborted, xdp.Tx, or xdp.Redirect",
+				})
+			} else if programSection != "" && programSection != "xdp" && value.XDPAction {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1449",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("@%s programs cannot return XDP actions", programSection),
+					Primary:  s.Span,
+					Suggest:  "return 0 from tracing programs; XDP actions are only valid in @xdp programs",
 				})
 			} else if s.Value != nil && !assignable(valueType{Name: "i32"}, value) {
 				diags = append(diags, diag.Diagnostic{
@@ -1339,7 +1370,7 @@ func fallibleResultDiagnostic(primary span.Span, operation string) diag.Diagnost
 func xdpSelectorType(name string) (valueType, bool) {
 	switch name {
 	case "Aborted", "Drop", "Pass", "Tx", "Redirect":
-		return valueType{Name: "i32"}, true
+		return valueType{Name: "i32", XDPAction: true}, true
 	case "EtherTypeIPv4":
 		return valueType{Name: "u16"}, true
 	case "IPProtoICMP", "IPProtoTCP", "IPProtoUDP":
@@ -1377,6 +1408,9 @@ func typeName(t valueType) string {
 	}
 	if name == "untyped_int" {
 		return "integer literal"
+	}
+	if t.XDPAction {
+		return "xdp action"
 	}
 	if t.Ref.Len != "" && t.Ref.Elem != nil {
 		name = "[" + t.Ref.Len + "]" + t.Ref.Elem.Name

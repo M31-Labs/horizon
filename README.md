@@ -213,7 +213,7 @@ Horizon makes verifier-sensitive behavior explicit before clang runs:
 - only bounded counted loops are accepted
 - helper availability is checked against the program kind
 - packet headers returned by `xdp.eth(ctx)`, `xdp.ipv4(ctx)`, `xdp.tcp(ctx)`, and `xdp.udp(ctx)` must be nil-checked before field access
-- XDP programs return named actions such as `xdp.Pass` and `xdp.Drop`
+- XDP programs must return named actions such as `xdp.Pass` and `xdp.Drop`, not raw integers
 - generated C emits only the helper and map wrappers the program actually uses
 - generated BPF C is compiled with clang warnings treated as errors
 - generated C stays readable so clang and verifier logs remain inspectable
