@@ -1,6 +1,8 @@
 #include "vmlinux.h"
 #include <bpf/bpf_helpers.h>
 
+#include <bpf/bpf_core_read.h>
+
 #include <bpf/bpf_tracing.h>
 
 char LICENSE[] SEC("license") = "GPL";
@@ -19,7 +21,17 @@ static __always_inline __u32 hzn_current_pid(void) {
 }
 
 static __always_inline __u32 hzn_current_ppid(void) {
-    return 0;
+    struct task_struct *task = (struct task_struct *)bpf_get_current_task();
+    struct task_struct *parent = 0;
+    __u32 ppid = 0;
+
+    if (bpf_core_read(&parent, sizeof(parent), &task->real_parent) != 0 || parent == 0) {
+        return 0;
+    }
+    if (bpf_core_read(&ppid, sizeof(ppid), &parent->tgid) != 0) {
+        return 0;
+    }
+    return ppid;
 }
 
 static __always_inline __u32 hzn_current_uid(void) {

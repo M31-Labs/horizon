@@ -21,7 +21,12 @@ func TestEmitExecwatchUsesTypedCWrappers(t *testing.T) {
 		t.Fatalf("Emit: %v", err)
 	}
 	for _, want := range []string{
+		"#include <bpf/bpf_core_read.h>",
 		`_Static_assert(sizeof(__u32) == 4, "horizon: __u32 width mismatch");`,
+		"struct task_struct *task = (struct task_struct *)bpf_get_current_task();",
+		"bpf_core_read(&parent, sizeof(parent), &task->real_parent)",
+		"bpf_core_read(&ppid, sizeof(ppid), &parent->tgid)",
+		"return ppid;",
 		"static __always_inline struct hzn_type_ExecEvent *ExecEvents_reserve(void)",
 		"static __always_inline void ExecEvents_submit(struct hzn_type_ExecEvent *value)",
 		"static __always_inline __u64 hzn_ktime_get_ns(void)",
@@ -221,6 +226,7 @@ func OnExec(ctx tracepoint.Exec) i32 {
 		}
 	}
 	for _, unwanted := range []string{
+		"#include <bpf/bpf_core_read.h>",
 		"hzn_current_ppid",
 		"hzn_current_uid",
 		"hzn_current_comm",

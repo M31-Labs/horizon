@@ -143,7 +143,7 @@ func (b *requirementBuilder) walkExpr(expr *ir.Expr) {
 
 func (b *requirementBuilder) observeCall(expr *ir.Expr) {
 	if name := qualifiedName(expr.Func); name != "" {
-		if helper, ok := compilerHelperRequirement(name); ok {
+		for _, helper := range compilerHelperRequirements(name) {
 			b.addHelper(helper, helperMinKernel(helper))
 		}
 	}
@@ -154,18 +154,20 @@ func (b *requirementBuilder) observeCall(expr *ir.Expr) {
 	}
 }
 
-func compilerHelperRequirement(name string) (string, bool) {
+func compilerHelperRequirements(name string) []string {
 	switch name {
 	case "bpf.current_pid":
-		return "bpf_get_current_pid_tgid", true
+		return []string{"bpf_get_current_pid_tgid"}
+	case "bpf.current_ppid":
+		return []string{"bpf_get_current_task", "bpf_probe_read_kernel"}
 	case "bpf.current_uid":
-		return "bpf_get_current_uid_gid", true
+		return []string{"bpf_get_current_uid_gid"}
 	case "bpf.current_comm":
-		return "bpf_get_current_comm", true
+		return []string{"bpf_get_current_comm"}
 	case "bpf.ktime_get_ns":
-		return "bpf_ktime_get_ns", true
+		return []string{"bpf_ktime_get_ns"}
 	default:
-		return "", false
+		return nil
 	}
 }
 
@@ -226,6 +228,10 @@ func helperMinKernel(name string) string {
 		return "3.19"
 	case "bpf_get_current_pid_tgid", "bpf_get_current_uid_gid", "bpf_get_current_comm":
 		return "4.1"
+	case "bpf_get_current_task":
+		return "4.8"
+	case "bpf_probe_read_kernel":
+		return "5.5"
 	case "bpf_ktime_get_ns":
 		return "4.1"
 	case "bpf_ringbuf_reserve", "bpf_ringbuf_submit", "bpf_ringbuf_discard":

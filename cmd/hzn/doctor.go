@@ -61,6 +61,7 @@ type doctorConfig struct {
 	PathEnv              string
 	BTFPath              string
 	BPFHeaders           []string
+	CoreReadHeaders      []string
 	VmlinuxHeaders       []string
 	RunCommand           func(context.Context, string, []string, string) error
 	AdditionalTools      []string
@@ -70,9 +71,13 @@ type doctorConfig struct {
 
 func defaultDoctorConfig() doctorConfig {
 	return doctorConfig{
-		PathEnv:        os.Getenv("PATH"),
-		BTFPath:        "/sys/kernel/btf/vmlinux",
-		BPFHeaders:     []string{"/usr/include/bpf/bpf_helpers.h", "/usr/local/include/bpf/bpf_helpers.h"},
+		PathEnv:    os.Getenv("PATH"),
+		BTFPath:    "/sys/kernel/btf/vmlinux",
+		BPFHeaders: []string{"/usr/include/bpf/bpf_helpers.h", "/usr/local/include/bpf/bpf_helpers.h"},
+		CoreReadHeaders: []string{
+			"/usr/include/bpf/bpf_core_read.h",
+			"/usr/local/include/bpf/bpf_core_read.h",
+		},
 		VmlinuxHeaders: []string{"vmlinux.h", "/usr/local/include/vmlinux.h", "/usr/include/vmlinux.h"},
 		RunCommand:     runDoctorCommand,
 		AdditionalTools: []string{
@@ -94,6 +99,7 @@ func runDoctorChecks(cfg doctorConfig) doctorReport {
 		report.add(checkClangBPF(cfg, clang.Path))
 	}
 	report.add(checkAnyFile("libbpf headers", cfg.BPFHeaders, true, "install libbpf-dev"))
+	report.add(checkAnyFile("libbpf CO-RE headers", cfg.CoreReadHeaders, true, "install libbpf-dev"))
 	report.add(checkAnyFile("vmlinux.h", cfg.VmlinuxHeaders, true, "generate one with `bpftool btf dump file /sys/kernel/btf/vmlinux format c > /usr/local/include/vmlinux.h`"))
 	report.add(checkFile("kernel BTF", cfg.BTFPath, false, "enable kernel BTF or provide a vmlinux.h from another build host"))
 	for _, tool := range cfg.AdditionalTools {

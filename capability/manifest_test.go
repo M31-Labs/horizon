@@ -183,6 +183,12 @@ func TestFromIRIncludesKernelRequirements(t *testing.T) {
 						Func: &ir.Expr{Kind: "selector", Operand: &ir.Expr{Kind: "ident", Name: "bpf"}, Field: "ktime_get_ns"},
 					},
 				}, {
+					Kind: "assign",
+					Value: &ir.Expr{
+						Kind: "call",
+						Func: &ir.Expr{Kind: "selector", Operand: &ir.Expr{Kind: "ident", Name: "bpf"}, Field: "current_ppid"},
+					},
+				}, {
 					Kind: "expr",
 					Expr: &ir.Expr{
 						Kind: "call",
@@ -223,6 +229,8 @@ func TestFromIRIncludesKernelRequirements(t *testing.T) {
 	requireFeature(t, m.Requirements.Maps, "ringbuf", "5.8")
 	requireFeature(t, m.Requirements.Maps, "lru_percpu_hash", "4.10")
 	requireFeature(t, m.Requirements.Helpers, "bpf_get_current_pid_tgid", "4.1")
+	requireFeature(t, m.Requirements.Helpers, "bpf_get_current_task", "4.8")
+	requireFeature(t, m.Requirements.Helpers, "bpf_probe_read_kernel", "5.5")
 	requireFeature(t, m.Requirements.Helpers, "bpf_ktime_get_ns", "4.1")
 	requireFeature(t, m.Requirements.Helpers, "bpf_ringbuf_reserve", "5.8")
 	requireFeature(t, m.Requirements.Helpers, "bpf_ringbuf_submit", "5.8")

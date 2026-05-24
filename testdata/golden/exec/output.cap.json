@@ -95,12 +95,20 @@
         "min_kernel": "4.1"
       },
       {
+        "name": "bpf_get_current_task",
+        "min_kernel": "4.8"
+      },
+      {
         "name": "bpf_get_current_uid_gid",
         "min_kernel": "4.1"
       },
       {
         "name": "bpf_ktime_get_ns",
         "min_kernel": "4.1"
+      },
+      {
+        "name": "bpf_probe_read_kernel",
+        "min_kernel": "5.5"
       },
       {
         "name": "bpf_ringbuf_reserve",

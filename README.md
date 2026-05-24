@@ -357,9 +357,13 @@ map kinds, and compiler-known helpers, so Continuum consumers can inspect what a
 program observes, emits, and needs from a target host without parsing BPF C.
 Compiler-known helpers stay explicit: `bpf.ktime_get_ns()` lowers to
 `bpf_ktime_get_ns()` and returns a typed `u64` monotonic kernel timestamp.
+`bpf.current_ppid()` lowers through a typed CO-RE task read, so the generated C
+requires libbpf's `bpf_core_read.h` and a `vmlinux.h` that includes
+`struct task_struct` layout.
 
 `hzn doctor` checks the local eBPF C toolchain: clang BPF support, libbpf
-headers, bpftool/LLVM utilities, kernel BTF, and a usable `vmlinux.h`.
+headers including CO-RE helpers, bpftool/LLVM utilities, kernel BTF, and a
+usable `vmlinux.h`.
 Use `make setup-vmlinux` on BTF-enabled Linux hosts to generate
 `/usr/local/include/vmlinux.h`.
 

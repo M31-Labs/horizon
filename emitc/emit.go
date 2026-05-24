@@ -56,6 +56,9 @@ func (e *cEmitter) emitPreamble() {
 		e.b.WriteString("#include <stdbool.h>\n")
 	}
 	e.b.WriteString("#include <bpf/bpf_helpers.h>\n\n")
+	if e.usage.helpers["current_ppid"] {
+		e.b.WriteString("#include <bpf/bpf_core_read.h>\n\n")
+	}
 	e.b.WriteString("#include <bpf/bpf_tracing.h>\n\n")
 	if e.usage.hasEndianHelpers() {
 		e.b.WriteString("#include <bpf/bpf_endian.h>\n\n")
@@ -551,7 +554,17 @@ static __always_inline __u32 hzn_current_pid(void) {
 	if usage.helpers["current_ppid"] {
 		b.WriteString(`
 static __always_inline __u32 hzn_current_ppid(void) {
-    return 0;
+    struct task_struct *task = (struct task_struct *)bpf_get_current_task();
+    struct task_struct *parent = 0;
+    __u32 ppid = 0;
+
+    if (bpf_core_read(&parent, sizeof(parent), &task->real_parent) != 0 || parent == 0) {
+        return 0;
+    }
+    if (bpf_core_read(&ppid, sizeof(ppid), &parent->tgid) != 0) {
+        return 0;
+    }
+    return ppid;
 }
 `)
 	}
