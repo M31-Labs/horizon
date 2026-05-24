@@ -49,6 +49,9 @@ func Emit(program ir.Program) (Output, error) {
 	}
 	for _, fn := range program.Functions {
 		env := newCEnv(program)
+		for _, param := range fn.Params {
+			env.setLocal(param.Name, param.Type)
+		}
 		startLine := strings.Count(b.String(), "\n") + 1
 		fmt.Fprintf(&b, "\nSEC(%q)\nint %s(%s) {\n", fn.Section.Name, fn.Name, cContext(fn))
 		b.WriteString("    (void)ctx;\n")
@@ -74,6 +77,7 @@ func Emit(program ir.Program) (Output, error) {
 }
 
 type cEnv struct {
+	parent    *cEnv
 	ptrLocals map[string]bool
 	locals    map[string]ir.Type
 	constants map[string]bool
@@ -102,6 +106,20 @@ func newCEnv(program ir.Program) *cEnv {
 		env.maps[m.Name] = m
 	}
 	return env
+}
+
+func (e *cEnv) child() *cEnv {
+	if e == nil {
+		return nil
+	}
+	return &cEnv{
+		parent:    e,
+		ptrLocals: map[string]bool{},
+		locals:    map[string]ir.Type{},
+		constants: e.constants,
+		structs:   e.structs,
+		maps:      e.maps,
+	}
 }
 
 func xdpPacketStructs() []ir.Struct {
@@ -171,15 +189,31 @@ func (e *cEnv) isPtr(name string) bool {
 	if e == nil {
 		return false
 	}
-	return e.ptrLocals[name]
+	if ptr, ok := e.ptrLocals[name]; ok {
+		return ptr
+	}
+	if e.parent == nil {
+		return false
+	}
+	return e.parent.isPtr(name)
 }
 
 func (e *cEnv) local(name string) (ir.Type, bool) {
 	if e == nil {
 		return ir.Type{}, false
 	}
-	typ, ok := e.locals[name]
-	return typ, ok
+	if typ, ok := e.locals[name]; ok {
+		return typ, true
+	}
+	if e.parent == nil {
+		return ir.Type{}, false
+	}
+	return e.parent.local(name)
+}
+
+func (e *cEnv) hasLocal(name string) bool {
+	_, ok := e.local(name)
+	return ok
 }
 
 type cUsage struct {
@@ -731,15 +765,17 @@ func emitStatement(b *strings.Builder, stmt ir.Statement, program ir.Program, de
 		fmt.Fprintf(b, "%sreturn %s;\n", indent, cExpr(stmt.Value, env))
 	case "if":
 		fmt.Fprintf(b, "%sif (%s) {\n", indent, cExpr(stmt.Cond, env))
+		thenEnv := env.child()
 		for _, child := range stmt.Then {
-			if err := emitStatement(b, child, program, depth+1, sourceMap, fn, env); err != nil {
+			if err := emitStatement(b, child, program, depth+1, sourceMap, fn, thenEnv); err != nil {
 				return err
 			}
 		}
 		if len(stmt.Else) > 0 {
 			fmt.Fprintf(b, "%s} else {\n", indent)
+			elseEnv := env.child()
 			for _, child := range stmt.Else {
-				if err := emitStatement(b, child, program, depth+1, sourceMap, fn, env); err != nil {
+				if err := emitStatement(b, child, program, depth+1, sourceMap, fn, elseEnv); err != nil {
 					return err
 				}
 			}
@@ -748,15 +784,17 @@ func emitStatement(b *strings.Builder, stmt ir.Statement, program ir.Program, de
 		}
 		fmt.Fprintf(b, "%s}\n", indent)
 	case "for":
+		loopEnv := env.child()
 		if stmt.Init != nil || stmt.Post != nil {
-			fmt.Fprintf(b, "%sfor (%s; %s; %s) {\n", indent, cForInit(stmt.Init, program, env), cExpr(stmt.Cond, env), cForPost(stmt.Post))
+			fmt.Fprintf(b, "%sfor (%s; %s; %s) {\n", indent, cForInit(stmt.Init, program, loopEnv), cExpr(stmt.Cond, loopEnv), cForPost(stmt.Post))
 		} else if stmt.Cond == nil || stmt.Cond.Kind == "" {
 			fmt.Fprintf(b, "%sfor (;;) {\n", indent)
 		} else {
-			fmt.Fprintf(b, "%sfor (; %s; ) {\n", indent, cExpr(stmt.Cond, env))
+			fmt.Fprintf(b, "%sfor (; %s; ) {\n", indent, cExpr(stmt.Cond, loopEnv))
 		}
+		bodyEnv := loopEnv.child()
 		for _, child := range stmt.Body {
-			if err := emitStatement(b, child, program, depth+1, sourceMap, fn, env); err != nil {
+			if err := emitStatement(b, child, program, depth+1, sourceMap, fn, bodyEnv); err != nil {
 				return err
 			}
 		}

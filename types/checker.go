@@ -409,8 +409,8 @@ func validateFuncBody(decl ast.FuncDecl, maps map[string]ast.MapDecl, structs ma
 		}
 		locals[param.Name] = valueType{Name: param.Type.Name, Ref: param.Type, Ptr: param.Type.Ptr}
 	}
-	var checkStmt func(ast.Stmt)
-	checkStmt = func(stmt ast.Stmt) {
+	var checkStmt func(ast.Stmt, map[string]valueType)
+	checkStmt = func(stmt ast.Stmt, locals map[string]valueType) {
 		switch s := stmt.(type) {
 		case ast.ShortVarStmt:
 			typ, exprDiags := typeOfExpr(s.Value, locals, maps, structs)
@@ -491,26 +491,30 @@ func validateFuncBody(decl ast.FuncDecl, maps map[string]ast.MapDecl, structs ma
 			cond, exprDiags := typeOfExpr(s.Cond, locals, maps, structs)
 			diags = append(diags, exprDiags...)
 			diags = append(diags, validateCondition(cond, s.Cond.GetSpan())...)
+			thenLocals := cloneValueTypes(locals)
 			for _, child := range s.Then {
-				checkStmt(child)
+				checkStmt(child, thenLocals)
 			}
+			elseLocals := cloneValueTypes(locals)
 			for _, child := range s.Else {
-				checkStmt(child)
+				checkStmt(child, elseLocals)
 			}
 		case ast.ForStmt:
+			loopLocals := cloneValueTypes(locals)
 			if s.Init != nil {
-				checkStmt(s.Init)
+				checkStmt(s.Init, loopLocals)
 			}
 			if s.Cond != nil {
-				cond, exprDiags := typeOfExpr(s.Cond, locals, maps, structs)
+				cond, exprDiags := typeOfExpr(s.Cond, loopLocals, maps, structs)
 				diags = append(diags, exprDiags...)
 				diags = append(diags, validateCondition(cond, s.Cond.GetSpan())...)
 			}
 			if s.Post != nil {
-				checkStmt(s.Post)
+				checkStmt(s.Post, loopLocals)
 			}
+			bodyLocals := cloneValueTypes(loopLocals)
 			for _, child := range s.Body {
-				checkStmt(child)
+				checkStmt(child, bodyLocals)
 			}
 		case ast.IncStmt:
 			local, ok := locals[s.Name]
@@ -542,9 +546,17 @@ func validateFuncBody(decl ast.FuncDecl, maps map[string]ast.MapDecl, structs ma
 		}
 	}
 	for _, stmt := range decl.Body {
-		checkStmt(stmt)
+		checkStmt(stmt, locals)
 	}
 	return diags
+}
+
+func cloneValueTypes(in map[string]valueType) map[string]valueType {
+	out := make(map[string]valueType, len(in))
+	for name, typ := range in {
+		out[name] = typ
+	}
+	return out
 }
 
 func typeOfExpr(expr ast.Expr, locals map[string]valueType, maps map[string]ast.MapDecl, structs map[string]ast.TypeDecl) (valueType, []diag.Diagnostic) {

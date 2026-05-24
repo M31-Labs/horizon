@@ -554,3 +554,85 @@ func TestEmitRejectsUnknownCallTarget(t *testing.T) {
 		t.Fatalf("Emit error = %v, want unsupported call target", err)
 	}
 }
+
+func TestEmitRejectsIdentifierOutsideBranchScope(t *testing.T) {
+	out, err := Emit(ir.Program{
+		Functions: []ir.Function{{
+			Name:    "Bad",
+			Section: ir.Section{Kind: ir.ProgramTracepoint, Name: "tracepoint/sched/sched_process_exec"},
+			Body: []ir.Block{{
+				Statements: []ir.Statement{
+					{
+						Kind: "if",
+						Cond: &ir.Expr{
+							Kind:  "binary",
+							Op:    "!=",
+							Left:  helperCall("current_pid"),
+							Right: &ir.Expr{Kind: "int", Value: "0"},
+						},
+						Then: []ir.Statement{{
+							Kind:  "short_var",
+							Name:  "branch",
+							Value: helperCall("current_pid"),
+						}},
+					},
+					{Kind: "expr", Expr: &ir.Expr{Kind: "ident", Name: "branch"}},
+				},
+			}},
+		}},
+	})
+	if err == nil {
+		t.Fatalf("Emit succeeded, code:\n%s", out.Code)
+	}
+	if out.Code != "" {
+		t.Fatalf("Emit returned code for out-of-scope branch local:\n%s", out.Code)
+	}
+	if !strings.Contains(err.Error(), `unsupported expression kind "unknown identifier branch"`) {
+		t.Fatalf("Emit error = %v, want unknown branch identifier", err)
+	}
+}
+
+func TestEmitRejectsIdentifierOutsideForScope(t *testing.T) {
+	out, err := Emit(ir.Program{
+		Functions: []ir.Function{{
+			Name:    "Bad",
+			Section: ir.Section{Kind: ir.ProgramTracepoint, Name: "tracepoint/sched/sched_process_exec"},
+			Body: []ir.Block{{
+				Statements: []ir.Statement{
+					{
+						Kind: "for",
+						Init: &ir.Statement{Kind: "short_var", Name: "i", Value: &ir.Expr{Kind: "int", Value: "0"}},
+						Cond: &ir.Expr{
+							Kind:  "binary",
+							Op:    "<",
+							Left:  &ir.Expr{Kind: "ident", Name: "i"},
+							Right: &ir.Expr{Kind: "int", Value: "4"},
+						},
+						Post: &ir.Statement{Kind: "inc", Name: "i", Op: "++"},
+					},
+					{Kind: "expr", Expr: &ir.Expr{Kind: "ident", Name: "i"}},
+				},
+			}},
+		}},
+	})
+	if err == nil {
+		t.Fatalf("Emit succeeded, code:\n%s", out.Code)
+	}
+	if out.Code != "" {
+		t.Fatalf("Emit returned code for out-of-scope for local:\n%s", out.Code)
+	}
+	if !strings.Contains(err.Error(), `unsupported expression kind "unknown identifier i"`) {
+		t.Fatalf("Emit error = %v, want unknown for identifier", err)
+	}
+}
+
+func helperCall(name string) *ir.Expr {
+	return &ir.Expr{
+		Kind: "call",
+		Func: &ir.Expr{
+			Kind:    "selector",
+			Operand: &ir.Expr{Kind: "ident", Name: "bpf"},
+			Field:   name,
+		},
+	}
+}

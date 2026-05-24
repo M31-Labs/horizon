@@ -117,31 +117,35 @@ func validateEmittableStatement(env *cEnv, program ir.Program, stmt ir.Statement
 		if err := validateRequiredExpr(env, stmt.Cond, "if condition", stmt.Span); err != nil {
 			return err
 		}
+		thenEnv := env.child()
 		for _, child := range stmt.Then {
-			if err := validateEmittableStatement(env, program, child); err != nil {
+			if err := validateEmittableStatement(thenEnv, program, child); err != nil {
 				return err
 			}
 		}
+		elseEnv := env.child()
 		for _, child := range stmt.Else {
-			if err := validateEmittableStatement(env, program, child); err != nil {
+			if err := validateEmittableStatement(elseEnv, program, child); err != nil {
 				return err
 			}
 		}
 		return nil
 	case "for":
-		if err := validateForInit(env, program, stmt.Init, stmt.Span); err != nil {
+		loopEnv := env.child()
+		if err := validateForInit(loopEnv, program, stmt.Init, stmt.Span); err != nil {
 			return err
 		}
 		if stmt.Cond != nil && stmt.Cond.Kind != "" {
-			if err := validateRequiredExpr(env, stmt.Cond, "for condition", stmt.Span); err != nil {
+			if err := validateRequiredExpr(loopEnv, stmt.Cond, "for condition", stmt.Span); err != nil {
 				return err
 			}
 		}
-		if err := validateForPost(env, stmt.Post, stmt.Span); err != nil {
+		if err := validateForPost(loopEnv, stmt.Post, stmt.Span); err != nil {
 			return err
 		}
+		bodyEnv := loopEnv.child()
 		for _, child := range stmt.Body {
-			if err := validateEmittableStatement(env, program, child); err != nil {
+			if err := validateEmittableStatement(bodyEnv, program, child); err != nil {
 				return err
 			}
 		}
@@ -149,6 +153,9 @@ func validateEmittableStatement(env *cEnv, program ir.Program, stmt ir.Statement
 	case "inc":
 		if stmt.Name == "" || !validIncOp(stmt.Op) {
 			return unsupportedStatement(stmt, "inc")
+		}
+		if env != nil && !env.hasLocal(stmt.Name) {
+			return unsupportedExpr(&ir.Expr{Kind: "ident", Name: stmt.Name, Span: stmt.Span}, "unknown identifier "+stmt.Name)
 		}
 		return nil
 	case "raw":
@@ -177,6 +184,9 @@ func validateForPost(env *cEnv, stmt *ir.Statement, primary span.Span) error {
 	if stmt.Kind != "inc" || stmt.Name == "" || !validIncOp(stmt.Op) {
 		return unsupportedStatementWithSpan("for post", stmt.Kind, primary)
 	}
+	if env != nil && !env.hasLocal(stmt.Name) {
+		return unsupportedExpr(&ir.Expr{Kind: "ident", Name: stmt.Name, Span: stmt.Span}, "unknown identifier "+stmt.Name)
+	}
 	return nil
 }
 
@@ -196,7 +206,10 @@ func validateEmittableExpr(env *cEnv, expr *ir.Expr) error {
 		if expr.Name == "" {
 			return unsupportedExpr(expr, "ident")
 		}
-		return nil
+		if env != nil && (env.hasLocal(expr.Name) || env.constants[expr.Name]) {
+			return nil
+		}
+		return unsupportedExpr(expr, "unknown identifier "+expr.Name)
 	case "int":
 		if expr.Value == "" {
 			return unsupportedExpr(expr, "int")

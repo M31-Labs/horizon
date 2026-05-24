@@ -399,6 +399,34 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	requireDiagnosticCode(t, result, "HZN1443")
 }
 
+func TestAnalyzeRejectsBranchLocalOutsideScope(t *testing.T) {
+	result := analyzeSource(t, "scope.hzn", `package probes
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    if bpf.current_pid() != 0 {
+        branch := bpf.current_pid()
+    }
+    return branch
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1404")
+}
+
+func TestAnalyzeRejectsForInitLocalOutsideScope(t *testing.T) {
+	result := analyzeSource(t, "scope.hzn", `package probes
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    for i := 0; i < 4; i++ {
+        bpf.current_pid()
+    }
+    return i
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1404")
+}
+
 func TestAnalyzeXDPProgramPasses(t *testing.T) {
 	result := analyzeSource(t, "xdp.hzn", `package probes
 
