@@ -312,6 +312,54 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	}
 }
 
+func TestEmitBoolLiteralsAndConsts(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "flags.hzn")
+	if err := os.WriteFile(path, []byte(`package probes
+
+const ShouldTrace = true
+
+type Flags struct {
+    active bool
+}
+
+map FlagsByPID hash[u32, Flags]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    pid := bpf.current_pid()
+    active := true
+    if ShouldTrace && !false && active {
+        if FlagsByPID.update(pid, Flags{active: active}) != 0 {
+            return 0
+        }
+    }
+    return 0
+}
+`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	result, err := compiler.AnalyzePath(dir)
+	if err != nil {
+		t.Fatalf("AnalyzePath: %v", err)
+	}
+	out, err := Emit(result.Program)
+	if err != nil {
+		t.Fatalf("Emit: %v", err)
+	}
+	for _, want := range []string{
+		"#include <stdbool.h>",
+		"static const bool ShouldTrace = true;",
+		"bool active = true;",
+		"if ((ShouldTrace && !false) && active) {",
+		"if (FlagsByPID_update(pid, (struct Flags){ .active = active }) != 0) {",
+	} {
+		if !strings.Contains(out.Code, want) {
+			t.Fatalf("generated C missing %q:\n%s", want, out.Code)
+		}
+	}
+}
+
 func TestEmitTypedIntegerAndBooleanOperators(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "counts.hzn")

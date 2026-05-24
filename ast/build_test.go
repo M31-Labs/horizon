@@ -127,6 +127,48 @@ func F(ctx tracepoint.Exec) i32 {
 	}
 }
 
+func TestBuildBoolLiteralAST(t *testing.T) {
+	parsed, err := parser.ParseSource(parser.SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
+
+@tracepoint("sched:sched_process_exec")
+func F(ctx tracepoint.Exec) i32 {
+    enabled := true
+    if !enabled || false {
+        return 1
+    }
+    return 0
+}
+`)})
+	if err != nil {
+		t.Fatalf("ParseSource: %v", err)
+	}
+	file, err := Build(parsed)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	fn := file.Decls[0].(FuncDecl)
+	stmt, ok := fn.Body[0].(ShortVarStmt)
+	if !ok {
+		t.Fatalf("body[0] = %T, want ShortVarStmt", fn.Body[0])
+	}
+	lit, ok := stmt.Value.(BoolExpr)
+	if !ok || !lit.Value {
+		t.Fatalf("short var value = %#v, want true BoolExpr", stmt.Value)
+	}
+	branch, ok := fn.Body[1].(IfStmt)
+	if !ok {
+		t.Fatalf("body[1] = %T, want IfStmt", fn.Body[1])
+	}
+	cond, ok := branch.Cond.(BinaryExpr)
+	if !ok || cond.Op != "||" {
+		t.Fatalf("condition = %#v, want || binary expression", branch.Cond)
+	}
+	right, ok := cond.Right.(BoolExpr)
+	if !ok || right.Value {
+		t.Fatalf("right side = %#v, want false BoolExpr", cond.Right)
+	}
+}
+
 func TestBuildIfElseAST(t *testing.T) {
 	parsed, err := parser.ParseSource(parser.SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
 

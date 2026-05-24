@@ -16,6 +16,9 @@ func Emit(program ir.Program) (Output, error) {
 	var b strings.Builder
 	usage := analyzeUsage(program)
 	b.WriteString("#include \"vmlinux.h\"\n")
+	if usage.hasBool() {
+		b.WriteString("#include <stdbool.h>\n")
+	}
 	b.WriteString("#include <bpf/bpf_helpers.h>\n\n")
 	b.WriteString("#include <bpf/bpf_tracing.h>\n\n")
 	if usage.hasXDPPacketHelpers() {
@@ -80,7 +83,7 @@ type cEnv struct {
 	parent    *cEnv
 	ptrLocals map[string]bool
 	locals    map[string]ir.Type
-	constants map[string]bool
+	constants map[string]ir.Type
 	structs   map[string]ir.Struct
 	maps      map[string]ir.Map
 }
@@ -89,12 +92,12 @@ func newCEnv(program ir.Program) *cEnv {
 	env := &cEnv{
 		ptrLocals: map[string]bool{},
 		locals:    map[string]ir.Type{},
-		constants: map[string]bool{},
+		constants: map[string]ir.Type{},
 		structs:   map[string]ir.Struct{},
 		maps:      map[string]ir.Map{},
 	}
 	for _, decl := range program.Constants {
-		env.constants[decl.Name] = true
+		env.constants[decl.Name] = constType(decl)
 	}
 	for _, decl := range program.Structs {
 		env.structs[decl.Name] = decl
@@ -221,6 +224,7 @@ type cUsage struct {
 	mapMethods map[string]map[string]bool
 	xdpHelpers map[string]bool
 	maps       map[string]ir.Map
+	boolTypes  bool
 }
 
 func analyzeUsage(program ir.Program) cUsage {
@@ -232,8 +236,31 @@ func analyzeUsage(program ir.Program) cUsage {
 	}
 	for _, m := range program.Maps {
 		usage.maps[m.Name] = m
+		if typeUsesBool(m.Key) || typeUsesBool(m.Val) {
+			usage.boolTypes = true
+		}
+	}
+	for _, c := range program.Constants {
+		if c.Value.Kind == "bool" {
+			usage.boolTypes = true
+		}
+	}
+	for _, typ := range program.Structs {
+		for _, field := range typ.Fields {
+			if typeUsesBool(field.Type) {
+				usage.boolTypes = true
+			}
+		}
 	}
 	for _, fn := range program.Functions {
+		if typeUsesBool(fn.Return) {
+			usage.boolTypes = true
+		}
+		for _, param := range fn.Params {
+			if typeUsesBool(param.Type) {
+				usage.boolTypes = true
+			}
+		}
 		for _, stmt := range functionStatements(fn) {
 			usage.walkStatement(stmt)
 		}
@@ -281,6 +308,9 @@ func (u *cUsage) walkExpr(expr *ir.Expr) {
 	if expr == nil {
 		return
 	}
+	if expr.Kind == "bool" {
+		u.boolTypes = true
+	}
 	if helper, ok := helperWrapperCall(expr); ok {
 		u.helpers[helper] = true
 	}
@@ -314,6 +344,25 @@ func (u *cUsage) addMapMethod(mapName string, method string) {
 
 func (u cUsage) hasXDPPacketHelpers() bool {
 	return len(u.xdpHelpers) > 0
+}
+
+func (u cUsage) hasBool() bool {
+	return u.boolTypes
+}
+
+func typeUsesBool(typ ir.Type) bool {
+	if typ.Name == "bool" {
+		return true
+	}
+	if typ.Elem != nil && typeUsesBool(*typ.Elem) {
+		return true
+	}
+	for _, arg := range typ.Args {
+		if typeUsesBool(arg) {
+			return true
+		}
+	}
+	return false
 }
 
 func (u *cUsage) expandXDPPacketDependencies() {
@@ -510,7 +559,16 @@ func emitConst(b *strings.Builder, c ir.Const) {
 	if c.Name == "" {
 		return
 	}
-	fmt.Fprintf(b, "\nstatic const __u64 %s = %s;\n", c.Name, cExpr(&c.Value, nil))
+	fmt.Fprintf(b, "\nstatic const %s %s = %s;\n", cType(constType(c)), c.Name, cExpr(&c.Value, nil))
+}
+
+func constType(c ir.Const) ir.Type {
+	switch c.Value.Kind {
+	case "bool":
+		return ir.Type{Name: "bool"}
+	default:
+		return ir.Type{Name: "u64"}
+	}
 }
 
 func emitScalarABIAssertions(b *strings.Builder) {
@@ -871,8 +929,10 @@ func cExprType(expr *ir.Expr, env *cEnv) (ir.Type, bool) {
 	}
 	switch expr.Kind {
 	case "ident":
-		if env != nil && env.constants[expr.Name] {
-			return ir.Type{Name: "untyped_int"}, true
+		if env != nil {
+			if typ, ok := env.constants[expr.Name]; ok {
+				return typ, true
+			}
 		}
 		if env == nil {
 			return ir.Type{}, false
@@ -880,6 +940,8 @@ func cExprType(expr *ir.Expr, env *cEnv) (ir.Type, bool) {
 		return env.local(expr.Name)
 	case "int":
 		return ir.Type{Name: "i64"}, true
+	case "bool":
+		return ir.Type{Name: "bool"}, true
 	case "nil":
 		return ptrTo(ir.Type{}), true
 	case "binary":
@@ -938,6 +1000,8 @@ func cExprType(expr *ir.Expr, env *cEnv) (ir.Type, bool) {
 				return ir.Type{}, false
 			}
 			return ptrTo(operand), true
+		case "!":
+			return ir.Type{Name: "bool"}, true
 		case "*":
 			operand, ok := cExprType(expr.Operand, env)
 			if !ok || !operand.Ptr || operand.Elem == nil {
@@ -1033,6 +1097,8 @@ func cExpr(expr *ir.Expr, env *cEnv) string {
 	case "ident":
 		return expr.Name
 	case "int":
+		return expr.Value
+	case "bool":
 		return expr.Value
 	case "nil":
 		return "0"

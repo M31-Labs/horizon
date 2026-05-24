@@ -616,6 +616,37 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	}
 }
 
+func TestAnalyzeAllowsBoolLiteralsAndConsts(t *testing.T) {
+	result := analyzeSource(t, "flags.hzn", `package probes
+
+const ShouldTrace = true
+
+type Flags struct {
+    active bool
+}
+
+map FlagsByPID hash[u32, Flags]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    pid := bpf.current_pid()
+    active := true
+    if ShouldTrace && !false && active {
+        if FlagsByPID.update(pid, Flags{active: active}) != 0 {
+            return 0
+        }
+    }
+    return 0
+}
+`)
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+	if len(result.Program.Constants) != 1 || result.Program.Constants[0].Value.Kind != "bool" {
+		t.Fatalf("constants = %#v, want bool ShouldTrace", result.Program.Constants)
+	}
+}
+
 func TestAnalyzeRejectsNonIntegerConst(t *testing.T) {
 	result := analyzeSource(t, "const.hzn", `package probes
 
@@ -627,6 +658,41 @@ func DropTCP(ctx xdp.Context) i32 {
 }
 `)
 	requireDiagnosticCode(t, result, "HZN1103")
+}
+
+func TestAnalyzeRejectsIntegerLiteralAssignedToBool(t *testing.T) {
+	result := analyzeSource(t, "flags.hzn", `package probes
+
+type Flags struct {
+    active bool
+}
+
+map FlagsByPID hash[u32, Flags]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    pid := bpf.current_pid()
+    if FlagsByPID.update(pid, Flags{active: 1}) != 0 {
+        return 0
+    }
+    return 0
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1428")
+}
+
+func TestAnalyzeRejectsNotOnNonBool(t *testing.T) {
+	result := analyzeSource(t, "flags.hzn", `package probes
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    if !bpf.current_pid() {
+        return 0
+    }
+    return 0
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1442")
 }
 
 func TestAnalyzeAllowsTypedIntegerAndBooleanOperators(t *testing.T) {

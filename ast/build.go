@@ -236,7 +236,7 @@ func buildExpr(parsed *parser.File, n *gotreesitter.Node) Expr {
 	if n == nil {
 		return nil
 	}
-	if n.Type(parsed.Lang) == "expression" && n.NamedChildCount() == 1 {
+	if (n.Type(parsed.Lang) == "expression" || n.Type(parsed.Lang) == "condition_expression") && n.NamedChildCount() == 1 {
 		return buildExpr(parsed, n.NamedChild(0))
 	}
 	switch n.Type(parsed.Lang) {
@@ -244,6 +244,8 @@ func buildExpr(parsed *parser.File, n *gotreesitter.Node) Expr {
 		return IdentExpr{Name: text(parsed, n), Span: spanForNode(parsed.Source.FileID, n)}
 	case "number_literal":
 		return IntExpr{Value: text(parsed, n), Span: spanForNode(parsed.Source.FileID, n)}
+	case "bool_literal":
+		return BoolExpr{Value: text(parsed, n) == "true", Span: spanForNode(parsed.Source.FileID, n)}
 	case "nil_literal":
 		return NilExpr{Span: spanForNode(parsed.Source.FileID, n)}
 	case "selector_expression":
@@ -264,20 +266,20 @@ func buildExpr(parsed *parser.File, n *gotreesitter.Node) Expr {
 			Fields: buildStructLiteralFields(parsed, n),
 			Span:   spanForNode(parsed.Source.FileID, n),
 		}
-	case "unary_expression":
+	case "unary_expression", "condition_unary_expression":
 		return UnaryExpr{
 			Op:   operatorText(parsed, n),
 			Expr: buildExpr(parsed, n.ChildByFieldName("operand", parsed.Lang)),
 			Span: spanForNode(parsed.Source.FileID, n),
 		}
-	case "binary_expression":
+	case "binary_expression", "condition_binary_expression":
 		return BinaryExpr{
 			Left:  buildExpr(parsed, n.ChildByFieldName("left", parsed.Lang)),
 			Op:    operatorText(parsed, n),
 			Right: buildExpr(parsed, n.ChildByFieldName("right", parsed.Lang)),
 			Span:  spanForNode(parsed.Source.FileID, n),
 		}
-	case "parenthesized_expression":
+	case "parenthesized_expression", "condition_parenthesized_expression":
 		return buildExpr(parsed, n.ChildByFieldName("expression", parsed.Lang))
 	default:
 		raw := strings.TrimSpace(text(parsed, n))

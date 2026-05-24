@@ -206,13 +206,21 @@ func validateEmittableExpr(env *cEnv, expr *ir.Expr) error {
 		if expr.Name == "" {
 			return unsupportedExpr(expr, "ident")
 		}
-		if env != nil && (env.hasLocal(expr.Name) || env.constants[expr.Name]) {
-			return nil
+		if env != nil {
+			_, hasConst := env.constants[expr.Name]
+			if env.hasLocal(expr.Name) || hasConst {
+				return nil
+			}
 		}
 		return unsupportedExpr(expr, "unknown identifier "+expr.Name)
 	case "int":
 		if expr.Value == "" {
 			return unsupportedExpr(expr, "int")
+		}
+		return nil
+	case "bool":
+		if expr.Value != "true" && expr.Value != "false" {
+			return unsupportedExpr(expr, "bool")
 		}
 		return nil
 	case "nil":

@@ -168,6 +168,7 @@ func TestParseTypedOperators(t *testing.T) {
 	src := SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
 
 const Mask = 0x0f
+const ShouldTrace = true
 
 @xdp
 func F(ctx xdp.Context) i32 {
@@ -175,7 +176,7 @@ func F(ctx xdp.Context) i32 {
     if tcp == nil {
         return xdp.Pass
     }
-    if (xdp.ntohs(tcp.dst_port) == 443) && ((tcp.data_off & Mask) != 0) {
+    if ShouldTrace && !(false) && (xdp.ntohs(tcp.dst_port) == 443) && ((tcp.data_off & Mask) != 0) {
         return xdp.Drop
     }
     return xdp.Pass
@@ -185,11 +186,16 @@ func F(ctx xdp.Context) i32 {
 	if err != nil {
 		t.Fatalf("ParseSource: %v", err)
 	}
-	if countNamedDescendants(file.Tree.RootNode(), file.Lang, "binary_expression") < 4 {
-		t.Fatalf("binary expression count = %d, want at least 4; tree: %s", countNamedDescendants(file.Tree.RootNode(), file.Lang, "binary_expression"), file.Tree.RootNode().SExpr(file.Lang))
+	binaryCount := countNamedDescendants(file.Tree.RootNode(), file.Lang, "binary_expression") + countNamedDescendants(file.Tree.RootNode(), file.Lang, "condition_binary_expression")
+	if binaryCount < 4 {
+		t.Fatalf("binary expression count = %d, want at least 4; tree: %s", binaryCount, file.Tree.RootNode().SExpr(file.Lang))
 	}
-	if countNamedDescendants(file.Tree.RootNode(), file.Lang, "parenthesized_expression") < 3 {
-		t.Fatalf("parenthesized expression count = %d, want at least 3; tree: %s", countNamedDescendants(file.Tree.RootNode(), file.Lang, "parenthesized_expression"), file.Tree.RootNode().SExpr(file.Lang))
+	parenCount := countNamedDescendants(file.Tree.RootNode(), file.Lang, "parenthesized_expression") + countNamedDescendants(file.Tree.RootNode(), file.Lang, "condition_parenthesized_expression")
+	if parenCount < 3 {
+		t.Fatalf("parenthesized expression count = %d, want at least 3; tree: %s", parenCount, file.Tree.RootNode().SExpr(file.Lang))
+	}
+	if countNamedDescendants(file.Tree.RootNode(), file.Lang, "bool_literal") != 2 {
+		t.Fatalf("bool literal count = %d, want 2; tree: %s", countNamedDescendants(file.Tree.RootNode(), file.Lang, "bool_literal"), file.Tree.RootNode().SExpr(file.Lang))
 	}
 }
 

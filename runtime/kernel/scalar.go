@@ -8,3 +8,4 @@ type I8 = int8
 type I16 = int16
 type I32 = int32
 type I64 = int64
+type Bool = bool

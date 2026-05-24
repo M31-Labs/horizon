@@ -218,16 +218,27 @@ func validateConstDecl(decl ast.ConstDecl) []diag.Diagnostic {
 			Primary:  decl.Span,
 		}}
 	}
-	if _, ok := decl.Value.(ast.IntExpr); !ok {
+	if _, ok := constValueType(decl.Value); !ok {
 		return []diag.Diagnostic{{
 			Code:     "HZN1103",
 			Severity: diag.SeverityError,
-			Message:  fmt.Sprintf("const %q must be an integer literal in Horizon v0", decl.Name),
+			Message:  fmt.Sprintf("const %q must be an integer or bool literal in Horizon v0", decl.Name),
 			Primary:  decl.Value.GetSpan(),
-			Suggest:  "keep constants simple and explicit, for example `const Port = 443`",
+			Suggest:  "keep constants simple and explicit, for example `const Port = 443` or `const Enabled = true`",
 		}}
 	}
 	return nil
+}
+
+func constValueType(expr ast.Expr) (valueType, bool) {
+	switch expr.(type) {
+	case ast.IntExpr:
+		return valueType{Name: "untyped_int"}, true
+	case ast.BoolExpr:
+		return valueType{Name: "bool"}, true
+	default:
+		return valueType{}, false
+	}
 }
 
 func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]ast.MapDecl, structs map[string]ast.TypeDecl, consts map[string]ast.ConstDecl) []diag.Diagnostic {
@@ -412,8 +423,10 @@ type valueType struct {
 
 func validateFuncBody(decl ast.FuncDecl, maps map[string]ast.MapDecl, structs map[string]ast.TypeDecl, consts map[string]ast.ConstDecl) []diag.Diagnostic {
 	locals := map[string]valueType{}
-	for name := range consts {
-		locals[name] = valueType{Name: "untyped_int"}
+	for name, constant := range consts {
+		if typ, ok := constValueType(constant.Value); ok {
+			locals[name] = typ
+		}
 	}
 	var diags []diag.Diagnostic
 	for _, param := range decl.Params {
@@ -642,6 +655,8 @@ func typeOfExpr(expr ast.Expr, locals map[string]valueType, maps map[string]ast.
 		}}
 	case ast.IntExpr:
 		return valueType{Name: "untyped_int"}, nil
+	case ast.BoolExpr:
+		return valueType{Name: "bool"}, nil
 	case ast.NilExpr:
 		return valueType{Name: "nil"}, nil
 	case ast.SelectorExpr:
@@ -689,6 +704,19 @@ func typeOfExpr(expr ast.Expr, locals map[string]valueType, maps map[string]ast.
 		case "&":
 			operand.Ptr = true
 			return operand, diags
+		case "!":
+			if operand.Void || operand.Name == "" {
+				return valueType{Void: true}, diags
+			}
+			if operand.Name == "bool" && !operand.Ptr {
+				return valueType{Name: "bool"}, diags
+			}
+			return valueType{Name: "bool"}, append(diags, diag.Diagnostic{
+				Code:     "HZN1442",
+				Severity: diag.SeverityError,
+				Message:  fmt.Sprintf("operator ! expects bool operand, got %s", typeName(operand)),
+				Primary:  e.Span,
+			})
 		default:
 			return operand, diags
 		}
@@ -1188,7 +1216,7 @@ func findField(structDecl ast.TypeDecl, name string) (ast.Field, bool) {
 
 func assignable(dst, src valueType) bool {
 	if src.Name == "untyped_int" {
-		return isScalar(dst.Name)
+		return isIntegerScalar(dst.Name)
 	}
 	if src.Name == "nil" {
 		return dst.Ptr || dst.MaybeNil

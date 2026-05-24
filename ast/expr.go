@@ -109,6 +109,16 @@ func (e IntExpr) GetSpan() span.Span {
 	return e.Span
 }
 
+type BoolExpr struct {
+	Value bool
+	Span  span.Span
+}
+
+func (BoolExpr) exprNode() {}
+func (e BoolExpr) GetSpan() span.Span {
+	return e.Span
+}
+
 type NilExpr struct {
 	Span span.Span
 }

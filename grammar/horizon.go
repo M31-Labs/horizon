@@ -209,7 +209,7 @@ func HorizonGrammar() *grammargen.Grammar {
 
 	g.Define("if_statement", grammargen.Seq(
 		grammargen.Str("if"),
-		grammargen.Field("condition", grammargen.Sym("expression")),
+		grammargen.Field("condition", grammargen.Sym("condition_expression")),
 		grammargen.Field("consequence", grammargen.Sym("block")),
 		grammargen.Optional(grammargen.Seq(
 			grammargen.Str("else"),
@@ -227,13 +227,13 @@ func HorizonGrammar() *grammargen.Grammar {
 			grammargen.Seq(
 				grammargen.Field("init", grammargen.Sym("for_init_statement")),
 				grammargen.Str(";"),
-				grammargen.Field("condition", grammargen.Sym("expression")),
+				grammargen.Field("condition", grammargen.Sym("condition_expression")),
 				grammargen.Str(";"),
 				grammargen.Field("post", grammargen.Sym("for_post_statement")),
 				grammargen.Field("body", grammargen.Sym("block")),
 			),
 			grammargen.Seq(
-				grammargen.Field("condition", grammargen.Sym("expression")),
+				grammargen.Field("condition", grammargen.Sym("condition_expression")),
 				grammargen.Field("body", grammargen.Sym("block")),
 			),
 		),
@@ -260,6 +260,7 @@ func HorizonGrammar() *grammargen.Grammar {
 		grammargen.Sym("unary_expression"),
 		grammargen.Sym("selector_expression"),
 		grammargen.Sym("nil_literal"),
+		grammargen.Sym("bool_literal"),
 		grammargen.Sym("number_literal"),
 		grammargen.Sym("identifier"),
 	))
@@ -276,6 +277,30 @@ func HorizonGrammar() *grammargen.Grammar {
 		binaryOps(9, "*", "/", "%"),
 	))
 
+	g.Define("condition_expression", grammargen.Choice(
+		grammargen.Sym("condition_binary_expression"),
+		grammargen.Sym("condition_parenthesized_expression"),
+		grammargen.Sym("call_expression"),
+		grammargen.Sym("condition_unary_expression"),
+		grammargen.Sym("selector_expression"),
+		grammargen.Sym("nil_literal"),
+		grammargen.Sym("bool_literal"),
+		grammargen.Sym("number_literal"),
+		grammargen.Sym("identifier"),
+	))
+
+	g.Define("condition_binary_expression", grammargen.Choice(
+		conditionBinaryOp(1, "||"),
+		conditionBinaryOp(2, "&&"),
+		conditionBinaryOps(3, "==", "!=", "<=", ">=", "<", ">"),
+		conditionBinaryOp(4, "|"),
+		conditionBinaryOp(5, "^"),
+		conditionBinaryOp(6, "&"),
+		conditionBinaryOps(7, "<<", ">>"),
+		conditionBinaryOps(8, "+", "-"),
+		conditionBinaryOps(9, "*", "/", "%"),
+	))
+
 	g.Define("_simple_expression", grammargen.Choice(
 		grammargen.Sym("parenthesized_expression"),
 		grammargen.Sym("struct_literal"),
@@ -283,6 +308,18 @@ func HorizonGrammar() *grammargen.Grammar {
 		grammargen.Sym("unary_expression"),
 		grammargen.Sym("selector_expression"),
 		grammargen.Sym("nil_literal"),
+		grammargen.Sym("bool_literal"),
+		grammargen.Sym("number_literal"),
+		grammargen.Sym("identifier"),
+	))
+
+	g.Define("_simple_condition_expression", grammargen.Choice(
+		grammargen.Sym("condition_parenthesized_expression"),
+		grammargen.Sym("call_expression"),
+		grammargen.Sym("condition_unary_expression"),
+		grammargen.Sym("selector_expression"),
+		grammargen.Sym("nil_literal"),
+		grammargen.Sym("bool_literal"),
 		grammargen.Sym("number_literal"),
 		grammargen.Sym("identifier"),
 	))
@@ -290,6 +327,12 @@ func HorizonGrammar() *grammargen.Grammar {
 	g.Define("parenthesized_expression", grammargen.Seq(
 		grammargen.Str("("),
 		grammargen.Field("expression", grammargen.Sym("expression")),
+		grammargen.Str(")"),
+	))
+
+	g.Define("condition_parenthesized_expression", grammargen.Seq(
+		grammargen.Str("("),
+		grammargen.Field("expression", grammargen.Sym("condition_expression")),
 		grammargen.Str(")"),
 	))
 
@@ -345,8 +388,21 @@ func HorizonGrammar() *grammargen.Grammar {
 		grammargen.Field("operand", grammargen.Sym("_simple_expression")),
 	)))
 
+	g.Define("condition_unary_expression", grammargen.Prec(5, grammargen.Seq(
+		grammargen.Field("operator", grammargen.Choice(
+			grammargen.Str("&"),
+			grammargen.Str("*"),
+			grammargen.Str("!"),
+		)),
+		grammargen.Field("operand", grammargen.Sym("_simple_condition_expression")),
+	)))
+
 	g.Define("raw_expr", grammargen.Token(grammargen.Pat(`[^\n\r]+`)))
 	g.Define("nil_literal", grammargen.Str("nil"))
+	g.Define("bool_literal", grammargen.Choice(
+		grammargen.Str("true"),
+		grammargen.Str("false"),
+	))
 	g.Define("identifier", grammargen.Token(grammargen.Pat(`[A-Za-z_][A-Za-z0-9_]*`)))
 	g.Define("number_literal", grammargen.Token(grammargen.Pat(`0[xX][0-9a-fA-F]+|[0-9]+`)))
 	g.Define("string_literal", grammargen.Token(grammargen.Seq(
@@ -364,13 +420,25 @@ func binaryOp(prec int, op string) *grammargen.Rule {
 }
 
 func binaryOps(prec int, ops ...string) *grammargen.Rule {
+	return binaryOpsFor(prec, "expression", ops...)
+}
+
+func conditionBinaryOp(prec int, op string) *grammargen.Rule {
+	return conditionBinaryOps(prec, op)
+}
+
+func conditionBinaryOps(prec int, ops ...string) *grammargen.Rule {
+	return binaryOpsFor(prec, "condition_expression", ops...)
+}
+
+func binaryOpsFor(prec int, operand string, ops ...string) *grammargen.Rule {
 	choices := make([]*grammargen.Rule, 0, len(ops))
 	for _, op := range ops {
 		choices = append(choices, grammargen.Str(op))
 	}
 	return grammargen.PrecLeft(prec, grammargen.Seq(
-		grammargen.Field("left", grammargen.Sym("expression")),
+		grammargen.Field("left", grammargen.Sym(operand)),
 		grammargen.Field("operator", grammargen.Choice(choices...)),
-		grammargen.Field("right", grammargen.Sym("expression")),
+		grammargen.Field("right", grammargen.Sym(operand)),
 	))
 }

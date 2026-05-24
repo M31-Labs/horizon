@@ -201,6 +201,11 @@ func buildExpr(expr ast.Expr) Expr {
 		return Expr{Kind: "binary", Op: e.Op, Left: &left, Right: &right, Span: e.Span}
 	case ast.IntExpr:
 		return Expr{Kind: "int", Value: e.Value, Span: e.Span}
+	case ast.BoolExpr:
+		if e.Value {
+			return Expr{Kind: "bool", Value: "true", Span: e.Span}
+		}
+		return Expr{Kind: "bool", Value: "false", Span: e.Span}
 	case ast.NilExpr:
 		return Expr{Kind: "nil", Span: e.Span}
 	case ast.RawExpr:
