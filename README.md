@@ -167,6 +167,8 @@ get `Lookup<Name>`, `Update<Name>`, and `ForEach<Name>`, and attachable programs
 get section-specific attach methods. The raw `*ebpf.Map` and `*ebpf.Program`
 fields remain available for advanced users, but ordinary consumers should not
 need to hand-roll cilium loader, memlock, or map-access boilerplate.
+Ringbuf readers close themselves on context cancellation so blocking reads
+unwind through the supplied context.
 `LoadObjects` removes the memlock limit by default; use `LoadObjectsWithOptions`
 when callers need explicit cilium collection options or custom rlimit behavior.
 

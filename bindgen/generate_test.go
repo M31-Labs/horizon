@@ -134,3 +134,41 @@ func TestGenerateTypedMapBindings(t *testing.T) {
 		t.Fatalf("generated array bindings unexpectedly include delete:\n%s", code)
 	}
 }
+
+func TestGenerateRingbufReaderObservesContext(t *testing.T) {
+	code, err := Generate(ir.Program{
+		Package: "probes",
+		Structs: []ir.Struct{{
+			Name: "ExecEvent",
+			Fields: []ir.Field{{
+				Name: "pid",
+				Type: ir.Type{Name: "u32"},
+			}},
+		}},
+		Maps: []ir.Map{{
+			Name: "ExecEvents",
+			Kind: ir.MapKindRingbuf,
+			Val:  ir.Type{Name: "ExecEvent"},
+		}},
+	}, "bindings")
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	for _, want := range []string{
+		"func (o *Objects) ReadExecEvents(ctx context.Context, handle func(ExecEvent) error) error",
+		"if ctx == nil {",
+		"ctx = context.Background()",
+		"done := make(chan struct{})",
+		"defer close(done)",
+		"go func() {",
+		"case <-ctx.Done():",
+		"_ = reader.Close()",
+		"case <-done:",
+		"if errors.Is(err, ringbuf.ErrClosed) && ctx.Err() != nil {",
+		"return ctx.Err()",
+	} {
+		if !strings.Contains(code, want) {
+			t.Fatalf("generated bindings missing %q:\n%s", want, code)
+		}
+	}
+}

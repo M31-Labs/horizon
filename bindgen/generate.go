@@ -235,15 +235,27 @@ func emitRingbufReader(b *bytes.Buffer, m ir.Map) {
 	if o == nil || o.%s == nil {
 		return fmt.Errorf("%s map is not loaded")
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	reader, err := ringbuf.NewReader(o.%s)
 	if err != nil {
 		return err
 	}
 	defer reader.Close()
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = reader.Close()
+		case <-done:
+		}
+	}()
 	for {
 		record, err := reader.Read()
 		if err != nil {
-			if errors.Is(err, ringbuf.ErrClosed) || errors.Is(ctx.Err(), context.Canceled) {
+			if errors.Is(err, ringbuf.ErrClosed) && ctx.Err() != nil {
 				return ctx.Err()
 			}
 			return err

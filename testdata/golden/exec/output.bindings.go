@@ -69,15 +69,27 @@ func (o *Objects) ReadExecEvents(ctx context.Context, handle func(ExecEvent) err
 	if o == nil || o.ExecEvents == nil {
 		return fmt.Errorf("ExecEvents map is not loaded")
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	reader, err := ringbuf.NewReader(o.ExecEvents)
 	if err != nil {
 		return err
 	}
 	defer reader.Close()
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = reader.Close()
+		case <-done:
+		}
+	}()
 	for {
 		record, err := reader.Read()
 		if err != nil {
-			if errors.Is(err, ringbuf.ErrClosed) || errors.Is(ctx.Err(), context.Canceled) {
+			if errors.Is(err, ringbuf.ErrClosed) && ctx.Err() != nil {
 				return ctx.Err()
 			}
 			return err
