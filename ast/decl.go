@@ -31,10 +31,24 @@ func (d FuncDecl) GetSpan() span.Span {
 type MapKind string
 
 const (
-	MapKindRingbuf MapKind = "ringbuf"
-	MapKindHash    MapKind = "hash"
-	MapKindArray   MapKind = "array"
+	MapKindRingbuf     MapKind = "ringbuf"
+	MapKindHash        MapKind = "hash"
+	MapKindArray       MapKind = "array"
+	MapKindPerCPUHash  MapKind = "percpu_hash"
+	MapKindPerCPUArray MapKind = "percpu_array"
 )
+
+func (k MapKind) IsLookup() bool {
+	return k.IsHashLike() || k.IsArrayLike()
+}
+
+func (k MapKind) IsHashLike() bool {
+	return k == MapKindHash || k == MapKindPerCPUHash
+}
+
+func (k MapKind) IsArrayLike() bool {
+	return k == MapKindArray || k == MapKindPerCPUArray
+}
 
 type MapDecl struct {
 	Name       string

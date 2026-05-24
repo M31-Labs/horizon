@@ -192,7 +192,7 @@ func addMapMethodNames(names *generatedNameSet, m ir.Map) error {
 			return err
 		}
 	}
-	if m.Kind == ir.MapKindHash {
+	if m.Kind.IsHashLike() {
 		return names.add(fmt.Sprintf("map %q Delete method", m.Name), "Delete"+field)
 	}
 	return nil
@@ -517,7 +517,7 @@ func emitImports(b *bytes.Buffer, program ir.Program) {
 }
 
 func isLookupMap(m ir.Map) bool {
-	return (m.Kind == ir.MapKindHash || m.Kind == ir.MapKindArray) && m.Key.Name != "" && m.Val.Name != ""
+	return m.Kind.IsLookup() && m.Key.Name != "" && m.Val.Name != ""
 }
 
 func hasRingbuf(program ir.Program) bool {
@@ -638,6 +638,10 @@ func emitMapMethods(b *bytes.Buffer, m ir.Map) {
 	mapField := exported(m.Name)
 	keyType := goType(m.Key)
 	valueType := goType(m.Val)
+	if m.Kind.HasPerCPUValue() {
+		emitPerCPUMapMethods(b, m, mapField, keyType, valueType)
+		return
+	}
 	fmt.Fprintf(b, `func (o *Objects) Lookup%s(key %s) (%s, bool, error) {
 	var value %s
 	if o == nil || o.%s == nil {
@@ -678,9 +682,60 @@ func (o *Objects) ForEach%s(handle func(key %s, value %s) error) error {
 }
 
 `, mapField, keyType, valueType, valueType, mapField, m.Name, mapField, mapField, keyType, valueType, mapField, m.Name, mapField, mapField, keyType, valueType, mapField, m.Name, mapField, keyType, valueType)
-	if m.Kind != ir.MapKindHash {
+	if !m.Kind.IsHashLike() {
 		return
 	}
+	emitDeleteMapMethod(b, m, mapField, keyType)
+}
+
+func emitPerCPUMapMethods(b *bytes.Buffer, m ir.Map, mapField string, keyType string, valueType string) {
+	fmt.Fprintf(b, `func (o *Objects) Lookup%s(key %s) ([]%s, bool, error) {
+	var values []%s
+	if o == nil || o.%s == nil {
+		return nil, false, fmt.Errorf("%s map is not loaded")
+	}
+	if err := o.%s.Lookup(key, &values); err != nil {
+		if errors.Is(err, ebpf.ErrKeyNotExist) {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+	return values, true, nil
+}
+
+func (o *Objects) Update%s(key %s, values []%s) error {
+	if o == nil || o.%s == nil {
+		return fmt.Errorf("%s map is not loaded")
+	}
+	return o.%s.Update(key, values, ebpf.UpdateAny)
+}
+
+func (o *Objects) ForEach%s(handle func(key %s, values []%s) error) error {
+	if o == nil || o.%s == nil {
+		return fmt.Errorf("%s map is not loaded")
+	}
+	iter := o.%s.Iterate()
+	for {
+		var key %s
+		var values []%s
+		if !iter.Next(&key, &values) {
+			break
+		}
+		if err := handle(key, values); err != nil {
+			return err
+		}
+	}
+	return iter.Err()
+}
+
+`, mapField, keyType, valueType, valueType, mapField, m.Name, mapField, mapField, keyType, valueType, mapField, m.Name, mapField, mapField, keyType, valueType, mapField, m.Name, mapField, keyType, valueType)
+	if !m.Kind.IsHashLike() {
+		return
+	}
+	emitDeleteMapMethod(b, m, mapField, keyType)
+}
+
+func emitDeleteMapMethod(b *bytes.Buffer, m ir.Map, mapField string, keyType string) {
 	fmt.Fprintf(b, `func (o *Objects) Delete%s(key %s) error {
 	if o == nil || o.%s == nil {
 		return fmt.Errorf("%s map is not loaded")

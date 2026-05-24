@@ -18,7 +18,7 @@ It keeps the kernel-side language deliberately small:
 - package-scoped declarations across multiple `.hzn` files
 - integer constants with optional scalar widths
 - ringbuf event output
-- hash and array maps
+- hash, array, and per-CPU maps
 - explicit `@max_entries(...)` map sizing
 - nil-checked map lookups
 - bounded counted loops
@@ -108,6 +108,33 @@ map Counts hash[u32, Count]
 
 @max_entries(262144)
 map ExecEvents ringbuf[ExecEvent]
+```
+
+Per-CPU maps are explicit when each CPU should get its own value slot. In
+kernel-side `.hzn`, they use the same safe lookup/update/delete flow as ordinary
+maps; generated Go bindings expose per-CPU values as typed slices.
+
+```go
+type Count struct {
+    seen u64
+}
+
+map ExecCounts percpu_hash[u32, Count]
+
+@tracepoint("sched:sched_process_exec")
+func CountExec(ctx tracepoint.Exec) i32 {
+    pid := bpf.current_pid()
+    if ExecCounts.update(pid, Count{seen: 1}) != 0 {
+        return 0
+    }
+
+    count := ExecCounts.lookup(pid)
+    if count == nil {
+        return 0
+    }
+    count.seen = count.seen + 1
+    return 0
+}
 ```
 
 Packet-path programs use explicit section attributes, compiler-checked packet
@@ -272,10 +299,11 @@ toolchain should also produce a `.bpf.o`.
 Generated Go bindings expose typed helpers around the loaded objects: ringbuf
 maps get `Read<Name>(context.Context, func(Event) error)`, hash maps get
 `Lookup<Name>`, `Update<Name>`, `ForEach<Name>`, and `Delete<Name>`, array maps
-get `Lookup<Name>`, `Update<Name>`, and `ForEach<Name>`, and attachable programs
-get section-specific attach methods. The raw `*ebpf.Map` and `*ebpf.Program`
-fields remain available for advanced users, but ordinary consumers should not
-need to hand-roll cilium loader, memlock, or map-access boilerplate.
+get `Lookup<Name>`, `Update<Name>`, and `ForEach<Name>`, per-CPU maps expose
+typed `[]Value` slices for lookup/update/iteration, and attachable programs get
+section-specific attach methods. The raw `*ebpf.Map` and `*ebpf.Program` fields
+remain available for advanced users, but ordinary consumers should not need to
+hand-roll cilium loader, memlock, or map-access boilerplate.
 Ringbuf readers close themselves on context cancellation so blocking reads
 unwind through the supplied context.
 `LoadObjects` removes the memlock limit by default; use `LoadObjectsWithOptions`
@@ -329,5 +357,5 @@ Horizon makes verifier-sensitive behavior explicit before clang runs:
 
 Pre-alpha. The current implementation targets tracepoint, kprobe/kretprobe, TC,
 cgroup connect, LSM, and XDP programs with typed ringbuf event output, typed
-hash/array map access, bounded loops, generated BPF C, clang builds, Go
+hash/array/per-CPU map access, bounded loops, generated BPF C, clang builds, Go
 bindings, and Continuum capability manifests.

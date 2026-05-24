@@ -377,6 +377,71 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	}
 }
 
+func TestEmitPerCPUMapDefinitionsAndWrappers(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "percpu.hzn")
+	if err := os.WriteFile(path, []byte(`package probes
+
+type Count struct {
+    seen u64
+}
+
+@max_entries(128)
+map Counts percpu_hash[u32, Count]
+
+map Slots percpu_array[u32, u64]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    pid := bpf.current_pid()
+    if Counts.update(pid, Count{seen: u64(pid)}) != 0 {
+        return 0
+    }
+
+    count := Counts.lookup(pid)
+    if count == nil {
+        return 0
+    }
+    count.seen = count.seen + 1
+
+    if Slots.update(0, 1) != 0 {
+        return 0
+    }
+
+    if Counts.delete(pid) != 0 {
+        return 0
+    }
+    return 0
+}
+`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	result, err := compiler.AnalyzePath(dir)
+	if err != nil {
+		t.Fatalf("AnalyzePath: %v", err)
+	}
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+	out, err := Emit(result.Program)
+	if err != nil {
+		t.Fatalf("Emit: %v", err)
+	}
+	for _, want := range []string{
+		"__uint(type, BPF_MAP_TYPE_PERCPU_HASH);",
+		"__uint(max_entries, 128);",
+		"__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);",
+		"static __always_inline struct hzn_type_Count *Counts_lookup(__u32 key)",
+		"static __always_inline long Counts_update(__u32 key, struct hzn_type_Count value)",
+		"static __always_inline long Counts_delete(__u32 key)",
+		"static __always_inline long Slots_update(__u32 key, __u64 value)",
+	} {
+		if !strings.Contains(out.Code, want) {
+			t.Fatalf("generated C missing %q:\n%s", want, out.Code)
+		}
+	}
+}
+
 func TestEmitStructLayoutAssertionsIncludePadding(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "layout.hzn")

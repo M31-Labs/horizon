@@ -183,7 +183,7 @@ func validateMapDecl(decl ast.MapDecl, known map[string]bool) []diag.Diagnostic 
 			})
 		}
 		diags = append(diags, validateTypeRef(decl.Val, known)...)
-	case ast.MapKindHash, ast.MapKindArray:
+	case ast.MapKindHash, ast.MapKindArray, ast.MapKindPerCPUHash, ast.MapKindPerCPUArray:
 		if decl.Key.IsZero() || decl.Val.IsZero() {
 			diags = append(diags, diag.Diagnostic{
 				Code:     "HZN1202",
@@ -192,11 +192,11 @@ func validateMapDecl(decl ast.MapDecl, known map[string]bool) []diag.Diagnostic 
 				Primary:  decl.Span,
 			})
 		}
-		if decl.Kind == ast.MapKindArray && decl.Key.Name != "u32" {
+		if decl.Kind.IsArrayLike() && decl.Key.Name != "u32" {
 			diags = append(diags, diag.Diagnostic{
 				Code:     "HZN1204",
 				Severity: diag.SeverityError,
-				Message:  fmt.Sprintf("array map %q must use u32 keys", decl.Name),
+				Message:  fmt.Sprintf("%s map %q must use u32 keys", decl.Kind, decl.Name),
 				Primary:  decl.Key.Span,
 			})
 		}
@@ -208,7 +208,7 @@ func validateMapDecl(decl ast.MapDecl, known map[string]bool) []diag.Diagnostic 
 			Severity: diag.SeverityError,
 			Message:  fmt.Sprintf("unsupported map kind %q", decl.Kind),
 			Primary:  decl.Span,
-			Suggest:  "v0 supports ringbuf[T], hash[K, V], and array[K, V]",
+			Suggest:  "v0 supports ringbuf[T], hash[K, V], array[K, V], percpu_hash[K, V], and percpu_array[K, V]",
 		})
 	}
 	return diags
@@ -1377,11 +1377,11 @@ func (t exprTyper) call(call ast.CallExpr) (valueType, []diag.Diagnostic) {
 				diags = append(diags, argCountDiagnostic(call.Span, root+".lookup", 1, len(call.Args)))
 				return valueType{Name: m.Val.Name, Ref: m.Val, Ptr: true, MaybeNil: true}, diags
 			}
-			if m.Kind != ast.MapKindHash && m.Kind != ast.MapKindArray {
+			if !m.Kind.IsLookup() {
 				diags = append(diags, diag.Diagnostic{
 					Code:     "HZN1418",
 					Severity: diag.SeverityError,
-					Message:  "lookup is only valid on hash and array maps",
+					Message:  "lookup is only valid on hash, array, and per-CPU maps",
 					Primary:  call.Span,
 				})
 			}
@@ -1401,11 +1401,11 @@ func (t exprTyper) call(call ast.CallExpr) (valueType, []diag.Diagnostic) {
 				diags = append(diags, argCountDiagnostic(call.Span, root+".update", 2, len(call.Args)))
 				return valueType{Name: "i64", Fallible: root + ".update"}, diags
 			}
-			if m.Kind != ast.MapKindHash && m.Kind != ast.MapKindArray {
+			if !m.Kind.IsLookup() {
 				diags = append(diags, diag.Diagnostic{
 					Code:     "HZN1420",
 					Severity: diag.SeverityError,
-					Message:  "update is only valid on hash and array maps",
+					Message:  "update is only valid on hash, array, and per-CPU maps",
 					Primary:  call.Span,
 				})
 			}
@@ -1435,11 +1435,11 @@ func (t exprTyper) call(call ast.CallExpr) (valueType, []diag.Diagnostic) {
 				diags = append(diags, argCountDiagnostic(call.Span, root+".delete", 1, len(call.Args)))
 				return valueType{Name: "i64", Fallible: root + ".delete"}, diags
 			}
-			if m.Kind != ast.MapKindHash {
+			if !m.Kind.IsHashLike() {
 				diags = append(diags, diag.Diagnostic{
 					Code:     "HZN1423",
 					Severity: diag.SeverityError,
-					Message:  "delete is only valid on hash maps",
+					Message:  "delete is only valid on hash and per-CPU hash maps",
 					Primary:  call.Span,
 				})
 			}
@@ -1748,7 +1748,7 @@ func directTrackedPointerSource(expr ast.Expr, maps map[string]ast.MapDecl) bool
 	}
 	switch method {
 	case "lookup":
-		return m.Kind == ast.MapKindHash || m.Kind == ast.MapKindArray
+		return m.Kind.IsLookup()
 	case "reserve":
 		return m.Kind == ast.MapKindRingbuf
 	default:

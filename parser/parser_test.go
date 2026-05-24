@@ -249,6 +249,21 @@ map Counts hash[u32, u32]
 	}
 }
 
+func TestParsePerCPUMapKinds(t *testing.T) {
+	src := SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
+
+map Counts percpu_hash[u32, u64]
+map Slots percpu_array[u32, u64]
+`)}
+	file, err := ParseSource(src)
+	if err != nil {
+		t.Fatalf("ParseSource: %v", err)
+	}
+	if countNamedDescendants(file.Tree.RootNode(), file.Lang, "map_declaration") != 2 {
+		t.Fatalf("map declaration count = %d, want 2; tree: %s", countNamedDescendants(file.Tree.RootNode(), file.Lang, "map_declaration"), file.Tree.RootNode().SExpr(file.Lang))
+	}
+}
+
 func TestParseBareAttribute(t *testing.T) {
 	src := SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
 

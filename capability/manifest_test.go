@@ -261,6 +261,26 @@ func TestValidateRejectsUnsupportedEnumValues(t *testing.T) {
 	}
 }
 
+func TestValidateAllowsPerCPUMapKinds(t *testing.T) {
+	m := NewManifest("probes")
+	m.Programs = append(m.Programs, Program{Name: "OnExec", Kind: "tracepoint", Section: "tracepoint/sched:sched_process_exec"})
+	m.Maps = append(m.Maps,
+		Map{Name: "Counts", Kind: "percpu_hash", Key: "u32", Value: "u64", MaxEntries: "128"},
+		Map{Name: "Slots", Kind: "percpu_array", Key: "u32", Value: "u64"},
+	)
+	m.Capabilities = append(m.Capabilities, Capability{
+		Name:    "kernel.process.exec.count",
+		Kind:    "source",
+		Danger:  "observe",
+		Program: "OnExec",
+		Section: "tracepoint/sched:sched_process_exec",
+		Maps:    MapAccess{Read: []string{"Counts"}, Write: []string{"Counts", "Slots"}},
+	})
+	if err := Validate(m); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+}
+
 func TestValidateRejectsMissingTypeSchema(t *testing.T) {
 	m := NewManifest("probes")
 	m.Programs = append(m.Programs, Program{Name: "OnExec", Kind: "tracepoint", Section: "tracepoint/sched:sched_process_exec"})

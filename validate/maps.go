@@ -21,7 +21,7 @@ func ValidateMaps(program ir.Program) []diag.Diagnostic {
 					Message:  fmt.Sprintf("ringbuf map %q is missing a value type", m.Name),
 				})
 			}
-		case ir.MapKindHash, ir.MapKindArray:
+		case ir.MapKindHash, ir.MapKindArray, ir.MapKindPerCPUHash, ir.MapKindPerCPUArray:
 			if m.Key.Name == "" || m.Val.Name == "" {
 				diags = append(diags, diag.Diagnostic{
 					Code:     "HZN2401",
@@ -75,7 +75,7 @@ type lookupState struct {
 func validateMapLookups(program ir.Program) []diag.Diagnostic {
 	lookupMaps := map[string]ir.Map{}
 	for _, m := range program.Maps {
-		if m.Kind == ir.MapKindHash || m.Kind == ir.MapKindArray {
+		if m.Kind.IsLookup() {
 			lookupMaps[m.Name] = m
 		}
 	}

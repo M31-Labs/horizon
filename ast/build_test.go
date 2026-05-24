@@ -159,6 +159,38 @@ map Counts hash[u32, u32]
 	}
 }
 
+func TestBuildPerCPUMapKinds(t *testing.T) {
+	parsed, err := parser.ParseSource(parser.SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
+
+map Counts percpu_hash[u32, u64]
+map Slots percpu_array[u32, u64]
+`)})
+	if err != nil {
+		t.Fatalf("ParseSource: %v", err)
+	}
+	file, err := Build(parsed)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(file.Decls) != 2 {
+		t.Fatalf("decls = %#v, want two maps", file.Decls)
+	}
+	counts, ok := file.Decls[0].(MapDecl)
+	if !ok {
+		t.Fatalf("decl[0] = %T, want MapDecl", file.Decls[0])
+	}
+	if counts.Kind != MapKindPerCPUHash || counts.Key.Name != "u32" || counts.Val.Name != "u64" {
+		t.Fatalf("counts = %#v, want percpu_hash[u32, u64]", counts)
+	}
+	slots, ok := file.Decls[1].(MapDecl)
+	if !ok {
+		t.Fatalf("decl[1] = %T, want MapDecl", file.Decls[1])
+	}
+	if slots.Kind != MapKindPerCPUArray || slots.Key.Name != "u32" || slots.Val.Name != "u64" {
+		t.Fatalf("slots = %#v, want percpu_array[u32, u64]", slots)
+	}
+}
+
 func TestBuildBoolLiteralAST(t *testing.T) {
 	parsed, err := parser.ParseSource(parser.SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
 

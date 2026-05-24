@@ -399,17 +399,17 @@ func validateKretprobeCall(expr *ir.Expr, method string) error {
 func validateMapCall(expr *ir.Expr, m ir.Map, method string) error {
 	switch method {
 	case "lookup":
-		if m.Kind != ir.MapKindHash && m.Kind != ir.MapKindArray {
+		if !m.Kind.IsLookup() {
 			return unsupportedExpr(expr, string(m.Kind)+"."+method)
 		}
 		return validateArgCount(expr, m.Name+"."+method, 1)
 	case "update":
-		if m.Kind != ir.MapKindHash && m.Kind != ir.MapKindArray {
+		if !m.Kind.IsLookup() {
 			return unsupportedExpr(expr, string(m.Kind)+"."+method)
 		}
 		return validateArgCount(expr, m.Name+"."+method, 2)
 	case "delete":
-		if m.Kind != ir.MapKindHash {
+		if !m.Kind.IsHashLike() {
 			return unsupportedExpr(expr, string(m.Kind)+"."+method)
 		}
 		return validateArgCount(expr, m.Name+"."+method, 1)

@@ -340,6 +340,105 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	}
 }
 
+func TestAnalyzePerCPUMapsPassAndTrackManifestAccess(t *testing.T) {
+	result := analyzeSource(t, "percpu.hzn", `package probes
+
+type Count struct {
+    seen u64
+}
+
+@max_entries(128)
+map Counts percpu_hash[u32, Count]
+
+map Slots percpu_array[u32, u64]
+
+@capability("kernel.process.exec.count")
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    pid := bpf.current_pid()
+    if Counts.update(pid, Count{seen: u64(pid)}) != 0 {
+        return 0
+    }
+
+    count := Counts.lookup(pid)
+    if count == nil {
+        return 0
+    }
+    count.seen = count.seen + 1
+
+    if Slots.update(0, 1) != 0 {
+        return 0
+    }
+
+    if Counts.delete(pid) != 0 {
+        return 0
+    }
+    return 0
+}
+`)
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+	if len(result.Program.Maps) != 2 {
+		t.Fatalf("maps = %#v, want two", result.Program.Maps)
+	}
+	if result.Program.Maps[0].Kind != ir.MapKindPerCPUHash || result.Program.Maps[0].MaxEntries != "128" {
+		t.Fatalf("map[0] = %#v, want configured percpu hash", result.Program.Maps[0])
+	}
+	if result.Program.Maps[1].Kind != ir.MapKindPerCPUArray {
+		t.Fatalf("map[1] = %#v, want percpu array", result.Program.Maps[1])
+	}
+	manifest := capability.FromIR(result.Program)
+	if len(manifest.Capabilities) != 1 {
+		t.Fatalf("manifest capabilities = %#v, want one", manifest.Capabilities)
+	}
+	access := manifest.Capabilities[0].Maps
+	if !slices.Contains(access.Read, "Counts") || !slices.Contains(access.Write, "Counts") || !slices.Contains(access.Write, "Slots") {
+		t.Fatalf("map access = %#v, want Counts read/write and Slots write", access)
+	}
+}
+
+func TestAnalyzeRejectsInvalidPerCPUMapUse(t *testing.T) {
+	tests := map[string]struct {
+		source string
+		code   string
+	}{
+		"percpu array key": {
+			code: "HZN1204",
+			source: `package probes
+
+map Slots percpu_array[u64, u32]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    return 0
+}
+`,
+		},
+		"percpu array delete": {
+			code: "HZN1423",
+			source: `package probes
+
+map Slots percpu_array[u32, u32]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    if Slots.delete(0) != 0 {
+        return 0
+    }
+    return 0
+}
+`,
+		},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			result := analyzeSource(t, "percpu.hzn", test.source)
+			requireDiagnosticCode(t, result, test.code)
+		})
+	}
+}
+
 func TestAnalyzeRejectsInvalidMapMaxEntries(t *testing.T) {
 	tests := map[string]string{
 		"string value": `package probes

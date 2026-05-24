@@ -338,6 +338,53 @@ func TestGenerateTypedMapBindings(t *testing.T) {
 	}
 }
 
+func TestGeneratePerCPUMapBindings(t *testing.T) {
+	code, err := Generate(ir.Program{
+		Package: "probes",
+		Structs: []ir.Struct{{
+			Name: "Count",
+			Fields: []ir.Field{{
+				Name: "seen",
+				Type: ir.Type{Name: "u64"},
+			}},
+		}},
+		Maps: []ir.Map{{
+			Name: "Counts",
+			Kind: ir.MapKindPerCPUHash,
+			Key:  ir.Type{Name: "u32"},
+			Val:  ir.Type{Name: "Count"},
+		}, {
+			Name: "Slots",
+			Kind: ir.MapKindPerCPUArray,
+			Key:  ir.Type{Name: "u32"},
+			Val:  ir.Type{Name: "u64"},
+		}},
+	}, "bindings")
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	for _, want := range []string{
+		"func (o *Objects) LookupCounts(key uint32) ([]Count, bool, error)",
+		"var values []Count",
+		"if err := o.Counts.Lookup(key, &values); err != nil",
+		"func (o *Objects) UpdateCounts(key uint32, values []Count) error",
+		"return o.Counts.Update(key, values, ebpf.UpdateAny)",
+		"func (o *Objects) ForEachCounts(handle func(key uint32, values []Count) error) error",
+		"if !iter.Next(&key, &values) {",
+		"func (o *Objects) DeleteCounts(key uint32) error",
+		"func (o *Objects) LookupSlots(key uint32) ([]uint64, bool, error)",
+		"func (o *Objects) UpdateSlots(key uint32, values []uint64) error",
+		"func (o *Objects) ForEachSlots(handle func(key uint32, values []uint64) error) error",
+	} {
+		if !strings.Contains(code, want) {
+			t.Fatalf("generated bindings missing %q:\n%s", want, code)
+		}
+	}
+	if strings.Contains(code, "DeleteSlots") {
+		t.Fatalf("generated percpu array bindings unexpectedly include delete:\n%s", code)
+	}
+}
+
 func TestGenerateStructLayoutAssertionsIncludePadding(t *testing.T) {
 	code, err := Generate(ir.Program{
 		Package: "probes",
