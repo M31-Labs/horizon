@@ -485,3 +485,7 @@ Pre-alpha. The current implementation targets tracepoint, kprobe/kretprobe, TC,
 cgroup connect, LSM, and XDP programs with typed ringbuf event output, typed
 hash/array/per-CPU/LRU map access, bounded loops, generated BPF C, clang builds,
 Go bindings, and Continuum capability manifests.
+
+## License
+
+Apache-2.0. See [LICENSE](LICENSE).

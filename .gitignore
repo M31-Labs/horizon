@@ -1,9 +1,14 @@
 dist/
 generated/
 .canopy/
+tmp/
 *.bpf.o
 *.bpf.c
 *.hznmap.json
 *.cap.json
 *.report.json
 *.bindings.go
+*.diagnostics.json
+*.test
+*.prof
+coverage.out
