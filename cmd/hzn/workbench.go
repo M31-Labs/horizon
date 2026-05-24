@@ -16,7 +16,6 @@ import (
 	"m31labs.dev/horizon/compiler/diag"
 	"m31labs.dev/horizon/emitc"
 	"m31labs.dev/horizon/ir"
-	"m31labs.dev/horizon/verifier"
 )
 
 func runWorkbench(args []string) error {
@@ -223,38 +222,5 @@ func diagnosticsForReport(diags []diag.Diagnostic) []diag.Diagnostic {
 }
 
 func clangDiagnostics(raw string, sourceMap ir.SourceMap, generated []byte) []diag.Diagnostic {
-	remapped := verifier.RemapWithGenerated(verifier.ParseLog(raw), sourceMap, generated)
-	if len(remapped) == 0 && raw == "" {
-		return []diag.Diagnostic{}
-	}
-	if len(remapped) == 0 {
-		remapped = []verifier.Diagnostic{{Message: raw, Severity: "error", Raw: raw}}
-	}
-	out := make([]diag.Diagnostic, 0, len(remapped))
-	for _, d := range remapped {
-		severity := diag.Severity(d.Severity)
-		if severity == "" || severity == "fatal error" {
-			severity = diag.SeverityError
-		}
-		converted := diag.Diagnostic{
-			Code:     "HZN3100",
-			Severity: severity,
-			Message:  d.Message,
-			Primary:  d.Span,
-		}
-		if converted.Primary.IsZero() {
-			converted.Primary = d.Generated
-		}
-		if !d.Generated.IsZero() {
-			converted.Labels = append(converted.Labels, diag.Label{
-				Span:    d.Generated,
-				Message: "generated BPF C",
-			})
-		}
-		if d.Raw != "" && d.Raw != d.Message {
-			converted.Notes = append(converted.Notes, d.Raw)
-		}
-		out = append(out, converted)
-	}
-	return out
+	return diagnosticsFromVerifierLog(raw, sourceMap, generated)
 }
