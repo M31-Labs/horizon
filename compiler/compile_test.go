@@ -265,6 +265,43 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	}
 }
 
+func TestAnalyzeAllowsIntegerConstInExpressions(t *testing.T) {
+	result := analyzeSource(t, "counts.hzn", `package probes
+
+import bpf "m31labs.dev/horizon/runtime/kernel"
+
+const FirstSeen = 1
+
+map Counts hash[u32, u32]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    pid := bpf.current_pid()
+    Counts.update(pid, FirstSeen)
+    return 0
+}
+`)
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+	if len(result.Program.Constants) != 1 || result.Program.Constants[0].Name != "FirstSeen" {
+		t.Fatalf("constants = %#v, want FirstSeen", result.Program.Constants)
+	}
+}
+
+func TestAnalyzeRejectsNonIntegerConst(t *testing.T) {
+	result := analyzeSource(t, "const.hzn", `package probes
+
+const Protocol = xdp.IPProtoTCP
+
+@xdp
+func DropTCP(ctx xdp.Context) i32 {
+    return xdp.Pass
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1103")
+}
+
 func TestAnalyzeXDPProgramPasses(t *testing.T) {
 	result := analyzeSource(t, "xdp.hzn", `package probes
 

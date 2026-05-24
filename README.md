@@ -11,6 +11,7 @@ It keeps the kernel-side language deliberately small:
 - kprobe and kretprobe programs
 - XDP programs
 - typed structs and fixed arrays
+- decimal integer constants
 - ringbuf event output
 - hash and array maps
 - nil-checked map lookups
@@ -64,6 +65,8 @@ Stateful programs can use typed maps. Lookup results are nullable and must be
 checked before dereference.
 
 ```go
+const FirstSeen = 1
+
 type Count struct {
     seen u32
 }
@@ -73,7 +76,7 @@ map Counts hash[u32, Count]
 @tracepoint("sched:sched_process_exec")
 func OnExec(ctx tracepoint.Exec) i32 {
     pid := bpf.current_pid()
-    Counts.update(pid, Count{seen: 1})
+    Counts.update(pid, Count{seen: FirstSeen})
 
     count := Counts.lookup(pid)
     if count == nil {

@@ -14,6 +14,8 @@ func FromAST(file ast.File) (Program, []diag.Diagnostic) {
 		switch d := decl.(type) {
 		case ast.TypeDecl:
 			program.Structs = append(program.Structs, buildStruct(d))
+		case ast.ConstDecl:
+			program.Constants = append(program.Constants, buildConst(d))
 		case ast.MapDecl:
 			program.Maps = append(program.Maps, buildMap(d))
 		case ast.FuncDecl:
@@ -32,12 +34,21 @@ func Merge(programs ...Program) Program {
 			merged.Package = program.Package
 		}
 		merged.Structs = append(merged.Structs, program.Structs...)
+		merged.Constants = append(merged.Constants, program.Constants...)
 		merged.Functions = append(merged.Functions, program.Functions...)
 		merged.Maps = append(merged.Maps, program.Maps...)
 		merged.Capabilities = append(merged.Capabilities, program.Capabilities...)
 		merged.SourceMap.Mappings = append(merged.SourceMap.Mappings, program.SourceMap.Mappings...)
 	}
 	return merged
+}
+
+func buildConst(decl ast.ConstDecl) Const {
+	return Const{
+		Name:  decl.Name,
+		Value: buildExpr(decl.Value),
+		Span:  decl.Span,
+	}
 }
 
 func buildStruct(decl ast.TypeDecl) Struct {

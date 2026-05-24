@@ -4,11 +4,18 @@ import "m31labs.dev/horizon/compiler/span"
 
 type Program struct {
 	Package      string
+	Constants    []Const
 	Structs      []Struct
 	Functions    []Function
 	Maps         []Map
 	Capabilities []Capability
 	SourceMap    SourceMap
+}
+
+type Const struct {
+	Name  string
+	Value Expr
+	Span  span.Span
 }
 
 type SourceMap struct {

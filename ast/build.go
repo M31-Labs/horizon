@@ -132,12 +132,9 @@ func buildAttr(parsed *parser.File, n *gotreesitter.Node) Attr {
 func buildConstDecl(parsed *parser.File, n *gotreesitter.Node) ConstDecl {
 	value := n.ChildByFieldName("value", parsed.Lang)
 	return ConstDecl{
-		Name: text(parsed, n.ChildByFieldName("name", parsed.Lang)),
-		Value: RawExpr{
-			Text: strings.TrimSpace(text(parsed, value)),
-			Span: spanForNode(parsed.Source.FileID, value),
-		},
-		Span: spanForNode(parsed.Source.FileID, n),
+		Name:  text(parsed, n.ChildByFieldName("name", parsed.Lang)),
+		Value: buildExpr(parsed, value),
+		Span:  spanForNode(parsed.Source.FileID, n),
 	}
 }
 

@@ -127,6 +127,59 @@ func F(ctx tracepoint.Exec) i32 {
 	}
 }
 
+func TestBuildConstDeclaration(t *testing.T) {
+	parsed, err := parser.ParseSource(parser.SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
+
+const HTTPS = 443
+`)})
+	if err != nil {
+		t.Fatalf("ParseSource: %v", err)
+	}
+	file, err := Build(parsed)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(file.Decls) != 1 {
+		t.Fatalf("decls = %d, want 1", len(file.Decls))
+	}
+	decl, ok := file.Decls[0].(ConstDecl)
+	if !ok {
+		t.Fatalf("decl[0] = %T, want ConstDecl", file.Decls[0])
+	}
+	value, ok := decl.Value.(IntExpr)
+	if !ok {
+		t.Fatalf("const value = %T, want IntExpr", decl.Value)
+	}
+	if decl.Name != "HTTPS" || value.Value != "443" {
+		t.Fatalf("const decl = %#v value=%#v, want HTTPS = 443", decl, value)
+	}
+}
+
+func TestBuildConstBeforeFunction(t *testing.T) {
+	parsed, err := parser.ParseSource(parser.SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
+
+const HTTPS = 443
+
+@xdp
+func F(ctx xdp.Context) i32 {
+    return xdp.Pass
+}
+`)})
+	if err != nil {
+		t.Fatalf("ParseSource: %v", err)
+	}
+	file, err := Build(parsed)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if file.Package != "p" {
+		t.Fatalf("package = %q, want p; tree: %s", file.Package, parsed.Tree.RootNode().SExpr(parsed.Lang))
+	}
+	if len(file.Decls) != 2 {
+		t.Fatalf("decls = %d, want 2; tree: %s", len(file.Decls), parsed.Tree.RootNode().SExpr(parsed.Lang))
+	}
+}
+
 func TestBuildStructLiteral(t *testing.T) {
 	parsed, err := parser.ParseSource(parser.SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
 

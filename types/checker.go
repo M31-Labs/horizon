@@ -14,6 +14,7 @@ func Check(file ast.File) []diag.Diagnostic {
 	knownTypes := builtinTypes()
 	structs := builtinStructs()
 	maps := map[string]ast.MapDecl{}
+	consts := map[string]ast.ConstDecl{}
 	if file.Package == "" {
 		diags = append(diags, diag.Diagnostic{
 			Code:     "HZN1001",
@@ -45,6 +46,9 @@ func Check(file ast.File) []diag.Diagnostic {
 		if mapped, ok := decl.(ast.MapDecl); ok && mapped.Name != "" {
 			maps[mapped.Name] = mapped
 		}
+		if constant, ok := decl.(ast.ConstDecl); ok && constant.Name != "" {
+			consts[constant.Name] = constant
+		}
 	}
 	for _, decl := range file.Decls {
 		switch d := decl.(type) {
@@ -55,16 +59,9 @@ func Check(file ast.File) []diag.Diagnostic {
 		case ast.MapDecl:
 			diags = append(diags, validateMapDecl(d, knownTypes)...)
 		case ast.FuncDecl:
-			diags = append(diags, validateFuncDecl(d, knownTypes, maps, structs)...)
+			diags = append(diags, validateFuncDecl(d, knownTypes, maps, structs, consts)...)
 		case ast.ConstDecl:
-			if d.Value == nil {
-				diags = append(diags, diag.Diagnostic{
-					Code:     "HZN1101",
-					Severity: diag.SeverityError,
-					Message:  fmt.Sprintf("const %q is missing a value", d.Name),
-					Primary:  d.Span,
-				})
-			}
+			diags = append(diags, validateConstDecl(d)...)
 		}
 	}
 	return diags
@@ -200,7 +197,28 @@ func validateMapDecl(decl ast.MapDecl, known map[string]bool) []diag.Diagnostic 
 	return diags
 }
 
-func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]ast.MapDecl, structs map[string]ast.TypeDecl) []diag.Diagnostic {
+func validateConstDecl(decl ast.ConstDecl) []diag.Diagnostic {
+	if decl.Value == nil {
+		return []diag.Diagnostic{{
+			Code:     "HZN1101",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("const %q is missing a value", decl.Name),
+			Primary:  decl.Span,
+		}}
+	}
+	if _, ok := decl.Value.(ast.IntExpr); !ok {
+		return []diag.Diagnostic{{
+			Code:     "HZN1103",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("const %q must be an integer literal in Horizon v0", decl.Name),
+			Primary:  decl.Value.GetSpan(),
+			Suggest:  "keep constants simple and explicit, for example `const Port = 443`",
+		}}
+	}
+	return nil
+}
+
+func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]ast.MapDecl, structs map[string]ast.TypeDecl, consts map[string]ast.ConstDecl) []diag.Diagnostic {
 	var diags []diag.Diagnostic
 	sections := sectionAttrs(decl.Attrs)
 	if len(sections) == 0 {
@@ -297,7 +315,7 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 			Primary:  decl.Return.Span,
 		})
 	}
-	diags = append(diags, validateFuncBody(decl, maps, structs)...)
+	diags = append(diags, validateFuncBody(decl, maps, structs, consts)...)
 	return diags
 }
 
@@ -379,8 +397,11 @@ type valueType struct {
 	Void     bool
 }
 
-func validateFuncBody(decl ast.FuncDecl, maps map[string]ast.MapDecl, structs map[string]ast.TypeDecl) []diag.Diagnostic {
+func validateFuncBody(decl ast.FuncDecl, maps map[string]ast.MapDecl, structs map[string]ast.TypeDecl, consts map[string]ast.ConstDecl) []diag.Diagnostic {
 	locals := map[string]valueType{}
+	for name := range consts {
+		locals[name] = valueType{Name: "untyped_int"}
+	}
 	var diags []diag.Diagnostic
 	for _, param := range decl.Params {
 		if param.Name == "" {

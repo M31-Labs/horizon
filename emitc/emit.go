@@ -24,6 +24,9 @@ func Emit(program ir.Program) (Output, error) {
 	if programUsesXDPPacketHelpers(program) {
 		emitXDPPacketHelpers(&b)
 	}
+	for _, c := range program.Constants {
+		emitConst(&b, c)
+	}
 	for _, decl := range program.Structs {
 		emitStruct(&b, decl)
 	}
@@ -379,6 +382,13 @@ static __always_inline struct hzn_xdp_udp *hzn_xdp_udp(struct xdp_md *ctx) {
     return data + off;
 }
 `)
+}
+
+func emitConst(b *strings.Builder, c ir.Const) {
+	if c.Name == "" {
+		return
+	}
+	fmt.Fprintf(b, "\nstatic const __u64 %s = %s;\n", c.Name, cExpr(&c.Value, nil))
 }
 
 func emitStruct(b *strings.Builder, decl ir.Struct) {

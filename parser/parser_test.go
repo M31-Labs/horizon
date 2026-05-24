@@ -112,6 +112,31 @@ func F(ctx tracepoint.Exec) i32 {
 	}
 }
 
+func TestParseConstBeforeFunction(t *testing.T) {
+	src := SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
+
+const HTTPS = 443
+
+@xdp
+func F(ctx xdp.Context) i32 {
+    return xdp.Pass
+}
+`)}
+	file, err := ParseSource(src)
+	if err != nil {
+		t.Fatalf("ParseSource: %v", err)
+	}
+	if file.Package != "p" {
+		t.Fatalf("package = %q, want p; tree: %s", file.Package, file.Tree.RootNode().SExpr(file.Lang))
+	}
+	if countNamedDescendants(file.Tree.RootNode(), file.Lang, "const_declaration") != 1 {
+		t.Fatalf("const count = %d, want 1; tree: %s", countNamedDescendants(file.Tree.RootNode(), file.Lang, "const_declaration"), file.Tree.RootNode().SExpr(file.Lang))
+	}
+	if countNamedDescendants(file.Tree.RootNode(), file.Lang, "function_declaration") != 1 {
+		t.Fatalf("function count = %d, want 1; tree: %s", countNamedDescendants(file.Tree.RootNode(), file.Lang, "function_declaration"), file.Tree.RootNode().SExpr(file.Lang))
+	}
+}
+
 func TestParseStructLiteral(t *testing.T) {
 	src := SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
 
