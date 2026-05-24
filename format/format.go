@@ -2,7 +2,6 @@ package format
 
 import (
 	"bytes"
-	"fmt"
 	"strconv"
 	"strings"
 
@@ -37,7 +36,7 @@ func formatFile(file ast.File, comments []lineComment, packageLine int) []byte {
 		b.flushCommentsBefore(packageLine)
 	}
 	if file.Package != "" {
-		b.line("package " + file.Package)
+		b.lineWithComment("package "+file.Package, packageLine)
 	}
 	if len(file.Imports) > 0 {
 		b.blank()
@@ -48,7 +47,7 @@ func formatFile(file ast.File, comments []lineComment, packageLine int) []byte {
 				line += imp.Alias + " "
 			}
 			line += strconv.Quote(imp.Path)
-			b.line(line)
+			b.lineWithComment(line, imp.Span.Start.Line)
 		}
 	}
 	for _, decl := range file.Decls {
@@ -69,6 +68,31 @@ type builder struct {
 }
 
 func (b *builder) line(text string) {
+	b.writeLine(text)
+}
+
+func (b *builder) lineWithComment(text string, line int) {
+	if line > 0 {
+		b.flushCommentsBefore(line)
+	}
+	if comment, ok := b.takeInlineComment(line); ok {
+		text += " " + comment
+	}
+	b.writeLine(text)
+}
+
+func (b *builder) lineWithNextInlineBefore(text string, beforeLine int) {
+	if beforeLine > 0 && b.next < len(b.comments) {
+		comment := b.comments[b.next]
+		if comment.Inline && comment.Line < beforeLine {
+			text += " " + comment.Text
+			b.next++
+		}
+	}
+	b.writeLine(text)
+}
+
+func (b *builder) writeLine(text string) {
 	if b.buf.Len() > 0 {
 		b.buf.WriteByte('\n')
 	}
@@ -103,6 +127,18 @@ func (b *builder) flushCommentsBefore(line int) {
 	}
 }
 
+func (b *builder) takeInlineComment(line int) (string, bool) {
+	if line <= 0 || b.next >= len(b.comments) {
+		return "", false
+	}
+	comment := b.comments[b.next]
+	if comment.Line != line || !comment.Inline {
+		return "", false
+	}
+	b.next++
+	return comment.Text, true
+}
+
 func (b *builder) flushRemainingComments() {
 	for b.next < len(b.comments) {
 		b.comment(b.comments[b.next].Text)
@@ -121,12 +157,12 @@ func (b *builder) decl(decl ast.Decl) {
 			line += " " + typeRef(d.Type)
 		}
 		line += " = " + expr(d.Value)
-		b.line(line)
+		b.lineWithComment(line, d.Span.Start.Line)
 	case ast.MapDecl:
-		b.line("map " + d.Name + " " + mapType(d))
+		b.lineWithComment("map "+d.Name+" "+mapType(d), d.Span.Start.Line)
 	case ast.FuncDecl:
 		for _, attr := range d.Attrs {
-			b.line(attrText(attr))
+			b.lineWithComment(attrText(attr), attr.Span.Start.Line)
 		}
 		params := make([]string, 0, len(d.Params))
 		for _, param := range d.Params {
@@ -136,25 +172,38 @@ func (b *builder) decl(decl ast.Decl) {
 		if !d.Return.IsZero() {
 			line += " " + typeRef(d.Return)
 		}
-		b.line(line + " {")
+		b.lineWithComment(line+" {", funcHeaderLine(d))
 		b.indent++
 		b.stmts(d.Body)
 		b.flushCommentsBefore(d.Span.End.Line)
 		b.indent--
-		b.line("}")
+		b.lineWithComment("}", d.Span.End.Line)
 	}
 }
 
+func funcHeaderLine(decl ast.FuncDecl) int {
+	if len(decl.Params) > 0 && decl.Params[0].Span.Start.Line > 0 {
+		return decl.Params[0].Span.Start.Line
+	}
+	if !decl.Return.IsZero() && decl.Return.Span.Start.Line > 0 {
+		return decl.Return.Span.Start.Line
+	}
+	if len(decl.Attrs) > 0 {
+		return decl.Attrs[len(decl.Attrs)-1].Span.End.Line + 1
+	}
+	return decl.Span.Start.Line
+}
+
 func (b *builder) typeDecl(decl ast.TypeDecl) {
-	b.line("type " + decl.Name + " struct {")
+	b.lineWithComment("type "+decl.Name+" struct {", decl.Span.Start.Line)
 	b.indent++
 	for _, field := range decl.Fields {
 		b.flushCommentsBefore(field.Span.Start.Line)
-		b.line(field.Name + " " + typeRef(field.Type))
+		b.lineWithComment(field.Name+" "+typeRef(field.Type), field.Span.Start.Line)
 	}
 	b.flushCommentsBefore(decl.Span.End.Line)
 	b.indent--
-	b.line("}")
+	b.lineWithComment("}", decl.Span.End.Line)
 }
 
 func (b *builder) stmts(stmts []ast.Stmt) {
@@ -167,30 +216,30 @@ func (b *builder) stmt(stmt ast.Stmt) {
 	b.flushCommentsBefore(stmt.GetSpan().Start.Line)
 	switch s := stmt.(type) {
 	case ast.ShortVarStmt:
-		b.line(s.Name + " := " + expr(s.Value))
+		b.lineWithComment(s.Name+" := "+expr(s.Value), s.Span.Start.Line)
 	case ast.AssignStmt:
-		b.line(expr(s.Target) + " = " + expr(s.Value))
+		b.lineWithComment(expr(s.Target)+" = "+expr(s.Value), s.Span.Start.Line)
 	case ast.ReturnStmt:
 		if s.Value == nil {
-			b.line("return")
+			b.lineWithComment("return", s.Span.Start.Line)
 			return
 		}
-		b.line("return " + expr(s.Value))
+		b.lineWithComment("return "+expr(s.Value), s.Span.Start.Line)
 	case ast.ExprStmt:
-		b.line(expr(s.Expr))
+		b.lineWithComment(expr(s.Expr), s.Span.Start.Line)
 	case ast.IncStmt:
-		b.line(s.Name + s.Op)
+		b.lineWithComment(s.Name+s.Op, s.Span.Start.Line)
 	case ast.IfStmt:
 		b.ifStmt(s)
 	case ast.ForStmt:
 		b.forStmt(s)
 	case ast.RawStmt:
-		b.line(s.Text)
+		b.lineWithComment(s.Text, s.Span.Start.Line)
 	}
 }
 
 func (b *builder) ifStmt(stmt ast.IfStmt) {
-	b.line("if " + expr(stmt.Cond) + " {")
+	b.lineWithComment("if "+expr(stmt.Cond)+" {", stmt.Span.Start.Line)
 	b.indent++
 	b.stmts(stmt.Then)
 	if len(stmt.Else) == 0 {
@@ -199,7 +248,7 @@ func (b *builder) ifStmt(stmt ast.IfStmt) {
 	b.indent--
 	if len(stmt.Else) == 1 {
 		if nested, ok := stmt.Else[0].(ast.IfStmt); ok {
-			b.line("} else " + ifHeader(nested))
+			b.lineWithComment("} else "+ifHeader(nested), nested.Span.Start.Line)
 			b.indent++
 			b.stmts(nested.Then)
 			if len(nested.Else) == 0 {
@@ -211,21 +260,21 @@ func (b *builder) ifStmt(stmt ast.IfStmt) {
 		}
 	}
 	if len(stmt.Else) > 0 {
-		b.line("} else {")
+		b.lineWithNextInlineBefore("} else {", stmt.Else[0].GetSpan().Start.Line)
 		b.indent++
 		b.stmts(stmt.Else)
 		b.flushCommentsBefore(stmt.Span.End.Line)
 		b.indent--
-		b.line("}")
+		b.lineWithComment("}", stmt.Span.End.Line)
 		return
 	}
-	b.line("}")
+	b.lineWithComment("}", stmt.Span.End.Line)
 }
 
 func (b *builder) emitElse(stmts []ast.Stmt) {
 	if len(stmts) == 1 {
 		if nested, ok := stmts[0].(ast.IfStmt); ok {
-			b.line("} else " + ifHeader(nested))
+			b.lineWithComment("} else "+ifHeader(nested), nested.Span.Start.Line)
 			b.indent++
 			b.stmts(nested.Then)
 			if len(nested.Else) == 0 {
@@ -237,12 +286,12 @@ func (b *builder) emitElse(stmts []ast.Stmt) {
 		}
 	}
 	if len(stmts) > 0 {
-		b.line("} else {")
+		b.lineWithNextInlineBefore("} else {", stmts[0].GetSpan().Start.Line)
 		b.indent++
 		b.stmts(stmts)
 		b.flushCommentsBefore(stmts[len(stmts)-1].GetSpan().End.Line)
 		b.indent--
-		b.line("}")
+		b.lineWithComment("}", stmts[len(stmts)-1].GetSpan().End.Line)
 		return
 	}
 	b.line("}")
@@ -260,12 +309,12 @@ func (b *builder) forStmt(stmt ast.ForStmt) {
 	case stmt.Cond != nil:
 		header += " " + expr(stmt.Cond)
 	}
-	b.line(header + " {")
+	b.lineWithComment(header+" {", stmt.Span.Start.Line)
 	b.indent++
 	b.stmts(stmt.Body)
 	b.flushCommentsBefore(stmt.Span.End.Line)
 	b.indent--
-	b.line("}")
+	b.lineWithComment("}", stmt.Span.End.Line)
 }
 
 func simpleStmt(stmt ast.Stmt) string {
@@ -407,8 +456,9 @@ func binaryPrecedence(op string) int {
 }
 
 type lineComment struct {
-	Line int
-	Text string
+	Line   int
+	Text   string
+	Inline bool
 }
 
 func lineComments(src parser.SourceFile) ([]lineComment, error) {
@@ -419,12 +469,10 @@ func lineComments(src parser.SourceFile) ([]lineComment, error) {
 		if idx < 0 {
 			continue
 		}
-		if strings.TrimSpace(line[:idx]) != "" {
-			return nil, fmt.Errorf("%s:%d: hzn fmt cannot preserve inline comments yet", src.Path, i+1)
-		}
 		comments = append(comments, lineComment{
-			Line: i + 1,
-			Text: strings.TrimSpace(line[idx:]),
+			Line:   i + 1,
+			Text:   strings.TrimSpace(line[idx:]),
+			Inline: strings.TrimSpace(line[:idx]) != "",
 		})
 	}
 	return comments, nil

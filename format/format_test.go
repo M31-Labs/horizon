@@ -1,7 +1,6 @@
 package format
 
 import (
-	"strings"
 	"testing"
 
 	"m31labs.dev/horizon/parser"
@@ -82,15 +81,80 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	}
 }
 
-func TestSourceRejectsInlineLineComments(t *testing.T) {
-	_, err := Source(parser.SourceFile{Path: "commented.hzn", Bytes: []byte(`package probes
+func TestSourcePreservesInlineLineComments(t *testing.T) {
+	got, err := Source(parser.SourceFile{Path: "commented.hzn", Bytes: []byte(`package probes // package
+
+type Event struct { // event
+    pid u32 // process id
+}
+
+map Events ringbuf[Event] // event stream
+
+@capability("kernel.process.exec.observe") // capability
+@tracepoint("sched:sched_process_exec") // section
+func OnExec(ctx tracepoint.Exec) i32 { // program
+    event := Events.reserve() // reserve
+    if event == nil { // guard
+        return 0 // early return
+    }
+    Events.submit(event) // submit
+    return 0 // done
+} // end
+`)})
+	if err != nil {
+		t.Fatalf("Source: %v", err)
+	}
+	want := `package probes // package
+
+type Event struct { // event
+    pid u32 // process id
+}
+
+map Events ringbuf[Event] // event stream
+
+@capability("kernel.process.exec.observe") // capability
+@tracepoint("sched:sched_process_exec") // section
+func OnExec(ctx tracepoint.Exec) i32 { // program
+    event := Events.reserve() // reserve
+    if event == nil { // guard
+        return 0 // early return
+    }
+    Events.submit(event) // submit
+    return 0 // done
+} // end
+`
+	if string(got) != want {
+		t.Fatalf("formatted source mismatch\nwant:\n%s\ngot:\n%s", want, got)
+	}
+}
+
+func TestSourcePreservesElseInlineLineComment(t *testing.T) {
+	got, err := Source(parser.SourceFile{Path: "commented.hzn", Bytes: []byte(`package probes
 
 @tracepoint("sched:sched_process_exec")
 func OnExec(ctx tracepoint.Exec) i32 {
-    return 0 // keep this
+    if true {
+        return 0
+    } else { // fallback
+        return 1
+    }
 }
 `)})
-	if err == nil || !strings.Contains(err.Error(), "inline comments") {
-		t.Fatalf("Source error = %v, want inline comment refusal", err)
+	if err != nil {
+		t.Fatalf("Source: %v", err)
+	}
+	want := `package probes
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    if true {
+        return 0
+    } else { // fallback
+        return 1
+    }
+}
+`
+	if string(got) != want {
+		t.Fatalf("formatted source mismatch\nwant:\n%s\ngot:\n%s", want, got)
 	}
 }
