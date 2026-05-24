@@ -78,7 +78,7 @@ func CheckPackage(files []ast.File) [][]diag.Diagnostic {
 		for _, decl := range file.Decls {
 			switch d := decl.(type) {
 			case ast.TypeDecl:
-				diags[i] = append(diags[i], validateTypeDecl(d, knownTypes, structs)...)
+				diags[i] = append(diags[i], validateTypeDecl(d, knownTypes, structs, userStructs)...)
 			case ast.MapDecl:
 				diags[i] = append(diags[i], validateMapDecl(d, knownTypes, userStructs, consts)...)
 			case ast.FuncDecl:
@@ -222,6 +222,8 @@ func validateMapDecl(decl ast.MapDecl, known map[string]bool, userStructs map[st
 		}
 		diags = append(diags, validateTypeRef(decl.Key, known)...)
 		diags = append(diags, validateTypeRef(decl.Val, known)...)
+		diags = append(diags, validateStoredTypeRef(decl.Key, known, userStructs, fmt.Sprintf("map %s key", decl.Name))...)
+		diags = append(diags, validateStoredTypeRef(decl.Val, known, userStructs, fmt.Sprintf("map %s value", decl.Name))...)
 	default:
 		diags = append(diags, diag.Diagnostic{
 			Code:     "HZN1203",
@@ -231,6 +233,33 @@ func validateMapDecl(decl ast.MapDecl, known map[string]bool, userStructs map[st
 			Suggest:  "v0 supports ringbuf[T], hash[K, V], array[K, V], percpu_hash[K, V], percpu_array[K, V], lru_hash[K, V], and lru_percpu_hash[K, V]",
 		})
 	}
+	return diags
+}
+
+func validateStoredTypeRef(ref ast.TypeRef, known map[string]bool, userStructs map[string]ast.TypeDecl, label string) []diag.Diagnostic {
+	if ref.IsZero() || ref.Ptr {
+		return nil
+	}
+	var diags []diag.Diagnostic
+	if ref.Elem != nil {
+		diags = append(diags, validateStoredTypeRef(*ref.Elem, known, userStructs, label)...)
+	}
+	for _, arg := range ref.Args {
+		diags = append(diags, validateStoredTypeRef(arg, known, userStructs, label)...)
+	}
+	if ref.Name == "" || !known[ref.Name] || isScalar(ref.Name) {
+		return diags
+	}
+	if _, ok := userStructs[ref.Name]; ok {
+		return diags
+	}
+	diags = append(diags, diag.Diagnostic{
+		Code:     "HZN1110",
+		Severity: diag.SeverityError,
+		Message:  fmt.Sprintf("%s stores compiler-owned type %s", label, ref.Name),
+		Primary:  ref.Span,
+		Suggest:  "store scalar fields or declared Horizon structs; use compiler-owned context and packet header types only through helper calls",
+	})
 	return diags
 }
 
@@ -293,11 +322,16 @@ func validateMapAttrs(decl ast.MapDecl, consts map[string]ast.ConstDecl) []diag.
 	return diags
 }
 
-func validateTypeDecl(decl ast.TypeDecl, known map[string]bool, structs map[string]ast.TypeDecl) []diag.Diagnostic {
+func validateTypeDecl(decl ast.TypeDecl, known map[string]bool, structs map[string]ast.TypeDecl, userStructs map[string]ast.TypeDecl) []diag.Diagnostic {
 	var diags []diag.Diagnostic
 	seenFields := map[string]span.Span{}
 	for _, field := range decl.Fields {
 		diags = append(diags, validateTypeRef(field.Type, known)...)
+		fieldLabel := fmt.Sprintf("field %s.%s", decl.Name, field.Name)
+		if field.Name == "" {
+			fieldLabel = "field in struct " + decl.Name
+		}
+		diags = append(diags, validateStoredTypeRef(field.Type, known, userStructs, fieldLabel)...)
 		if field.Name != "" {
 			if previous, ok := seenFields[field.Name]; ok {
 				diags = append(diags, diag.Diagnostic{

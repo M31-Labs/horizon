@@ -1,0 +1,7 @@
+package probes
+
+type Value struct {
+    seen u64
+}
+
+map Headers hash[xdp.Eth, Value]

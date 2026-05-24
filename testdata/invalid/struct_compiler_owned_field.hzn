@@ -1,0 +1,7 @@
+package probes
+
+type Event struct {
+    eth xdp.Eth
+}
+
+map Events ringbuf[Event]
