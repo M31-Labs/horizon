@@ -1406,6 +1406,89 @@ map Counts hash[u32, u64]
 	}
 }
 
+func TestAnalyzeAllowsTypedVarDeclarations(t *testing.T) {
+	result := analyzeSource(t, "vars.hzn", `package probes
+
+type Count struct {
+    seen u64
+}
+
+map Counts hash[u32, Count]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    var pid u32 = bpf.current_pid()
+    var count Count = Count{seen: 1}
+    if Counts.update(pid, count) != 0 {
+        return 0
+    }
+    return 0
+}
+`)
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+}
+
+func TestAnalyzeAllowsTypedVarForLoopInit(t *testing.T) {
+	result := analyzeSource(t, "vars.hzn", `package probes
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    var sum u32 = 0
+    for var i u32 = 0; i < 4; i++ {
+        sum = sum + i
+    }
+    return i32(sum)
+}
+`)
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+}
+
+func TestAnalyzeRejectsVarTypeMismatch(t *testing.T) {
+	result := analyzeSource(t, "vars.hzn", `package probes
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    var pid u8 = 256
+    return 0
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1470")
+}
+
+func TestAnalyzeRejectsVarResourceAlias(t *testing.T) {
+	result := analyzeSource(t, "vars.hzn", `package probes
+
+type Event struct {
+    pid u32
+}
+
+map Events ringbuf[Event]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    var event Event = Events.reserve()
+    return 0
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1447")
+}
+
+func TestAnalyzeRejectsCompilerOwnedVarType(t *testing.T) {
+	result := analyzeSource(t, "vars.hzn", `package probes
+
+@xdp
+func DropTCP(ctx xdp.Context) i32 {
+    var tcp xdp.TCP = xdp.tcp(ctx)
+    return xdp.Pass
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1483")
+}
+
 func TestAnalyzeUsesTypedConstWidth(t *testing.T) {
 	result := analyzeSource(t, "counts.hzn", `package probes
 

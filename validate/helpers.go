@@ -93,7 +93,7 @@ func isTracingProgram(kind ir.ProgramKind) bool {
 func walkStatements(stmts []ir.Statement, visit func(*ir.Expr)) {
 	for _, stmt := range stmts {
 		switch stmt.Kind {
-		case "short_var":
+		case "short_var", "var_decl":
 			walkExpr(stmt.Value, visit)
 		case "assign":
 			walkExpr(stmt.Target, visit)

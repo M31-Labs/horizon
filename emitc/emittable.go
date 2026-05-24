@@ -107,6 +107,18 @@ func validateEmittableStatement(env *cEnv, program ir.Program, stmt ir.Statement
 		}
 		env.setLocal(stmt.Name, typ)
 		return nil
+	case "var_decl":
+		if stmt.Name == "" {
+			return unsupportedStatement(stmt, "var missing target")
+		}
+		if typeHintIsZero(stmt.Type) {
+			return unsupportedStatement(stmt, "var missing type")
+		}
+		if err := validateRequiredExpr(env, stmt.Value, "var value", stmt.Span); err != nil {
+			return err
+		}
+		env.setLocal(stmt.Name, stmt.Type)
+		return nil
 	case "assign":
 		if err := validateRequiredExpr(env, stmt.Target, "assignment target", stmt.Span); err != nil {
 			return err
@@ -192,7 +204,7 @@ func validateForInit(env *cEnv, program ir.Program, stmt *ir.Statement, primary 
 		return nil
 	}
 	switch stmt.Kind {
-	case "short_var", "assign":
+	case "short_var", "var_decl", "assign":
 		return validateEmittableStatement(env, program, *stmt)
 	default:
 		return unsupportedStatementWithSpan("for init", stmt.Kind, primary)

@@ -256,6 +256,33 @@ func DropTCP(ctx xdp.Context) i32 {
 	}
 }
 
+func TestSourceFormatsVarDeclarations(t *testing.T) {
+	got, err := Source(parser.SourceFile{Path: "var.hzn", Bytes: []byte(`package probes
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec)i32{
+var pid u32=bpf.current_pid()
+for var i u32=0;i<4;i++{pid=pid+i}
+return i32(pid)
+}`)})
+	if err != nil {
+		t.Fatalf("Source: %v", err)
+	}
+	want := `package probes
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    var pid u32 = bpf.current_pid()
+    for var i u32 = 0; i < 4; i++ {
+        pid = pid + i
+    }
+    return i32(pid)
+}
+`
+	if string(got) != want {
+		t.Fatalf("formatted source mismatch\nwant:\n%s\ngot:\n%s", want, got)
+	}
+}
+
 func TestSourceFormatsPerCPUAndLRUMaps(t *testing.T) {
 	got, err := Source(parser.SourceFile{Path: "maps.hzn", Bytes: []byte(`package probes
 map Counts percpu_hash[u32,u64]

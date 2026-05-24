@@ -11,6 +11,7 @@
 (if_statement "if" @keyword)
 (if_statement "else" @keyword)
 (for_statement "for" @keyword)
+(var_declaration "var" @keyword)
 
 (attribute
   "@" @punctuation.special
@@ -64,6 +65,9 @@
 
 (parameter
   name: (identifier) @variable.parameter)
+
+(var_declaration
+  name: (identifier) @variable)
 
 (import_declaration
   alias: (identifier) @namespace)

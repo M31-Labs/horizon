@@ -72,7 +72,7 @@ func validateTypedLoops(fn ir.Function, loopBounds map[string]bool) []diag.Diagn
 						Severity: diag.SeverityError,
 						Message:  "for loop must use a simple constant upper bound",
 						Primary:  stmt.Span,
-						Suggest:  "use `for i := 0; i < N; i++` with a numeric literal or integer const bound",
+						Suggest:  "use `for i := 0; i < N; i++` or `for var i u32 = 0; i < N; i++` with a numeric literal or integer const bound",
 					})
 				}
 				walk(stmt.Body)
@@ -93,7 +93,7 @@ func isBoundedForClause(stmt ir.Statement, loopBounds map[string]bool) bool {
 	if stmt.Kind != "for" || stmt.Init == nil || stmt.Cond == nil || stmt.Post == nil {
 		return false
 	}
-	if stmt.Init.Kind != "short_var" || stmt.Init.Name == "" || stmt.Init.Value == nil || stmt.Init.Value.Kind != "int" {
+	if (stmt.Init.Kind != "short_var" && stmt.Init.Kind != "var_decl") || stmt.Init.Name == "" || stmt.Init.Value == nil || stmt.Init.Value.Kind != "int" {
 		return false
 	}
 	if stmt.Cond.Kind != "binary" || stmt.Cond.Op != "<" || stmt.Cond.Left == nil || stmt.Cond.Right == nil {

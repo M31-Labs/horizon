@@ -63,7 +63,7 @@ func calledUserFunctions(fn ir.Function) []string {
 	var walkExpr func(*ir.Expr)
 	walkStmt = func(stmt ir.Statement) {
 		switch stmt.Kind {
-		case "short_var":
+		case "short_var", "var_decl":
 			walkExpr(stmt.Value)
 		case "assign":
 			walkExpr(stmt.Target)

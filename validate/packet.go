@@ -79,10 +79,12 @@ func validateXDPPacketHeaders(fn ir.Function) []diag.Diagnostic {
 	walk = func(stmts []ir.Statement) {
 		for _, stmt := range stmts {
 			switch stmt.Kind {
-			case "short_var":
+			case "short_var", "var_decl":
 				checkExpr(stmt.Value)
-				if helper, ok := xdpPacketHeaderCall(stmt.Value); ok {
-					states[stmt.Name] = packetHeaderState{Helper: helper, State: "maybe_nil"}
+				if stmt.Kind == "short_var" {
+					if helper, ok := xdpPacketHeaderCall(stmt.Value); ok {
+						states[stmt.Name] = packetHeaderState{Helper: helper, State: "maybe_nil"}
+					}
 				}
 			case "assign":
 				checkExpr(stmt.Target)

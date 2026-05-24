@@ -97,6 +97,17 @@ func (e *stackEstimator) walkStatement(stmt ir.Statement) {
 				e.trackPeak(e.localBytes, stmt.Span)
 			}
 		}
+	case "var_decl":
+		if stmt.Value != nil && stmt.Value.Kind == "struct_lit" {
+			e.walkExprChildren(stmt.Value)
+		} else {
+			e.walkExpr(stmt.Value)
+		}
+		e.locals[stmt.Name] = stmt.Type
+		if bytes := e.aggregateSize(stmt.Type); bytes > 0 {
+			e.localBytes += bytes
+			e.trackPeak(e.localBytes, stmt.Span)
+		}
 	case "assign":
 		e.walkExpr(stmt.Target)
 		e.walkExpr(stmt.Value)

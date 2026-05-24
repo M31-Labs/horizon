@@ -29,6 +29,9 @@
 (short_var_declaration
   name: (identifier) @local.definition.var)
 
+(var_declaration
+  name: (identifier) @local.definition.var)
+
 (import_declaration
   alias: (identifier) @local.definition.namespace)
 

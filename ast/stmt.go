@@ -28,6 +28,18 @@ func (s ShortVarStmt) GetSpan() span.Span {
 	return s.Span
 }
 
+type VarDeclStmt struct {
+	Name  string
+	Type  TypeRef
+	Value Expr
+	Span  span.Span
+}
+
+func (VarDeclStmt) stmtNode() {}
+func (s VarDeclStmt) GetSpan() span.Span {
+	return s.Span
+}
+
 type AssignStmt struct {
 	Target Expr
 	Value  Expr

@@ -209,6 +209,7 @@ func defineStatements(g *grammargen.Grammar) {
 	))
 
 	g.Define("statement", grammargen.Choice(
+		grammargen.Sym("var_declaration"),
 		grammargen.Sym("short_var_declaration"),
 		grammargen.Sym("assignment_statement"),
 		grammargen.Sym("return_statement"),
@@ -220,6 +221,14 @@ func defineStatements(g *grammargen.Grammar) {
 	g.Define("short_var_declaration", grammargen.Seq(
 		grammargen.Field("name", grammargen.Sym("identifier")),
 		grammargen.Str(":="),
+		grammargen.Field("value", grammargen.Sym("expression")),
+	))
+
+	g.Define("var_declaration", grammargen.Seq(
+		grammargen.Str("var"),
+		grammargen.Field("name", grammargen.Sym("identifier")),
+		grammargen.Field("type", grammargen.Sym("type_ref")),
+		grammargen.Str("="),
 		grammargen.Field("value", grammargen.Sym("expression")),
 	))
 
@@ -272,7 +281,10 @@ func defineStatements(g *grammargen.Grammar) {
 		),
 	))
 
-	g.Define("for_init_statement", grammargen.Sym("short_var_declaration"))
+	g.Define("for_init_statement", grammargen.Choice(
+		grammargen.Sym("short_var_declaration"),
+		grammargen.Sym("var_declaration"),
+	))
 	g.Define("for_post_statement", grammargen.Sym("increment_statement"))
 
 	g.Define("increment_statement", grammargen.Seq(

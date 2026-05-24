@@ -121,7 +121,7 @@ func CheckPackage(files []ast.File) [][]diag.Diagnostic {
 			case ast.MapDecl:
 				diags[i] = append(diags[i], validateMapDecl(d, knownTypes, userStructs, consts)...)
 			case ast.FuncDecl:
-				diags[i] = append(diags[i], validateFuncDecl(d, knownTypes, maps, structs, consts, funcs, capabilities)...)
+				diags[i] = append(diags[i], validateFuncDecl(d, knownTypes, maps, structs, userStructs, consts, funcs, capabilities)...)
 				diags[i] = append(diags[i], callGraphDiags[d.Name]...)
 			case ast.ConstDecl:
 				diags[i] = append(diags[i], validateConstDecl(d, knownTypes)...)
@@ -632,7 +632,7 @@ func constDeclType(decl ast.ConstDecl) (valueType, bool) {
 	return typ, ok
 }
 
-func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]ast.MapDecl, structs map[string]ast.TypeDecl, consts map[string]ast.ConstDecl, funcs map[string]ast.FuncDecl, capabilities map[string]ast.CapabilityDecl) []diag.Diagnostic {
+func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]ast.MapDecl, structs map[string]ast.TypeDecl, userStructs map[string]ast.TypeDecl, consts map[string]ast.ConstDecl, funcs map[string]ast.FuncDecl, capabilities map[string]ast.CapabilityDecl) []diag.Diagnostic {
 	var diags []diag.Diagnostic
 	sections := sectionAttrs(decl.Attrs)
 	isHelper := len(sections) == 0
@@ -788,7 +788,7 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 			})
 		}
 	}
-	diags = append(diags, validateFuncBody(decl, maps, structs, consts, sections, funcs)...)
+	diags = append(diags, validateFuncBody(decl, known, maps, structs, userStructs, consts, sections, funcs)...)
 	return diags
 }
 
@@ -1114,11 +1114,13 @@ type valueType struct {
 	LSMAction    bool
 }
 
-func validateFuncBody(decl ast.FuncDecl, maps map[string]ast.MapDecl, structs map[string]ast.TypeDecl, consts map[string]ast.ConstDecl, sections []sectionSpec, funcs map[string]ast.FuncDecl) []diag.Diagnostic {
+func validateFuncBody(decl ast.FuncDecl, known map[string]bool, maps map[string]ast.MapDecl, structs map[string]ast.TypeDecl, userStructs map[string]ast.TypeDecl, consts map[string]ast.ConstDecl, sections []sectionSpec, funcs map[string]ast.FuncDecl) []diag.Diagnostic {
 	locals := initialFuncLocals(decl, consts)
 	checker := funcBodyChecker{
 		maps:           maps,
 		structs:        structs,
+		known:          known,
+		userStructs:    userStructs,
 		funcs:          funcs,
 		programSection: programSectionName(sections),
 		returnType:     valueType{Name: decl.Return.Name, Ref: decl.Return, Ptr: decl.Return.Ptr},
@@ -1139,6 +1141,8 @@ func validateFuncBody(decl ast.FuncDecl, maps map[string]ast.MapDecl, structs ma
 type funcBodyChecker struct {
 	maps           map[string]ast.MapDecl
 	structs        map[string]ast.TypeDecl
+	known          map[string]bool
+	userStructs    map[string]ast.TypeDecl
 	funcs          map[string]ast.FuncDecl
 	programSection string
 	returnType     valueType
@@ -1187,6 +1191,8 @@ func (c *funcBodyChecker) checkStmt(stmt ast.Stmt, locals map[string]valueType) 
 	switch s := stmt.(type) {
 	case ast.ShortVarStmt:
 		c.checkShortVar(s, locals)
+	case ast.VarDeclStmt:
+		c.checkVarDecl(s, locals)
 	case ast.AssignStmt:
 		c.checkAssign(s, locals)
 	case ast.ExprStmt:
@@ -1210,11 +1216,93 @@ func (c *funcBodyChecker) checkStmt(stmt ast.Stmt, locals map[string]valueType) 
 	}
 }
 
+func (c *funcBodyChecker) checkVarDecl(s ast.VarDeclStmt, locals map[string]valueType) {
+	typeDiags := validateLocalVarType(s.Type, c.known, c.userStructs)
+	c.add(typeDiags...)
+	typ, exprDiags := c.typeOf(s.Value, locals)
+	c.add(exprDiags...)
+	target := valueType{Name: s.Type.Name, Ref: s.Type, Ptr: s.Type.Ptr}
+	nameInvalid := false
+	if d, ok := c.localNameDiagnostic(s.Name, s.Span, locals); ok {
+		c.add(d)
+		nameInvalid = true
+	}
+	switch {
+	case typ.Fallible != "":
+		c.add(fallibleResultDiagnostic(s.Span, typ.Fallible))
+	case typ.Void:
+		c.add(diag.Diagnostic{
+			Code:     "HZN1409",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("cannot assign void expression to %q", s.Name),
+			Primary:  s.Span,
+		})
+	case isFixedArray(typ):
+		c.add(fixedArrayLocalDiagnostic(s.Span, s.Name, typ))
+	case len(exprDiags) == 0 && isTrackedPointer(typ):
+		c.add(trackedPointerAliasDiagnostic(s.Span, s.Name, typ))
+	case len(typeDiags) > 0:
+		return
+	case !assignable(target, typ):
+		if d, ok := assignabilityDiagnostic(
+			"HZN1484",
+			fmt.Sprintf("cannot initialize var %q of type %s with %s", s.Name, typeName(target), typeName(typ)),
+			target,
+			typ,
+			s.Value.GetSpan(),
+		); ok {
+			c.add(d)
+		}
+	default:
+		if s.Name != "" && !nameInvalid {
+			locals[s.Name] = target
+		}
+	}
+}
+
+func validateLocalVarType(ref ast.TypeRef, known map[string]bool, userStructs map[string]ast.TypeDecl) []diag.Diagnostic {
+	var diags []diag.Diagnostic
+	diags = append(diags, validateTypeRef(ref, known)...)
+	switch {
+	case ref.IsZero():
+		diags = append(diags, diag.Diagnostic{
+			Code:     "HZN1483",
+			Severity: diag.SeverityError,
+			Message:  "var declarations require an explicit local type",
+			Primary:  ref.Span,
+		})
+	case ref.Ptr || ref.Elem != nil || len(ref.Args) > 0:
+		diags = append(diags, diag.Diagnostic{
+			Code:     "HZN1483",
+			Severity: diag.SeverityError,
+			Message:  "var declarations must use a scalar, bool, or declared struct type",
+			Primary:  ref.Span,
+			Suggest:  "keep nullable resources in short declarations from map lookup, ringbuf reserve, or packet helpers",
+		})
+	case ref.Name != "" && !known[ref.Name]:
+		return diags
+	case isScalar(ref.Name):
+		return diags
+	default:
+		if _, ok := userStructs[ref.Name]; ok {
+			return diags
+		}
+		diags = append(diags, diag.Diagnostic{
+			Code:     "HZN1483",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("var declarations cannot use compiler-owned type %s", ref.Name),
+			Primary:  ref.Span,
+			Suggest:  "use compiler-owned context and packet header types only through helper calls",
+		})
+	}
+	return diags
+}
+
 func (c *funcBodyChecker) checkShortVar(s ast.ShortVarStmt, locals map[string]valueType) {
 	typ, exprDiags := c.typeOf(s.Value, locals)
 	c.add(exprDiags...)
 	nameInvalid := false
-	if d, ok := c.shortVarNameDiagnostic(s, locals); ok {
+	if d, ok := c.localNameDiagnostic(s.Name, s.Span, locals); ok {
 		c.add(d)
 		nameInvalid = true
 	}
@@ -1242,34 +1330,34 @@ func (c *funcBodyChecker) checkShortVar(s ast.ShortVarStmt, locals map[string]va
 	}
 }
 
-func (c *funcBodyChecker) shortVarNameDiagnostic(s ast.ShortVarStmt, locals map[string]valueType) (diag.Diagnostic, bool) {
-	if s.Name == "" {
+func (c *funcBodyChecker) localNameDiagnostic(name string, primary span.Span, locals map[string]valueType) (diag.Diagnostic, bool) {
+	if name == "" {
 		return diag.Diagnostic{}, false
 	}
-	if _, ok := locals[s.Name]; ok {
+	if _, ok := locals[name]; ok {
 		return diag.Diagnostic{
 			Code:     "HZN1477",
 			Severity: diag.SeverityError,
-			Message:  fmt.Sprintf("local %q is already in scope", s.Name),
-			Primary:  s.Span,
+			Message:  fmt.Sprintf("local %q is already in scope", name),
+			Primary:  primary,
 			Suggest:  "use `=` to update an existing local, or choose a fresh name for a new value",
 		}, true
 	}
-	if _, ok := c.maps[s.Name]; ok {
+	if _, ok := c.maps[name]; ok {
 		return diag.Diagnostic{
 			Code:     "HZN1477",
 			Severity: diag.SeverityError,
-			Message:  fmt.Sprintf("local %q conflicts with a map declaration", s.Name),
-			Primary:  s.Span,
+			Message:  fmt.Sprintf("local %q conflicts with a map declaration", name),
+			Primary:  primary,
 			Suggest:  "choose a local name that does not hide a package-scoped map",
 		}, true
 	}
-	if compilerNamespace(s.Name) {
+	if compilerNamespace(name) {
 		return diag.Diagnostic{
 			Code:     "HZN1477",
 			Severity: diag.SeverityError,
-			Message:  fmt.Sprintf("local %q conflicts with a compiler namespace", s.Name),
-			Primary:  s.Span,
+			Message:  fmt.Sprintf("local %q conflicts with a compiler namespace", name),
+			Primary:  primary,
 			Suggest:  "compiler namespaces such as bpf, xdp, tc, cgroup, lsm, kprobe, and tracepoint are reserved",
 		}, true
 	}

@@ -169,11 +169,9 @@ func validateTypedRingbuf(fn ir.Function, ringMaps map[string]ir.Map) []diag.Dia
 		for _, stmt := range stmts {
 			switch stmt.Kind {
 			case "short_var":
-				if mapName, ok := reserveCall(stmt.Value); ok {
-					if _, ok := ringMaps[mapName]; ok {
-						states[stmt.Name] = reserveState{Map: mapName, State: "maybe_nil"}
-					}
-				}
+				trackReserveStatement(stmt, ringMaps, states)
+			case "var_decl":
+				checkExprHelperWrites(stmt.Value, checkWrite)
 			case "assign":
 				if varName, ok := selectorBase(stmt.Target); ok {
 					checkWrite(varName, stmt.Span)
@@ -421,6 +419,17 @@ func reportScopedLiveReservations(states map[string]reserveState, outer map[stri
 			report(name, primary)
 		}
 	}
+}
+
+func trackReserveStatement(stmt ir.Statement, ringMaps map[string]ir.Map, states map[string]reserveState) {
+	mapName, ok := reserveCall(stmt.Value)
+	if !ok {
+		return
+	}
+	if _, ok := ringMaps[mapName]; !ok {
+		return
+	}
+	states[stmt.Name] = reserveState{Map: mapName, State: "maybe_nil"}
 }
 
 func mergeReserveBranchStates(thenStates map[string]reserveState, elseStates map[string]reserveState, thenReturns bool, elseReturns bool) map[string]reserveState {

@@ -242,6 +242,8 @@ func (b *builder) stmt(stmt ast.Stmt) {
 	switch s := stmt.(type) {
 	case ast.ShortVarStmt:
 		b.lineWithComment(s.Name+" := "+expr(s.Value), s.Span.Start.Line)
+	case ast.VarDeclStmt:
+		b.lineWithComment("var "+s.Name+" "+typeRef(s.Type)+" = "+expr(s.Value), s.Span.Start.Line)
 	case ast.AssignStmt:
 		b.lineWithComment(expr(s.Target)+" = "+expr(s.Value), s.Span.Start.Line)
 	case ast.ReturnStmt:
@@ -352,6 +354,8 @@ func simpleStmt(stmt ast.Stmt) string {
 		return ""
 	case ast.ShortVarStmt:
 		return s.Name + " := " + expr(s.Value)
+	case ast.VarDeclStmt:
+		return "var " + s.Name + " " + typeRef(s.Type) + " = " + expr(s.Value)
 	case ast.AssignStmt:
 		return expr(s.Target) + " = " + expr(s.Value)
 	case ast.IncStmt:

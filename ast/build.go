@@ -231,6 +231,13 @@ func buildStmt(parsed *parser.File, n *gotreesitter.Node) Stmt {
 		return buildStmt(parsed, n.NamedChild(0))
 	}
 	switch n.Type(parsed.Lang) {
+	case "var_declaration":
+		return VarDeclStmt{
+			Name:  text(parsed, n.ChildByFieldName("name", parsed.Lang)),
+			Type:  buildTypeRef(parsed, n.ChildByFieldName("type", parsed.Lang)),
+			Value: buildExpr(parsed, n.ChildByFieldName("value", parsed.Lang)),
+			Span:  spanForNode(parsed.Source.FileID, n),
+		}
 	case "short_var_declaration":
 		return ShortVarStmt{
 			Name:  text(parsed, n.ChildByFieldName("name", parsed.Lang)),

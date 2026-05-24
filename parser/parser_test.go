@@ -33,6 +33,7 @@ func TestParseStatements(t *testing.T) {
 
 @tracepoint("sched:sched_process_exec")
 func F(ctx tracepoint.Exec) i32 {
+    var pid u32 = bpf.current_pid()
     event.pid = bpf.current_pid()
     bpf.current_comm(&event.comm)
     Events.submit(event)
@@ -43,8 +44,11 @@ func F(ctx tracepoint.Exec) i32 {
 	if err != nil {
 		t.Fatalf("ParseSource: %v", err)
 	}
-	if countNamedDescendants(file.Tree.RootNode(), file.Lang, "statement") != 4 {
-		t.Fatalf("statement count = %d, want 4", countNamedDescendants(file.Tree.RootNode(), file.Lang, "statement"))
+	if countNamedDescendants(file.Tree.RootNode(), file.Lang, "statement") != 5 {
+		t.Fatalf("statement count = %d, want 5", countNamedDescendants(file.Tree.RootNode(), file.Lang, "statement"))
+	}
+	if countNamedDescendants(file.Tree.RootNode(), file.Lang, "var_declaration") != 1 {
+		t.Fatalf("var declaration count = %d, want 1", countNamedDescendants(file.Tree.RootNode(), file.Lang, "var_declaration"))
 	}
 }
 

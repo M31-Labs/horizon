@@ -147,11 +147,13 @@ func validateTypedMapLookups(fn ir.Function, lookupMaps map[string]ir.Map) []dia
 	walk = func(stmts []ir.Statement) {
 		for _, stmt := range stmts {
 			switch stmt.Kind {
-			case "short_var":
+			case "short_var", "var_decl":
 				checkExpr(stmt.Value)
-				if mapName, ok := mapLookupCall(stmt.Value); ok {
-					if _, ok := lookupMaps[mapName]; ok {
-						states[stmt.Name] = lookupState{Source: mapName, Label: "map lookup result", State: "maybe_nil"}
+				if stmt.Kind == "short_var" {
+					if mapName, ok := mapLookupCall(stmt.Value); ok {
+						if _, ok := lookupMaps[mapName]; ok {
+							states[stmt.Name] = lookupState{Source: mapName, Label: "map lookup result", State: "maybe_nil"}
+						}
 					}
 				}
 			case "assign":

@@ -32,11 +32,12 @@ map Events ringbuf[Event]
 @xdp
 func DropTCP(ctx xdp.Context) i32 {
     // keep packet access typed and nil-checked
+    var port u16 = 443
     tcp := xdp.tcp(ctx)
     if tcp == nil {
         return xdp.Pass
     }
-    if true && (xdp.ntohs(tcp.dst_port) == 443) {
+    if true && (xdp.ntohs(tcp.dst_port) == port) {
         return xdp.Drop
     }
     return xdp.Pass
@@ -59,7 +60,7 @@ func TestQueriesCompile(t *testing.T) {
 func TestHighlightsQueryCoversCurrentLanguageSurface(t *testing.T) {
 	captures := queryCaptures(t, HighlightsQuery, []byte(queryFixture))
 
-	assertCaptureContains(t, captures, "keyword", "package", "import", "const", "enum", "capability", "type", "struct", "map", "func", "if", "return")
+	assertCaptureContains(t, captures, "keyword", "package", "import", "const", "enum", "capability", "type", "struct", "map", "func", "var", "if", "return")
 	assertCaptureContains(t, captures, "attribute", "max_entries", "capability", "xdp")
 	assertCaptureContains(t, captures, "comment", "// keep packet access typed and nil-checked")
 	assertCaptureContains(t, captures, "string", `"m31labs.dev/horizon/runtime/kernel"`, `"kernel.network.xdp.drop"`)
@@ -83,9 +84,9 @@ func TestLocalsQueryCapturesScopesDefinitionsAndReferences(t *testing.T) {
 	assertCaptureContains(t, captures, "local.definition.capability", "DropCapability")
 	assertCaptureContains(t, captures, "local.definition.map", "Events")
 	assertCaptureContains(t, captures, "local.definition.parameter", "ctx")
-	assertCaptureContains(t, captures, "local.definition.var", "tcp")
+	assertCaptureContains(t, captures, "local.definition.var", "tcp", "port")
 	assertCaptureContains(t, captures, "local.definition.namespace", "bpf")
-	assertCaptureContains(t, captures, "local.reference", "tcp", "ctx", "xdp", "DropCapability")
+	assertCaptureContains(t, captures, "local.reference", "tcp", "ctx", "xdp", "DropCapability", "port")
 	if len(captures["local.scope"]) < 2 {
 		t.Fatalf("local.scope captures = %d, want at least source and block scopes", len(captures["local.scope"]))
 	}

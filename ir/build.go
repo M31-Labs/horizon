@@ -156,6 +156,9 @@ func buildStatement(stmt ast.Stmt) Statement {
 	case ast.ShortVarStmt:
 		value := buildExpr(s.Value)
 		return Statement{Kind: "short_var", Name: s.Name, Value: &value, Span: s.Span}
+	case ast.VarDeclStmt:
+		value := buildExpr(s.Value)
+		return Statement{Kind: "var_decl", Name: s.Name, Type: buildType(s.Type), Value: &value, Span: s.Span}
 	case ast.AssignStmt:
 		target := buildExpr(s.Target)
 		value := buildExpr(s.Value)
@@ -437,7 +440,7 @@ func mapAccesses(fn Function, maps []Map) capabilityAccess {
 	walk = func(stmts []Statement) {
 		for _, stmt := range stmts {
 			switch stmt.Kind {
-			case "short_var":
+			case "short_var", "var_decl":
 				visitExpr(stmt.Value)
 				if mapName, method, ok := mapMethodCall(stmt.Value); ok && method == "lookup" {
 					if _, known := byName[mapName]; known {

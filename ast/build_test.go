@@ -198,6 +198,39 @@ func F(ctx xdp.Context) i32 {
 	}
 }
 
+func TestBuildVarDeclaration(t *testing.T) {
+	parsed, err := parser.ParseSource(parser.SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
+
+@tracepoint("sched:sched_process_exec")
+func F(ctx tracepoint.Exec) i32 {
+    var pid u32 = bpf.current_pid()
+    return 0
+}
+`)})
+	if err != nil {
+		t.Fatalf("ParseSource: %v", err)
+	}
+	file, err := Build(parsed)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	fn := file.Decls[0].(FuncDecl)
+	stmt, ok := fn.Body[0].(VarDeclStmt)
+	if !ok {
+		t.Fatalf("body[0] = %T, want VarDeclStmt", fn.Body[0])
+	}
+	if stmt.Name != "pid" || stmt.Type.Name != "u32" {
+		t.Fatalf("var decl = %#v, want pid u32", stmt)
+	}
+	call, ok := stmt.Value.(CallExpr)
+	if !ok {
+		t.Fatalf("var value = %T, want CallExpr", stmt.Value)
+	}
+	if sel, ok := call.Func.(SelectorExpr); !ok || sel.Field != "current_pid" {
+		t.Fatalf("var call = %#v, want bpf.current_pid", call.Func)
+	}
+}
+
 func TestBuildMapAttribute(t *testing.T) {
 	parsed, err := parser.ParseSource(parser.SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
 

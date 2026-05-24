@@ -25,6 +25,7 @@ type Statement struct {
 	Kind   string
 	Name   string
 	Op     string
+	Type   Type
 	Target *Expr
 	Value  *Expr
 	Expr   *Expr

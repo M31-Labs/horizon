@@ -540,7 +540,7 @@ func (u *cUsage) walkFunction(fn ir.Function) {
 
 func (u *cUsage) walkStatement(stmt ir.Statement, origin cUsageOrigin) {
 	switch stmt.Kind {
-	case "short_var":
+	case "short_var", "var_decl":
 		u.walkExpr(stmt.Value, origin)
 	case "assign":
 		u.walkExpr(stmt.Target, origin)
@@ -1442,6 +1442,8 @@ func (e cStatementEmitter) emitKind(stmt ir.Statement, depth int, env *cEnv) err
 	switch stmt.Kind {
 	case "short_var":
 		e.emitShortVar(stmt, depth, env)
+	case "var_decl":
+		e.emitVarDecl(stmt, depth, env)
 	case "assign":
 		e.emitAssign(stmt, depth, env)
 	case "expr":
@@ -1479,9 +1481,18 @@ func (e cStatementEmitter) emitShortVar(stmt ir.Statement, depth int, env *cEnv)
 	env.setLocal(stmt.Name, typ)
 }
 
+func (e cStatementEmitter) emitVarDecl(stmt ir.Statement, depth int, env *cEnv) {
+	fmt.Fprintf(e.b, "%s%s = %s;\n", indent(depth), cDecl(stmt.Type, stmt.Name), cExpr(stmt.Value, env))
+	env.setLocal(stmt.Name, stmt.Type)
+}
+
 func (e cStatementEmitter) emitAssign(stmt ir.Statement, depth int, env *cEnv) {
 	fmt.Fprintf(e.b, "%s%s = %s;\n", indent(depth), cExpr(stmt.Target, env), cExpr(stmt.Value, env))
 	if stmt.Target != nil && stmt.Target.Kind == "ident" {
+		if typ, ok := env.local(stmt.Target.Name); ok {
+			env.setLocal(stmt.Target.Name, typ)
+			return
+		}
 		env.setLocal(stmt.Target.Name, inferredExprType(stmt.Value, env))
 	}
 }
@@ -1605,6 +1616,9 @@ func cForInit(stmt *ir.Statement, env *cEnv, typeHint ir.Type) string {
 		}
 		env.setLocal(stmt.Name, typ)
 		return fmt.Sprintf("%s = %s", cDecl(typ, stmt.Name), cExpr(stmt.Value, env))
+	case "var_decl":
+		env.setLocal(stmt.Name, stmt.Type)
+		return fmt.Sprintf("%s = %s", cDecl(stmt.Type, stmt.Name), cExpr(stmt.Value, env))
 	case "assign":
 		return fmt.Sprintf("%s = %s", cExpr(stmt.Target, env), cExpr(stmt.Value, env))
 	default:
@@ -1613,7 +1627,7 @@ func cForInit(stmt *ir.Statement, env *cEnv, typeHint ir.Type) string {
 }
 
 func loopIndexType(stmt ir.Statement, env *cEnv) ir.Type {
-	if stmt.Init == nil || stmt.Init.Kind != "short_var" || stmt.Init.Name == "" {
+	if stmt.Init == nil || (stmt.Init.Kind != "short_var" && stmt.Init.Kind != "var_decl") || stmt.Init.Name == "" {
 		return ir.Type{}
 	}
 	if stmt.Cond == nil || stmt.Cond.Kind != "binary" || stmt.Cond.Left == nil || stmt.Cond.Right == nil {
@@ -1621,6 +1635,9 @@ func loopIndexType(stmt ir.Statement, env *cEnv) ir.Type {
 	}
 	if stmt.Cond.Left.Kind != "ident" || stmt.Cond.Left.Name != stmt.Init.Name {
 		return ir.Type{}
+	}
+	if stmt.Init.Kind == "var_decl" {
+		return stmt.Init.Type
 	}
 	typ, ok := cExprType(stmt.Cond.Right, env)
 	if !ok || !isCIntegerLike(typ) || typ.Name == "untyped_int" {

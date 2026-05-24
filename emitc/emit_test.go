@@ -849,6 +849,52 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	}
 }
 
+func TestEmitTypedVarDeclarations(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "vars.hzn")
+	if err := os.WriteFile(path, []byte(`package probes
+
+type Count struct {
+    seen u64
+}
+
+map Counts hash[u32, Count]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    var pid u32 = bpf.current_pid()
+    var count Count = Count{seen: 1}
+    for var i u32 = 0; i < 4; i++ {
+        pid = pid + i
+    }
+    if Counts.update(pid, count) != 0 {
+        return 0
+    }
+    return 0
+}
+`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	result, err := compiler.AnalyzePath(dir)
+	if err != nil {
+		t.Fatalf("AnalyzePath: %v", err)
+	}
+	out, err := Emit(result.Program)
+	if err != nil {
+		t.Fatalf("Emit: %v", err)
+	}
+	for _, want := range []string{
+		"__u32 pid = hzn_current_pid();",
+		"struct hzn_type_Count count = (struct hzn_type_Count){ .seen = 1 };",
+		"for (__u32 i = 0; i < 4; i++) {",
+		"if (Counts_update(pid, count) != 0) {",
+	} {
+		if !strings.Contains(out.Code, want) {
+			t.Fatalf("generated C missing %q:\n%s", want, out.Code)
+		}
+	}
+}
+
 func TestEmitNegativeSignedIntegerLiterals(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "signed.hzn")
