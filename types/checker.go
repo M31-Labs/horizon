@@ -843,22 +843,25 @@ func cloneValueTypes(in map[string]valueType) map[string]valueType {
 }
 
 func typeOfExpr(expr ast.Expr, locals map[string]valueType, maps map[string]ast.MapDecl, structs map[string]ast.TypeDecl) (valueType, []diag.Diagnostic) {
+	return exprTyper{
+		locals:  locals,
+		maps:    maps,
+		structs: structs,
+	}.typeOf(expr)
+}
+
+type exprTyper struct {
+	locals  map[string]valueType
+	maps    map[string]ast.MapDecl
+	structs map[string]ast.TypeDecl
+}
+
+func (t exprTyper) typeOf(expr ast.Expr) (valueType, []diag.Diagnostic) {
 	switch e := expr.(type) {
 	case nil:
 		return valueType{Void: true}, nil
 	case ast.IdentExpr:
-		if local, ok := locals[e.Name]; ok {
-			return local, nil
-		}
-		if m, ok := maps[e.Name]; ok {
-			return valueType{Name: string(m.Kind), Ref: m.Val}, nil
-		}
-		return valueType{}, []diag.Diagnostic{{
-			Code:     "HZN1404",
-			Severity: diag.SeverityError,
-			Message:  fmt.Sprintf("unknown identifier %q", e.Name),
-			Primary:  e.Span,
-		}}
+		return t.ident(e)
 	case ast.IntExpr:
 		return valueType{Name: "untyped_int"}, nil
 	case ast.BoolExpr:
@@ -866,113 +869,15 @@ func typeOfExpr(expr ast.Expr, locals map[string]valueType, maps map[string]ast.
 	case ast.NilExpr:
 		return valueType{Name: "nil"}, nil
 	case ast.SelectorExpr:
-		if root, field, ok := selectorParts(e); ok && root == "bpf" {
-			return valueType{Name: "helper:" + field}, nil
-		}
-		if root, field, ok := selectorParts(e); ok && root == "xdp" {
-			if typ, ok := xdpSelectorType(field); ok {
-				return typ, nil
-			}
-			return valueType{}, []diag.Diagnostic{{
-				Code:     "HZN1434",
-				Severity: diag.SeverityError,
-				Message:  fmt.Sprintf("unknown XDP symbol xdp.%s", field),
-				Primary:  e.Span,
-				Suggest:  "use XDP actions such as xdp.Pass or packet constants such as xdp.IPProtoTCP",
-			}}
-		}
-		if root, field, ok := selectorParts(e); ok && root == "tc" {
-			if typ, ok := tcSelectorType(field); ok {
-				return typ, nil
-			}
-			return valueType{}, []diag.Diagnostic{{
-				Code:     "HZN1452",
-				Severity: diag.SeverityError,
-				Message:  fmt.Sprintf("unknown TC symbol tc.%s", field),
-				Primary:  e.Span,
-				Suggest:  "use TC actions such as tc.OK or tc.Shot",
-			}}
-		}
-		if root, field, ok := selectorParts(e); ok && root == "cgroup" {
-			if typ, ok := cgroupSelectorType(field); ok {
-				return typ, nil
-			}
-			return valueType{}, []diag.Diagnostic{{
-				Code:     "HZN1456",
-				Severity: diag.SeverityError,
-				Message:  fmt.Sprintf("unknown cgroup symbol cgroup.%s", field),
-				Primary:  e.Span,
-				Suggest:  "use cgroup actions such as cgroup.Allow or helpers such as cgroup.dst_port(ctx)",
-			}}
-		}
-		if root, field, ok := selectorParts(e); ok && root == "lsm" {
-			if typ, ok := lsmSelectorType(field); ok {
-				return typ, nil
-			}
-			return valueType{}, []diag.Diagnostic{{
-				Code:     "HZN1461",
-				Severity: diag.SeverityError,
-				Message:  fmt.Sprintf("unknown LSM symbol lsm.%s", field),
-				Primary:  e.Span,
-				Suggest:  "use LSM actions such as lsm.Allow or lsm.Deny",
-			}}
-		}
-		operand, diags := typeOfExpr(e.Operand, locals, maps, structs)
-		if operand.Ptr {
-			operand.Ptr = false
-		}
-		structDecl, ok := structs[operand.Name]
-		if !ok {
-			return valueType{Void: true}, append(diags, diag.Diagnostic{
-				Code:     "HZN1405",
-				Severity: diag.SeverityError,
-				Message:  fmt.Sprintf("%s has no fields", typeName(operand)),
-				Primary:  e.Span,
-			})
-		}
-		field, ok := findField(structDecl, e.Field)
-		if !ok {
-			return valueType{Void: true}, append(diags, diag.Diagnostic{
-				Code:     "HZN1406",
-				Severity: diag.SeverityError,
-				Message:  fmt.Sprintf("type %s has no field %q", structDecl.Name, e.Field),
-				Primary:  e.Span,
-			})
-		}
-		return valueType{Name: field.Type.Name, Ref: field.Type}, diags
+		return t.selector(e)
 	case ast.UnaryExpr:
-		operand, diags := typeOfExpr(e.Expr, locals, maps, structs)
-		switch e.Op {
-		case "&":
-			operand.Ptr = true
-			return operand, diags
-		case "!":
-			if operand.Void || operand.Name == "" {
-				return valueType{Void: true}, diags
-			}
-			if operand.Name == "bool" && !operand.Ptr {
-				return valueType{Name: "bool"}, diags
-			}
-			return valueType{Name: "bool"}, append(diags, diag.Diagnostic{
-				Code:     "HZN1442",
-				Severity: diag.SeverityError,
-				Message:  fmt.Sprintf("operator ! expects bool operand, got %s", typeName(operand)),
-				Primary:  e.Span,
-			})
-		default:
-			return operand, diags
-		}
+		return t.unary(e)
 	case ast.BinaryExpr:
-		left, leftDiags := typeOfExpr(e.Left, locals, maps, structs)
-		right, rightDiags := typeOfExpr(e.Right, locals, maps, structs)
-		typ, opDiags := typeOfBinaryExpr(e, left, right)
-		diags := append(leftDiags, rightDiags...)
-		diags = append(diags, opDiags...)
-		return typ, diags
+		return t.binary(e)
 	case ast.StructLiteralExpr:
-		return typeOfStructLiteral(e, locals, maps, structs)
+		return t.structLiteral(e)
 	case ast.CallExpr:
-		return typeOfCall(e, locals, maps, structs)
+		return t.call(e)
 	case ast.RawExpr:
 		return valueType{}, []diag.Diagnostic{{
 			Code:     "HZN1407",
@@ -983,6 +888,144 @@ func typeOfExpr(expr ast.Expr, locals map[string]valueType, maps map[string]ast.
 	default:
 		return valueType{}, nil
 	}
+}
+
+func (t exprTyper) ident(e ast.IdentExpr) (valueType, []diag.Diagnostic) {
+	if local, ok := t.locals[e.Name]; ok {
+		return local, nil
+	}
+	if m, ok := t.maps[e.Name]; ok {
+		return valueType{Name: string(m.Kind), Ref: m.Val}, nil
+	}
+	return valueType{}, []diag.Diagnostic{{
+		Code:     "HZN1404",
+		Severity: diag.SeverityError,
+		Message:  fmt.Sprintf("unknown identifier %q", e.Name),
+		Primary:  e.Span,
+	}}
+}
+
+func (t exprTyper) selector(e ast.SelectorExpr) (valueType, []diag.Diagnostic) {
+	if typ, diags, ok := t.compilerSelector(e); ok {
+		return typ, diags
+	}
+	return t.fieldSelector(e)
+}
+
+func (t exprTyper) compilerSelector(e ast.SelectorExpr) (valueType, []diag.Diagnostic, bool) {
+	root, field, ok := selectorParts(e)
+	if !ok {
+		return valueType{}, nil, false
+	}
+	switch root {
+	case "bpf":
+		return valueType{Name: "helper:" + field}, nil, true
+	case "xdp":
+		if typ, ok := xdpSelectorType(field); ok {
+			return typ, nil, true
+		}
+		return valueType{}, []diag.Diagnostic{{
+			Code:     "HZN1434",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("unknown XDP symbol xdp.%s", field),
+			Primary:  e.Span,
+			Suggest:  "use XDP actions such as xdp.Pass or packet constants such as xdp.IPProtoTCP",
+		}}, true
+	case "tc":
+		if typ, ok := tcSelectorType(field); ok {
+			return typ, nil, true
+		}
+		return valueType{}, []diag.Diagnostic{{
+			Code:     "HZN1452",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("unknown TC symbol tc.%s", field),
+			Primary:  e.Span,
+			Suggest:  "use TC actions such as tc.OK or tc.Shot",
+		}}, true
+	case "cgroup":
+		if typ, ok := cgroupSelectorType(field); ok {
+			return typ, nil, true
+		}
+		return valueType{}, []diag.Diagnostic{{
+			Code:     "HZN1456",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("unknown cgroup symbol cgroup.%s", field),
+			Primary:  e.Span,
+			Suggest:  "use cgroup actions such as cgroup.Allow or helpers such as cgroup.dst_port(ctx)",
+		}}, true
+	case "lsm":
+		if typ, ok := lsmSelectorType(field); ok {
+			return typ, nil, true
+		}
+		return valueType{}, []diag.Diagnostic{{
+			Code:     "HZN1461",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("unknown LSM symbol lsm.%s", field),
+			Primary:  e.Span,
+			Suggest:  "use LSM actions such as lsm.Allow or lsm.Deny",
+		}}, true
+	default:
+		return valueType{}, nil, false
+	}
+}
+
+func (t exprTyper) fieldSelector(e ast.SelectorExpr) (valueType, []diag.Diagnostic) {
+	operand, diags := t.typeOf(e.Operand)
+	if operand.Ptr {
+		operand.Ptr = false
+	}
+	structDecl, ok := t.structs[operand.Name]
+	if !ok {
+		return valueType{Void: true}, append(diags, diag.Diagnostic{
+			Code:     "HZN1405",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("%s has no fields", typeName(operand)),
+			Primary:  e.Span,
+		})
+	}
+	field, ok := findField(structDecl, e.Field)
+	if !ok {
+		return valueType{Void: true}, append(diags, diag.Diagnostic{
+			Code:     "HZN1406",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("type %s has no field %q", structDecl.Name, e.Field),
+			Primary:  e.Span,
+		})
+	}
+	return valueType{Name: field.Type.Name, Ref: field.Type}, diags
+}
+
+func (t exprTyper) unary(e ast.UnaryExpr) (valueType, []diag.Diagnostic) {
+	operand, diags := t.typeOf(e.Expr)
+	switch e.Op {
+	case "&":
+		operand.Ptr = true
+		return operand, diags
+	case "!":
+		if operand.Void || operand.Name == "" {
+			return valueType{Void: true}, diags
+		}
+		if operand.Name == "bool" && !operand.Ptr {
+			return valueType{Name: "bool"}, diags
+		}
+		return valueType{Name: "bool"}, append(diags, diag.Diagnostic{
+			Code:     "HZN1442",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("operator ! expects bool operand, got %s", typeName(operand)),
+			Primary:  e.Span,
+		})
+	default:
+		return operand, diags
+	}
+}
+
+func (t exprTyper) binary(e ast.BinaryExpr) (valueType, []diag.Diagnostic) {
+	left, leftDiags := t.typeOf(e.Left)
+	right, rightDiags := t.typeOf(e.Right)
+	typ, opDiags := typeOfBinaryExpr(e, left, right)
+	diags := append(leftDiags, rightDiags...)
+	diags = append(diags, opDiags...)
+	return typ, diags
 }
 
 func validateCondition(cond valueType, primary span.Span) []diag.Diagnostic {
@@ -1148,8 +1191,8 @@ func isIntegerBinaryOp(op string) bool {
 	}
 }
 
-func typeOfStructLiteral(lit ast.StructLiteralExpr, locals map[string]valueType, maps map[string]ast.MapDecl, structs map[string]ast.TypeDecl) (valueType, []diag.Diagnostic) {
-	structDecl, ok := structs[lit.Type.Name]
+func (t exprTyper) structLiteral(lit ast.StructLiteralExpr) (valueType, []diag.Diagnostic) {
+	structDecl, ok := t.structs[lit.Type.Name]
 	if !ok {
 		return valueType{Name: lit.Type.Name, Ref: lit.Type}, []diag.Diagnostic{{
 			Code:     "HZN1425",
@@ -1181,7 +1224,7 @@ func typeOfStructLiteral(lit ast.StructLiteralExpr, locals map[string]valueType,
 			})
 			continue
 		}
-		value, valueDiags := typeOfExpr(field.Value, locals, maps, structs)
+		value, valueDiags := t.typeOf(field.Value)
 		diags = append(diags, valueDiags...)
 		fieldType := valueType{Name: declField.Type.Name, Ref: declField.Type}
 		if isFixedArray(fieldType) {
@@ -1210,10 +1253,10 @@ func typeOfStructLiteral(lit ast.StructLiteralExpr, locals map[string]valueType,
 	return valueType{Name: structDecl.Name, Ref: lit.Type}, diags
 }
 
-func typeOfCall(call ast.CallExpr, locals map[string]valueType, maps map[string]ast.MapDecl, structs map[string]ast.TypeDecl) (valueType, []diag.Diagnostic) {
+func (t exprTyper) call(call ast.CallExpr) (valueType, []diag.Diagnostic) {
 	var diags []diag.Diagnostic
 	if name, ok := identCallTarget(call.Func); ok && isIntegerScalar(name) {
-		return typeOfScalarConversion(name, call, locals, maps, structs)
+		return t.scalarConversion(name, call)
 	}
 	root, method, ok := selectorParts(call.Func)
 	if !ok {
@@ -1225,10 +1268,10 @@ func typeOfCall(call ast.CallExpr, locals map[string]valueType, maps map[string]
 		}}
 	}
 	if root == "bpf" {
-		return typeOfHelperCall(method, call, locals, maps, structs)
+		return t.helperCall(method, call)
 	}
 	if root == "xdp" {
-		return typeOfXDPCall(method, call, locals, maps, structs)
+		return t.xdpCall(method, call)
 	}
 	if root == "tc" {
 		return valueType{}, []diag.Diagnostic{{
@@ -1240,7 +1283,7 @@ func typeOfCall(call ast.CallExpr, locals map[string]valueType, maps map[string]
 		}}
 	}
 	if root == "cgroup" {
-		return typeOfCgroupCall(method, call, locals, maps, structs)
+		return t.cgroupCall(method, call)
 	}
 	if root == "lsm" {
 		return valueType{}, []diag.Diagnostic{{
@@ -1251,7 +1294,7 @@ func typeOfCall(call ast.CallExpr, locals map[string]valueType, maps map[string]
 			Suggest:  "use named LSM action constants such as lsm.Allow in return statements",
 		}}
 	}
-	if m, ok := maps[root]; ok {
+	if m, ok := t.maps[root]; ok {
 		switch method {
 		case "lookup":
 			if len(call.Args) != 1 {
@@ -1266,7 +1309,7 @@ func typeOfCall(call ast.CallExpr, locals map[string]valueType, maps map[string]
 					Primary:  call.Span,
 				})
 			}
-			arg, argDiags := typeOfExpr(call.Args[0], locals, maps, structs)
+			arg, argDiags := t.typeOf(call.Args[0])
 			diags = append(diags, argDiags...)
 			if !assignable(valueType{Name: m.Key.Name, Ref: m.Key}, arg) {
 				diags = append(diags, diag.Diagnostic{
@@ -1290,8 +1333,8 @@ func typeOfCall(call ast.CallExpr, locals map[string]valueType, maps map[string]
 					Primary:  call.Span,
 				})
 			}
-			key, keyDiags := typeOfExpr(call.Args[0], locals, maps, structs)
-			val, valDiags := typeOfExpr(call.Args[1], locals, maps, structs)
+			key, keyDiags := t.typeOf(call.Args[0])
+			val, valDiags := t.typeOf(call.Args[1])
 			diags = append(diags, keyDiags...)
 			diags = append(diags, valDiags...)
 			if !assignable(valueType{Name: m.Key.Name, Ref: m.Key}, key) {
@@ -1324,7 +1367,7 @@ func typeOfCall(call ast.CallExpr, locals map[string]valueType, maps map[string]
 					Primary:  call.Span,
 				})
 			}
-			key, keyDiags := typeOfExpr(call.Args[0], locals, maps, structs)
+			key, keyDiags := t.typeOf(call.Args[0])
 			diags = append(diags, keyDiags...)
 			if !assignable(valueType{Name: m.Key.Name, Ref: m.Key}, key) {
 				diags = append(diags, diag.Diagnostic{
@@ -1348,7 +1391,7 @@ func typeOfCall(call ast.CallExpr, locals map[string]valueType, maps map[string]
 				diags = append(diags, argCountDiagnostic(call.Span, root+"."+method, 1, len(call.Args)))
 				return valueType{Void: true}, diags
 			}
-			arg, argDiags := typeOfExpr(call.Args[0], locals, maps, structs)
+			arg, argDiags := t.typeOf(call.Args[0])
 			diags = append(diags, argDiags...)
 			if !arg.Resource || arg.Name != m.Val.Name {
 				diags = append(diags, diag.Diagnostic{
@@ -1376,11 +1419,11 @@ func typeOfCall(call ast.CallExpr, locals map[string]valueType, maps map[string]
 	}}
 }
 
-func typeOfScalarConversion(name string, call ast.CallExpr, locals map[string]valueType, maps map[string]ast.MapDecl, structs map[string]ast.TypeDecl) (valueType, []diag.Diagnostic) {
+func (t exprTyper) scalarConversion(name string, call ast.CallExpr) (valueType, []diag.Diagnostic) {
 	if len(call.Args) != 1 {
 		return valueType{Name: name}, []diag.Diagnostic{argCountDiagnostic(call.Span, name, 1, len(call.Args))}
 	}
-	arg, diags := typeOfExpr(call.Args[0], locals, maps, structs)
+	arg, diags := t.typeOf(call.Args[0])
 	if arg.Fallible != "" {
 		diags = append(diags, fallibleResultDiagnostic(call.Span, arg.Fallible))
 		return valueType{Name: name}, diags
@@ -1398,7 +1441,7 @@ func typeOfScalarConversion(name string, call ast.CallExpr, locals map[string]va
 	return valueType{Name: name}, diags
 }
 
-func typeOfXDPCall(name string, call ast.CallExpr, locals map[string]valueType, maps map[string]ast.MapDecl, structs map[string]ast.TypeDecl) (valueType, []diag.Diagnostic) {
+func (t exprTyper) xdpCall(name string, call ast.CallExpr) (valueType, []diag.Diagnostic) {
 	switch name {
 	case "eth", "ipv4", "tcp", "udp":
 		var header string
@@ -1415,7 +1458,7 @@ func typeOfXDPCall(name string, call ast.CallExpr, locals map[string]valueType, 
 		if len(call.Args) != 1 {
 			return valueType{Name: header, Ptr: true, MaybeNil: true}, []diag.Diagnostic{argCountDiagnostic(call.Span, "xdp."+name, 1, len(call.Args))}
 		}
-		arg, diags := typeOfExpr(call.Args[0], locals, maps, structs)
+		arg, diags := t.typeOf(call.Args[0])
 		if !assignable(valueType{Name: "xdp.Context"}, arg) {
 			diags = append(diags, diag.Diagnostic{
 				Code:     "HZN1435",
@@ -1429,7 +1472,7 @@ func typeOfXDPCall(name string, call ast.CallExpr, locals map[string]valueType, 
 		if len(call.Args) != 1 {
 			return valueType{Name: "u16"}, []diag.Diagnostic{argCountDiagnostic(call.Span, "xdp.ntohs", 1, len(call.Args))}
 		}
-		arg, diags := typeOfExpr(call.Args[0], locals, maps, structs)
+		arg, diags := t.typeOf(call.Args[0])
 		if !assignable(valueType{Name: "u16"}, arg) {
 			diags = append(diags, diag.Diagnostic{
 				Code:     "HZN1437",
@@ -1450,13 +1493,13 @@ func typeOfXDPCall(name string, call ast.CallExpr, locals map[string]valueType, 
 	}
 }
 
-func typeOfCgroupCall(name string, call ast.CallExpr, locals map[string]valueType, maps map[string]ast.MapDecl, structs map[string]ast.TypeDecl) (valueType, []diag.Diagnostic) {
+func (t exprTyper) cgroupCall(name string, call ast.CallExpr) (valueType, []diag.Diagnostic) {
 	switch name {
 	case "dst_port":
 		if len(call.Args) != 1 {
 			return valueType{Name: "u16"}, []diag.Diagnostic{argCountDiagnostic(call.Span, "cgroup.dst_port", 1, len(call.Args))}
 		}
-		arg, diags := typeOfExpr(call.Args[0], locals, maps, structs)
+		arg, diags := t.typeOf(call.Args[0])
 		if !assignable(valueType{Name: "cgroup.Connect"}, arg) {
 			diags = append(diags, diag.Diagnostic{
 				Code:     "HZN1457",
@@ -1477,7 +1520,7 @@ func typeOfCgroupCall(name string, call ast.CallExpr, locals map[string]valueTyp
 	}
 }
 
-func typeOfHelperCall(name string, call ast.CallExpr, locals map[string]valueType, maps map[string]ast.MapDecl, structs map[string]ast.TypeDecl) (valueType, []diag.Diagnostic) {
+func (t exprTyper) helperCall(name string, call ast.CallExpr) (valueType, []diag.Diagnostic) {
 	switch name {
 	case "current_pid", "current_ppid", "current_uid":
 		if len(call.Args) != 0 {
@@ -1488,7 +1531,7 @@ func typeOfHelperCall(name string, call ast.CallExpr, locals map[string]valueTyp
 		if len(call.Args) != 1 {
 			return valueType{Void: true}, []diag.Diagnostic{argCountDiagnostic(call.Span, "bpf.current_comm", 1, len(call.Args))}
 		}
-		arg, diags := typeOfExpr(call.Args[0], locals, maps, structs)
+		arg, diags := t.typeOf(call.Args[0])
 		if !arg.Ptr || arg.Ref.Len != "16" || arg.Ref.Elem == nil || arg.Ref.Elem.Name != "u8" {
 			diags = append(diags, diag.Diagnostic{
 				Code:     "HZN1415",
