@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"m31labs.dev/horizon/compiler"
+	"m31labs.dev/horizon/ir"
 )
 
 func TestEmitExecwatchUsesTypedCWrappers(t *testing.T) {
@@ -475,5 +476,81 @@ func OnOpen(ctx kprobe.Context) i32 {
 		if !strings.Contains(out.Code, want) {
 			t.Fatalf("generated C missing %q:\n%s", want, out.Code)
 		}
+	}
+}
+
+func TestEmitRejectsUnsupportedStatementKind(t *testing.T) {
+	out, err := Emit(ir.Program{
+		Functions: []ir.Function{{
+			Name:    "Bad",
+			Section: ir.Section{Kind: ir.ProgramTracepoint, Name: "tracepoint/sched/sched_process_exec"},
+			Body: []ir.Block{{
+				Statements: []ir.Statement{{Kind: "while"}},
+			}},
+		}},
+	})
+	if err == nil {
+		t.Fatalf("Emit succeeded, code:\n%s", out.Code)
+	}
+	if out.Code != "" {
+		t.Fatalf("Emit returned code for unsupported statement:\n%s", out.Code)
+	}
+	if !strings.Contains(err.Error(), `unsupported statement kind "while"`) {
+		t.Fatalf("Emit error = %v, want unsupported statement kind", err)
+	}
+}
+
+func TestEmitRejectsUnsupportedExpressionKind(t *testing.T) {
+	out, err := Emit(ir.Program{
+		Functions: []ir.Function{{
+			Name:    "Bad",
+			Section: ir.Section{Kind: ir.ProgramTracepoint, Name: "tracepoint/sched/sched_process_exec"},
+			Body: []ir.Block{{
+				Statements: []ir.Statement{{
+					Kind: "expr",
+					Expr: &ir.Expr{Kind: "string", Value: "not C"},
+				}},
+			}},
+		}},
+	})
+	if err == nil {
+		t.Fatalf("Emit succeeded, code:\n%s", out.Code)
+	}
+	if out.Code != "" {
+		t.Fatalf("Emit returned code for unsupported expression:\n%s", out.Code)
+	}
+	if !strings.Contains(err.Error(), `unsupported expression kind "string"`) {
+		t.Fatalf("Emit error = %v, want unsupported expression kind", err)
+	}
+}
+
+func TestEmitRejectsUnknownCallTarget(t *testing.T) {
+	out, err := Emit(ir.Program{
+		Functions: []ir.Function{{
+			Name:    "Bad",
+			Section: ir.Section{Kind: ir.ProgramTracepoint, Name: "tracepoint/sched/sched_process_exec"},
+			Body: []ir.Block{{
+				Statements: []ir.Statement{{
+					Kind: "expr",
+					Expr: &ir.Expr{
+						Kind: "call",
+						Func: &ir.Expr{
+							Kind:    "selector",
+							Operand: &ir.Expr{Kind: "ident", Name: "bpf"},
+							Field:   "raw_helper",
+						},
+					},
+				}},
+			}},
+		}},
+	})
+	if err == nil {
+		t.Fatalf("Emit succeeded, code:\n%s", out.Code)
+	}
+	if out.Code != "" {
+		t.Fatalf("Emit returned code for unknown call target:\n%s", out.Code)
+	}
+	if !strings.Contains(err.Error(), `unsupported expression kind "bpf.raw_helper"`) {
+		t.Fatalf("Emit error = %v, want unsupported call target", err)
 	}
 }

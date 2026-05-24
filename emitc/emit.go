@@ -9,6 +9,10 @@ import (
 )
 
 func Emit(program ir.Program) (Output, error) {
+	if err := validateEmittable(program); err != nil {
+		return Output{}, err
+	}
+
 	var b strings.Builder
 	usage := analyzeUsage(program)
 	b.WriteString("#include \"vmlinux.h\"\n")
@@ -49,7 +53,9 @@ func Emit(program ir.Program) (Output, error) {
 		fmt.Fprintf(&b, "\nSEC(%q)\nint %s(%s) {\n", fn.Section.Name, fn.Name, cContext(fn))
 		b.WriteString("    (void)ctx;\n")
 		for _, stmt := range functionStatements(fn) {
-			emitStatement(&b, stmt, program, 1, &sourceMap, fn, env)
+			if err := emitStatement(&b, stmt, program, 1, &sourceMap, fn, env); err != nil {
+				return Output{}, err
+			}
 		}
 		b.WriteString("}\n")
 		sourceMap.Mappings = append(sourceMap.Mappings, ir.SourceMapping{
@@ -694,7 +700,7 @@ func cIdent(s string) string {
 	return b.String()
 }
 
-func emitStatement(b *strings.Builder, stmt ir.Statement, program ir.Program, depth int, sourceMap *ir.SourceMap, fn ir.Function, env *cEnv) {
+func emitStatement(b *strings.Builder, stmt ir.Statement, program ir.Program, depth int, sourceMap *ir.SourceMap, fn ir.Function, env *cEnv) error {
 	startLine := strings.Count(b.String(), "\n") + 1
 	indent := strings.Repeat("    ", depth)
 	switch stmt.Kind {
@@ -726,12 +732,16 @@ func emitStatement(b *strings.Builder, stmt ir.Statement, program ir.Program, de
 	case "if":
 		fmt.Fprintf(b, "%sif (%s) {\n", indent, cExpr(stmt.Cond, env))
 		for _, child := range stmt.Then {
-			emitStatement(b, child, program, depth+1, sourceMap, fn, env)
+			if err := emitStatement(b, child, program, depth+1, sourceMap, fn, env); err != nil {
+				return err
+			}
 		}
 		if len(stmt.Else) > 0 {
 			fmt.Fprintf(b, "%s} else {\n", indent)
 			for _, child := range stmt.Else {
-				emitStatement(b, child, program, depth+1, sourceMap, fn, env)
+				if err := emitStatement(b, child, program, depth+1, sourceMap, fn, env); err != nil {
+					return err
+				}
 			}
 			fmt.Fprintf(b, "%s}\n", indent)
 			break
@@ -746,17 +756,17 @@ func emitStatement(b *strings.Builder, stmt ir.Statement, program ir.Program, de
 			fmt.Fprintf(b, "%sfor (; %s; ) {\n", indent, cExpr(stmt.Cond, env))
 		}
 		for _, child := range stmt.Body {
-			emitStatement(b, child, program, depth+1, sourceMap, fn, env)
+			if err := emitStatement(b, child, program, depth+1, sourceMap, fn, env); err != nil {
+				return err
+			}
 		}
 		fmt.Fprintf(b, "%s}\n", indent)
 	case "inc":
 		fmt.Fprintf(b, "%s%s%s;\n", indent, stmt.Name, stmt.Op)
 	case "raw":
-		if stmt.Value != nil {
-			fmt.Fprintf(b, "%s%s;\n", indent, stmt.Value.Value)
-		}
+		return unsupportedStatement(stmt, "raw")
 	default:
-		fmt.Fprintf(b, "%s/* unsupported Horizon statement */\n", indent)
+		return unsupportedStatement(stmt, stmt.Kind)
 	}
 	if sourceMap != nil && !stmt.Span.IsZero() {
 		sourceMap.Mappings = append(sourceMap.Mappings, ir.SourceMapping{
@@ -770,6 +780,7 @@ func emitStatement(b *strings.Builder, stmt ir.Statement, program ir.Program, de
 			},
 		})
 	}
+	return nil
 }
 
 func reserveType(mapName string, maps []ir.Map) string {
@@ -864,6 +875,12 @@ func cExprType(expr *ir.Expr, env *cEnv) (ir.Type, bool) {
 		}
 		if mapName, ok := lookupCall(expr); ok {
 			return ptrToMapValue(mapName, env), true
+		}
+		if _, method, ok := mapMethodCall(expr); ok {
+			switch method {
+			case "update", "delete":
+				return ir.Type{Name: "i64"}, true
+			}
 		}
 	case "selector":
 		if name := qualifiedName(expr); name != "" {
