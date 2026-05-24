@@ -838,6 +838,15 @@ func (c *funcBodyChecker) checkReturn(s ast.ReturnStmt, locals map[string]valueT
 }
 
 func returnDiagnostic(programSection string, value valueType, hasValue bool, primary span.Span) (diag.Diagnostic, bool) {
+	if !hasValue {
+		return diag.Diagnostic{
+			Code:     "HZN1476",
+			Severity: diag.SeverityError,
+			Message:  "return statements in Horizon eBPF programs must include an explicit i32 value",
+			Primary:  primary,
+			Suggest:  "write `return 0` for successful tracing programs or return a named action for packet and policy programs",
+		}, true
+	}
 	if hasValue && isFixedArray(value) {
 		return diag.Diagnostic{
 			Code:     "HZN1432",

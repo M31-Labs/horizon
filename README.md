@@ -414,6 +414,7 @@ Horizon makes verifier-sensitive behavior explicit before clang runs:
 - unary negation is only allowed for signed scalar values or direct integer literals; unsigned values must be converted deliberately before signed arithmetic
 - constants can carry scalar widths, and generated C preserves those widths
 - every program must return an explicit `i32` on every control-flow path
+- bare `return` is rejected; tracing programs should use `return 0`, while packet and policy programs should return named actions
 - only bounded counted loops with numeric literal or integer const upper bounds are accepted
 - helper availability is checked against the program kind
 - kprobe arguments, safe user string reads, and kretprobe return registers are exposed through typed helper calls, not direct `pt_regs` access
