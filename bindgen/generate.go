@@ -57,30 +57,75 @@ func Generate(program ir.Program, packageName string) (string, error) {
 	if packageName == "" {
 		packageName = "bindings"
 	}
-	if !validPackageName(packageName) {
-		return "", Error{
-			Stage:   "package",
-			Package: packageName,
-			Err:     fmt.Errorf("invalid Go package name %q", packageName),
-		}
+	generator := newGenerator(program, packageName)
+	return generator.generate()
+}
+
+type generator struct {
+	program     ir.Program
+	packageName string
+	structs     map[string]ir.Struct
+	b           bytes.Buffer
+}
+
+func newGenerator(program ir.Program, packageName string) *generator {
+	return &generator{
+		program:     program,
+		packageName: packageName,
+		structs:     ir.StructsByName(program.Structs),
 	}
-	var b bytes.Buffer
-	fmt.Fprintf(&b, "package %s\n\n", packageName)
-	emitImports(&b, program)
-	structs := ir.StructsByName(program.Structs)
-	for _, decl := range program.Structs {
-		emitStruct(&b, decl)
-		emitStructLayoutAssertions(&b, decl, structs)
+}
+
+func (g *generator) generate() (string, error) {
+	if err := g.validatePackage(); err != nil {
+		return "", err
 	}
-	b.WriteString("type Objects struct {\n")
-	for _, m := range program.Maps {
-		fmt.Fprintf(&b, "\t%s *ebpf.Map `ebpf:%q`\n", exported(m.Name), m.Name)
+	g.emitPackage()
+	g.emitTypes()
+	g.emitObjects()
+	g.emitLoadHelpers()
+	g.emitClose()
+	g.emitMapHelpers()
+	g.emitAttachHelpers()
+	return g.formatted()
+}
+
+func (g *generator) validatePackage() error {
+	if validPackageName(g.packageName) {
+		return nil
 	}
-	for _, fn := range program.Functions {
-		fmt.Fprintf(&b, "\t%s *ebpf.Program `ebpf:%q`\n", exported(fn.Name), fn.Name)
+	return Error{
+		Stage:   "package",
+		Package: g.packageName,
+		Err:     fmt.Errorf("invalid Go package name %q", g.packageName),
 	}
-	b.WriteString("}\n\n")
-	b.WriteString(`type LoadOptions struct {
+}
+
+func (g *generator) emitPackage() {
+	fmt.Fprintf(&g.b, "package %s\n\n", g.packageName)
+	emitImports(&g.b, g.program)
+}
+
+func (g *generator) emitTypes() {
+	for _, decl := range g.program.Structs {
+		emitStruct(&g.b, decl)
+		emitStructLayoutAssertions(&g.b, decl, g.structs)
+	}
+}
+
+func (g *generator) emitObjects() {
+	g.b.WriteString("type Objects struct {\n")
+	for _, m := range g.program.Maps {
+		fmt.Fprintf(&g.b, "\t%s *ebpf.Map `ebpf:%q`\n", exported(m.Name), m.Name)
+	}
+	for _, fn := range g.program.Functions {
+		fmt.Fprintf(&g.b, "\t%s *ebpf.Program `ebpf:%q`\n", exported(fn.Name), fn.Name)
+	}
+	g.b.WriteString("}\n\n")
+}
+
+func (g *generator) emitLoadHelpers() {
+	g.b.WriteString(`type LoadOptions struct {
 	Collection    *ebpf.CollectionOptions
 	RemoveMemlock bool
 }
@@ -106,33 +151,46 @@ func LoadObjectsWithOptions(path string, opts LoadOptions) (*Objects, error) {
 	return &objects, nil
 }
 
-func (o *Objects) Close() error {
+`)
+}
+
+func (g *generator) emitClose() {
+	g.b.WriteString(`func (o *Objects) Close() error {
 	if o == nil {
 		return nil
 	}
 	var err error
 `)
-	for _, m := range program.Maps {
-		fmt.Fprintf(&b, "\tif o.%s != nil {\n\t\terr = errors.Join(err, o.%s.Close())\n\t}\n", exported(m.Name), exported(m.Name))
+	for _, m := range g.program.Maps {
+		fmt.Fprintf(&g.b, "\tif o.%s != nil {\n\t\terr = errors.Join(err, o.%s.Close())\n\t}\n", exported(m.Name), exported(m.Name))
 	}
-	for _, fn := range program.Functions {
-		fmt.Fprintf(&b, "\tif o.%s != nil {\n\t\terr = errors.Join(err, o.%s.Close())\n\t}\n", exported(fn.Name), exported(fn.Name))
+	for _, fn := range g.program.Functions {
+		fmt.Fprintf(&g.b, "\tif o.%s != nil {\n\t\terr = errors.Join(err, o.%s.Close())\n\t}\n", exported(fn.Name), exported(fn.Name))
 	}
-	b.WriteString("\treturn err\n}\n\n")
-	for _, m := range program.Maps {
+	g.b.WriteString("\treturn err\n}\n\n")
+}
+
+func (g *generator) emitMapHelpers() {
+	for _, m := range g.program.Maps {
 		if m.Kind == ir.MapKindRingbuf && m.Val.Name != "" {
-			emitRingbufReader(&b, m)
+			emitRingbufReader(&g.b, m)
 		}
 		if isLookupMap(m) {
-			emitMapMethods(&b, m)
+			emitMapMethods(&g.b, m)
 		}
 	}
-	for _, fn := range program.Functions {
-		emitAttach(&b, fn)
+}
+
+func (g *generator) emitAttachHelpers() {
+	for _, fn := range g.program.Functions {
+		emitAttach(&g.b, fn)
 	}
-	formatted, err := format.Source(b.Bytes())
+}
+
+func (g *generator) formatted() (string, error) {
+	formatted, err := format.Source(g.b.Bytes())
 	if err != nil {
-		return "", Error{Stage: "format", Package: packageName, Err: err}
+		return "", Error{Stage: "format", Package: g.packageName, Err: err}
 	}
 	return string(formatted), nil
 }
