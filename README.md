@@ -29,6 +29,7 @@ It keeps the kernel-side language deliberately small:
 - compiler-known kernel helpers
 - typed kprobe argument and kretprobe return helpers
 - readable generated BPF C
+- embedded gotreesitter highlight, locals, and symbol queries for editor integrations
 - source maps with declaration and function/section context for diagnostics
 - typed Go bindings and Continuum capability manifests
 
