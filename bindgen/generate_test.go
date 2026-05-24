@@ -179,6 +179,35 @@ func TestGenerateCgroupAttachBindings(t *testing.T) {
 	}
 }
 
+func TestGenerateLSMAttachBindings(t *testing.T) {
+	code, err := Generate(ir.Program{
+		Package: "probes",
+		Functions: []ir.Function{{
+			Name: "DenyFileOpen",
+			Section: ir.Section{
+				Kind:   ir.ProgramLSM,
+				Attach: "file_open",
+				Name:   "lsm/file_open",
+			},
+		}},
+	}, "bindings")
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	for _, want := range []string{
+		`"github.com/cilium/ebpf/link"`,
+		"func (o *Objects) AttachDenyFileOpen() (link.Link, error)",
+		"return link.AttachLSM(link.LSMOptions{Program: o.DenyFileOpen})",
+	} {
+		if !strings.Contains(code, want) {
+			t.Fatalf("generated bindings missing %q:\n%s", want, code)
+		}
+	}
+	if strings.Contains(code, `"net"`) {
+		t.Fatalf("generated LSM bindings unexpectedly import net:\n%s", code)
+	}
+}
+
 func TestGenerateTypedMapBindings(t *testing.T) {
 	code, err := Generate(ir.Program{
 		Package: "probes",

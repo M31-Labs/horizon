@@ -1028,6 +1028,66 @@ func AllowConnect(ctx cgroup.Connect) i32 {
 	requireDiagnosticCode(t, result, "HZN1457")
 }
 
+func TestAnalyzeLSMProgramPasses(t *testing.T) {
+	result := analyzeSource(t, "lsm.hzn", `package probes
+
+@capability("kernel.file.open.block")
+@lsm("file_open")
+func DenyFileOpen(ctx lsm.Context) i32 {
+    return lsm.Deny
+}
+`)
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+	if len(result.Program.Functions) != 1 || result.Program.Functions[0].Section.Kind != ir.ProgramLSM {
+		t.Fatalf("functions = %#v, want one LSM function", result.Program.Functions)
+	}
+	if result.Program.Functions[0].Section.Attach != "file_open" || result.Program.Functions[0].Section.Name != "lsm/file_open" {
+		t.Fatalf("section = %#v, want lsm file_open", result.Program.Functions[0].Section)
+	}
+	manifest := capability.FromIR(result.Program)
+	if len(manifest.Programs) != 1 || manifest.Programs[0].Section != "lsm/file_open" || manifest.Programs[0].Kind != "lsm" {
+		t.Fatalf("program manifest = %#v, want lsm file_open section", manifest.Programs)
+	}
+	if len(manifest.Capabilities) != 1 || manifest.Capabilities[0].Section != "lsm/file_open" || manifest.Capabilities[0].Danger != "block" {
+		t.Fatalf("capability manifest = %#v, want lsm block capability", manifest.Capabilities)
+	}
+}
+
+func TestAnalyzeRejectsRawIntegerLSMReturn(t *testing.T) {
+	result := analyzeSource(t, "lsm.hzn", `package probes
+
+@lsm("file_open")
+func AllowFileOpen(ctx lsm.Context) i32 {
+    return 0
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1459")
+}
+
+func TestAnalyzeRejectsLSMWrongContext(t *testing.T) {
+	result := analyzeSource(t, "lsm.hzn", `package probes
+
+@lsm("file_open")
+func AllowFileOpen(ctx kprobe.Context) i32 {
+    return lsm.Allow
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1308")
+}
+
+func TestAnalyzeRejectsEmptyLSMHook(t *testing.T) {
+	result := analyzeSource(t, "lsm.hzn", `package probes
+
+@lsm("")
+func AllowFileOpen(ctx lsm.Context) i32 {
+    return lsm.Allow
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1317")
+}
+
 func TestAnalyzeKprobeProgramPasses(t *testing.T) {
 	result := analyzeSource(t, "open.hzn", `package probes
 

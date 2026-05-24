@@ -678,6 +678,39 @@ func BlockSMTP(ctx cgroup.Connect) i32 {
 	}
 }
 
+func TestEmitLSMProgram(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "lsm.hzn")
+	if err := os.WriteFile(path, []byte(`package probes
+
+@lsm("file_open")
+func DenyFileOpen(ctx lsm.Context) i32 {
+    return lsm.Deny
+}
+`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	result, err := compiler.AnalyzePath(dir)
+	if err != nil {
+		t.Fatalf("AnalyzePath: %v", err)
+	}
+	out, err := Emit(result.Program)
+	if err != nil {
+		t.Fatalf("Emit: %v", err)
+	}
+	for _, want := range []string{
+		"#define HZN_LSM_ALLOW 0",
+		"#define HZN_LSM_DENY (-EPERM)",
+		`SEC("lsm/file_open")`,
+		"int DenyFileOpen(void *ctx) {",
+		"return HZN_LSM_DENY;",
+	} {
+		if !strings.Contains(out.Code, want) {
+			t.Fatalf("generated C missing %q:\n%s", want, out.Code)
+		}
+	}
+}
+
 func TestEmitRejectsUnsupportedStatementKind(t *testing.T) {
 	out, err := Emit(ir.Program{
 		Functions: []ir.Function{{

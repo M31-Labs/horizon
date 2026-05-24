@@ -160,6 +160,42 @@ func BlockSMTP(ctx cgroup.Connect) i32 {
 	}
 }
 
+func TestLSMCompileSmoke(t *testing.T) {
+	if _, err := os.Stat("/usr/local/include/vmlinux.h"); err != nil {
+		t.Skipf("vmlinux.h not available: %v", err)
+	}
+	if err := run([]string{"doctor"}); err != nil {
+		t.Fatalf("doctor: %v", err)
+	}
+	srcDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(srcDir, "lsm.hzn"), []byte(`package probes
+
+@lsm("file_open")
+func AllowFileOpen(ctx lsm.Context) i32 {
+    return lsm.Allow
+}
+`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	outDir := t.TempDir()
+	if err := run([]string{"workbench", srcDir, "-o", outDir, "-compile"}); err != nil {
+		t.Fatalf("workbench -compile: %v", err)
+	}
+	for _, name := range []string{
+		"lsm.bpf.c",
+		"lsm.bpf.o",
+		"lsm.hznmap.json",
+		"lsm.bindings.go",
+		"lsm.cap.json",
+		"lsm.diagnostics.json",
+		"lsm.report.json",
+	} {
+		if _, err := os.Stat(filepath.Join(outDir, name)); err != nil {
+			t.Fatalf("missing compiled artifact %s: %v", name, err)
+		}
+	}
+}
+
 func TestConstantSymbolCollisionCompileSmoke(t *testing.T) {
 	if _, err := os.Stat("/usr/local/include/vmlinux.h"); err != nil {
 		t.Skipf("vmlinux.h not available: %v", err)

@@ -181,7 +181,7 @@ func validationErrorf(format string, args ...any) error {
 
 func validProgramKind(kind string) bool {
 	switch kind {
-	case "tracepoint", "xdp", "tc", "cgroup", "kprobe", "kretprobe":
+	case "tracepoint", "xdp", "tc", "cgroup", "lsm", "kprobe", "kretprobe":
 		return true
 	default:
 		return false

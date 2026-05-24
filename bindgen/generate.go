@@ -151,6 +151,8 @@ func emitAttach(b *bytes.Buffer, fn ir.Function) {
 		emitTCAttach(b, fn)
 	case ir.ProgramCgroup:
 		emitCgroupAttach(b, fn)
+	case ir.ProgramLSM:
+		emitLSMAttach(b, fn)
 	case ir.ProgramKprobe:
 		emitKprobeAttach(b, fn, "Kprobe")
 	case ir.ProgramKretprobe:
@@ -237,6 +239,18 @@ func emitCgroupAttach(b *bytes.Buffer, fn ir.Function) {
 `, field, field, fn.Name, attach, field)
 }
 
+func emitLSMAttach(b *bytes.Buffer, fn ir.Function) {
+	field := exported(fn.Name)
+	fmt.Fprintf(b, `func (o *Objects) Attach%s() (link.Link, error) {
+	if o == nil || o.%s == nil {
+		return nil, fmt.Errorf("%s program is not loaded")
+	}
+	return link.AttachLSM(link.LSMOptions{Program: o.%s})
+}
+
+`, field, field, fn.Name, field)
+}
+
 func emitKprobeAttach(b *bytes.Buffer, fn ir.Function, linkFunc string) {
 	if fn.Section.Attach == "" {
 		return
@@ -307,7 +321,7 @@ func hasRingbuf(program ir.Program) bool {
 func hasAttach(program ir.Program) bool {
 	for _, fn := range program.Functions {
 		switch fn.Section.Kind {
-		case ir.ProgramTracepoint, ir.ProgramXDP, ir.ProgramTC, ir.ProgramCgroup, ir.ProgramKprobe, ir.ProgramKretprobe:
+		case ir.ProgramTracepoint, ir.ProgramXDP, ir.ProgramTC, ir.ProgramCgroup, ir.ProgramLSM, ir.ProgramKprobe, ir.ProgramKretprobe:
 			return true
 		}
 	}

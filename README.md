@@ -12,6 +12,7 @@ It keeps the kernel-side language deliberately small:
 - XDP programs
 - TC classifier programs
 - cgroup connect programs
+- LSM programs
 - typed structs and fixed arrays
 - boolean literals and typed boolean expressions
 - package-scoped declarations across multiple `.hzn` files
@@ -165,6 +166,19 @@ func BlockSMTP(ctx cgroup.Connect) i32 {
 }
 ```
 
+LSM programs are policy hooks with opaque contexts in v0. They return named
+allow/deny actions so authoring stays explicit about security impact.
+
+```go
+package probes
+
+@capability("kernel.file.open.block")
+@lsm("file_open")
+func DenyFileOpen(ctx lsm.Context) i32 {
+    return lsm.Deny
+}
+```
+
 ## Commands
 
 ```sh
@@ -181,6 +195,8 @@ hzn build ./examples/execwatch -o dist
 go run ./examples/execwatch/cmd/execwatch -obj dist/exec.bpf.o
 hzn build ./examples/execcount -o dist
 sudo go run ./examples/execcount/cmd/execcount -obj dist/count.bpf.o -timeout 10s
+hzn build ./examples/lsmfile -o dist
+sudo go run ./examples/lsmfile/cmd/lsmfile -obj dist/file.bpf.o
 hzn build ./examples/openwatch -o dist
 sudo go run ./examples/openwatch/cmd/openwatch -obj dist/open.bpf.o
 hzn build ./examples/tcpconnect -o dist
@@ -252,6 +268,7 @@ Horizon makes verifier-sensitive behavior explicit before clang runs:
 - XDP programs must return named actions such as `xdp.Pass` and `xdp.Drop`, not raw integers
 - TC programs must declare `@tc("ingress")` or `@tc("egress")` and return named actions such as `tc.OK` and `tc.Shot`, not raw integers
 - cgroup connect programs must declare `@cgroup("connect4")` or `@cgroup("connect6")` and return named actions such as `cgroup.Allow` and `cgroup.Deny`, not raw integers
+- LSM programs must declare an explicit hook such as `@lsm("file_open")` and return named actions such as `lsm.Allow` and `lsm.Deny`, not raw integers
 - generated C emits only the helper and map wrappers the program actually uses
 - generated BPF C is compiled with clang warnings treated as errors
 - generated C stays readable so clang and verifier logs remain inspectable
@@ -260,6 +277,6 @@ Horizon makes verifier-sensitive behavior explicit before clang runs:
 ## Status
 
 Pre-alpha. The current implementation targets tracepoint, kprobe/kretprobe, TC,
-cgroup connect, and XDP programs with typed ringbuf event output, typed
+cgroup connect, LSM, and XDP programs with typed ringbuf event output, typed
 hash/array map access, bounded loops, generated BPF C, clang builds, Go
 bindings, and Continuum capability manifests.

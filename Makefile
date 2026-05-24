@@ -24,6 +24,7 @@ build-examples:
 	go run ./cmd/hzn build ./examples/cgroupconnect -o $(OUT)
 	go run ./cmd/hzn build ./examples/execwatch -o $(OUT)
 	go run ./cmd/hzn build ./examples/execcount -o $(OUT)
+	go run ./cmd/hzn build ./examples/lsmfile -o $(OUT)
 	go run ./cmd/hzn build ./examples/openwatch -o $(OUT)
 	go run ./cmd/hzn build ./examples/tcpconnect -o $(OUT)
 	go run ./cmd/hzn build ./examples/tcpass -o $(OUT)

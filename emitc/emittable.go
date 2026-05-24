@@ -276,11 +276,14 @@ func validateSelectorExpr(env *cEnv, expr *ir.Expr) error {
 		if _, ok := cgroupActionC(name); ok {
 			return nil
 		}
+		if _, ok := lsmActionC(name); ok {
+			return nil
+		}
 		if _, ok := xdpConstantC(name); ok {
 			return nil
 		}
 		switch selectorRoot(expr) {
-		case "bpf", "xdp", "tc", "cgroup":
+		case "bpf", "xdp", "tc", "cgroup", "lsm":
 			return unsupportedExpr(expr, name)
 		}
 	}

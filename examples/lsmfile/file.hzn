@@ -1,0 +1,7 @@
+package probes
+
+@capability("kernel.file.open.observe")
+@lsm("file_open")
+func ObserveFileOpen(ctx lsm.Context) i32 {
+    return lsm.Allow
+}

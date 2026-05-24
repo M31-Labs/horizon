@@ -107,6 +107,7 @@ func builtinTypes() map[string]bool {
 		"xdp.UDP":           true,
 		"tc.Context":        true,
 		"cgroup.Connect":    true,
+		"lsm.Context":       true,
 		"kprobe.Context":    true,
 		"kretprobe.Context": true,
 	}
@@ -252,7 +253,7 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 			Severity: diag.SeverityError,
 			Message:  fmt.Sprintf("function %q is missing an eBPF program section", decl.Name),
 			Primary:  decl.Span,
-			Suggest:  `add @tracepoint("category:event"), @xdp, @tc("ingress"), @cgroup("connect4"), @kprobe("symbol"), or @kretprobe("symbol") above the function`,
+			Suggest:  `add @tracepoint("category:event"), @xdp, @tc("ingress"), @cgroup("connect4"), @lsm("file_open"), @kprobe("symbol"), or @kretprobe("symbol") above the function`,
 		})
 	} else if len(sections) > 1 {
 		diags = append(diags, diag.Diagnostic{
@@ -260,7 +261,7 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 			Severity: diag.SeverityError,
 			Message:  fmt.Sprintf("function %q has multiple eBPF program sections", decl.Name),
 			Primary:  decl.Span,
-			Suggest:  `use exactly one section attribute such as @tracepoint(...), @xdp, @tc("ingress"), @cgroup("connect4"), @kprobe(...), or @kretprobe(...)`,
+			Suggest:  `use exactly one section attribute such as @tracepoint(...), @xdp, @tc("ingress"), @cgroup("connect4"), @lsm("file_open"), @kprobe(...), or @kretprobe(...)`,
 		})
 	}
 	for _, attr := range decl.Attrs {
@@ -321,6 +322,25 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 					Message:  fmt.Sprintf("@cgroup attach %q is not supported in Horizon v0", attach),
 					Primary:  attr.Span,
 					Suggest:  `use @cgroup("connect4") or @cgroup("connect6")`,
+				})
+			}
+		case "lsm":
+			if len(attr.Args) != 1 {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1316",
+					Severity: diag.SeverityError,
+					Message:  "@lsm requires one kernel LSM hook string argument",
+					Primary:  attr.Span,
+				})
+				break
+			}
+			if attrStringArg(attr) == "" {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1317",
+					Severity: diag.SeverityError,
+					Message:  "@lsm hook cannot be empty",
+					Primary:  attr.Span,
+					Suggest:  `use an explicit hook such as @lsm("file_open")`,
 				})
 			}
 		case "kprobe":
@@ -426,6 +446,8 @@ func sectionAttrs(attrs []ast.Attr) []sectionSpec {
 			out = append(out, sectionSpec{Attr: attr, Context: "tc.Context"})
 		case "cgroup":
 			out = append(out, sectionSpec{Attr: attr, Context: "cgroup.Connect"})
+		case "lsm":
+			out = append(out, sectionSpec{Attr: attr, Context: "lsm.Context"})
 		case "kprobe":
 			out = append(out, sectionSpec{Attr: attr, Context: "kprobe.Context"})
 		case "kretprobe":
@@ -468,6 +490,7 @@ type valueType struct {
 	XDPAction    bool
 	TCAction     bool
 	CgroupAction bool
+	LSMAction    bool
 }
 
 func validateFuncBody(decl ast.FuncDecl, maps map[string]ast.MapDecl, structs map[string]ast.TypeDecl, consts map[string]ast.ConstDecl, sections []sectionSpec) []diag.Diagnostic {
@@ -565,6 +588,16 @@ func validateFuncBody(decl ast.FuncDecl, maps map[string]ast.MapDecl, structs ma
 				})
 				break
 			}
+			if target.LSMAction && !value.LSMAction {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1459",
+					Severity: diag.SeverityError,
+					Message:  "LSM action locals can only be assigned named lsm actions",
+					Primary:  s.Span,
+					Suggest:  "assign lsm.Allow or lsm.Deny",
+				})
+				break
+			}
 			if targetHadErrors {
 				break
 			}
@@ -634,6 +667,14 @@ func validateFuncBody(decl ast.FuncDecl, maps map[string]ast.MapDecl, structs ma
 					Primary:  s.Span,
 					Suggest:  "return cgroup.Allow or cgroup.Deny",
 				})
+			} else if programSection == "lsm" && !value.LSMAction {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1459",
+					Severity: diag.SeverityError,
+					Message:  "LSM programs must return a named lsm action",
+					Primary:  s.Span,
+					Suggest:  "return lsm.Allow or lsm.Deny",
+				})
 			} else if programSection != "" && programSection != "xdp" && value.XDPAction {
 				diags = append(diags, diag.Diagnostic{
 					Code:     "HZN1449",
@@ -657,6 +698,14 @@ func validateFuncBody(decl ast.FuncDecl, maps map[string]ast.MapDecl, structs ma
 					Message:  fmt.Sprintf("@%s programs cannot return cgroup actions", programSection),
 					Primary:  s.Span,
 					Suggest:  `return 0 from tracing programs; cgroup actions are only valid in @cgroup programs`,
+				})
+			} else if programSection != "" && programSection != "lsm" && value.LSMAction {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1460",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("@%s programs cannot return LSM actions", programSection),
+					Primary:  s.Span,
+					Suggest:  `return 0 from tracing programs; LSM actions are only valid in @lsm programs`,
 				})
 			} else if s.Value != nil && !assignable(valueType{Name: "i32"}, value) {
 				diags = append(diags, diag.Diagnostic{
@@ -828,6 +877,18 @@ func typeOfExpr(expr ast.Expr, locals map[string]valueType, maps map[string]ast.
 				Message:  fmt.Sprintf("unknown cgroup symbol cgroup.%s", field),
 				Primary:  e.Span,
 				Suggest:  "use cgroup actions such as cgroup.Allow or helpers such as cgroup.dst_port(ctx)",
+			}}
+		}
+		if root, field, ok := selectorParts(e); ok && root == "lsm" {
+			if typ, ok := lsmSelectorType(field); ok {
+				return typ, nil
+			}
+			return valueType{}, []diag.Diagnostic{{
+				Code:     "HZN1461",
+				Severity: diag.SeverityError,
+				Message:  fmt.Sprintf("unknown LSM symbol lsm.%s", field),
+				Primary:  e.Span,
+				Suggest:  "use LSM actions such as lsm.Allow or lsm.Deny",
 			}}
 		}
 		operand, diags := typeOfExpr(e.Operand, locals, maps, structs)
@@ -1151,6 +1212,15 @@ func typeOfCall(call ast.CallExpr, locals map[string]valueType, maps map[string]
 	}
 	if root == "cgroup" {
 		return typeOfCgroupCall(method, call, locals, maps, structs)
+	}
+	if root == "lsm" {
+		return valueType{}, []diag.Diagnostic{{
+			Code:     "HZN1462",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("lsm.%s is not a callable helper in Horizon v0", method),
+			Primary:  call.Span,
+			Suggest:  "use named LSM action constants such as lsm.Allow in return statements",
+		}}
 	}
 	if m, ok := maps[root]; ok {
 		switch method {
@@ -1561,6 +1631,15 @@ func cgroupSelectorType(name string) (valueType, bool) {
 	}
 }
 
+func lsmSelectorType(name string) (valueType, bool) {
+	switch name {
+	case "Allow", "Deny":
+		return valueType{Name: "i32", LSMAction: true}, true
+	default:
+		return valueType{}, false
+	}
+}
+
 func isScalar(name string) bool {
 	switch name {
 	case "u8", "u16", "u32", "u64", "i8", "i16", "i32", "i64", "bool":
@@ -1598,6 +1677,9 @@ func typeName(t valueType) string {
 	}
 	if t.CgroupAction {
 		return "cgroup action"
+	}
+	if t.LSMAction {
+		return "lsm action"
 	}
 	if t.Ref.Len != "" && t.Ref.Elem != nil {
 		name = "[" + t.Ref.Len + "]" + t.Ref.Elem.Name

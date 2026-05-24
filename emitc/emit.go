@@ -37,6 +37,9 @@ func Emit(program ir.Program) (Output, error) {
 	if programHasCgroup(program) {
 		emitCgroupActionFallbacks(&b)
 	}
+	if programHasLSM(program) {
+		emitLSMActionFallbacks(&b)
+	}
 	b.WriteString("char LICENSE[] SEC(\"license\") = \"GPL\";\n")
 	emitScalarABIAssertions(&b)
 	emitHelperWrappers(&b, usage)
@@ -514,6 +517,27 @@ func programHasCgroup(program ir.Program) bool {
 	return false
 }
 
+func emitLSMActionFallbacks(b *strings.Builder) {
+	b.WriteString(`#ifndef EPERM
+#define EPERM 1
+#endif
+#ifndef HZN_LSM_ALLOW
+#define HZN_LSM_ALLOW 0
+#define HZN_LSM_DENY (-EPERM)
+#endif
+
+`)
+}
+
+func programHasLSM(program ir.Program) bool {
+	for _, fn := range program.Functions {
+		if fn.Section.Kind == ir.ProgramLSM {
+			return true
+		}
+	}
+	return false
+}
+
 func emitXDPPacketHelpers(b *strings.Builder, usage cUsage) {
 	b.WriteString(`
 struct hzn_xdp_eth {
@@ -865,6 +889,8 @@ func cContext(fn ir.Function) string {
 		return "struct __sk_buff *ctx"
 	case ir.ProgramCgroup:
 		return "struct bpf_sock_addr *ctx"
+	case ir.ProgramLSM:
+		return "void *ctx"
 	case ir.ProgramKprobe, ir.ProgramKretprobe:
 		return "struct pt_regs *ctx"
 	default:
@@ -1091,6 +1117,9 @@ func cExprType(expr *ir.Expr, env *cEnv) (ir.Type, bool) {
 			if _, ok := cgroupActionC(name); ok {
 				return ir.Type{Name: "i32"}, true
 			}
+			if _, ok := lsmActionC(name); ok {
+				return ir.Type{Name: "i32"}, true
+			}
 			if typ, ok := xdpConstantType(name); ok {
 				return typ, true
 			}
@@ -1222,6 +1251,9 @@ func cExpr(expr *ir.Expr, env *cEnv) string {
 			if action, ok := cgroupActionC(name); ok {
 				return action
 			}
+			if action, ok := lsmActionC(name); ok {
+				return action
+			}
 			if constant, ok := xdpConstantC(name); ok {
 				return constant
 			}
@@ -1298,6 +1330,17 @@ func cgroupActionC(name string) (string, bool) {
 		return "HZN_CGROUP_ALLOW", true
 	case "cgroup.Deny":
 		return "HZN_CGROUP_DENY", true
+	default:
+		return "", false
+	}
+}
+
+func lsmActionC(name string) (string, bool) {
+	switch name {
+	case "lsm.Allow":
+		return "HZN_LSM_ALLOW", true
+	case "lsm.Deny":
+		return "HZN_LSM_DENY", true
 	default:
 		return "", false
 	}
