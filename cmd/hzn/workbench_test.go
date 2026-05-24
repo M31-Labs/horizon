@@ -14,6 +14,9 @@ import (
 func TestWorkbenchWritesAuthoringArtifactsWithoutObject(t *testing.T) {
 	outDir := t.TempDir()
 	input := filepath.Join("..", "..", "testdata", "golden", "exec", "input.hzn")
+	if err := os.WriteFile(filepath.Join(outDir, "input.bpf.o"), []byte("stale"), 0o644); err != nil {
+		t.Fatalf("write stale object: %v", err)
+	}
 	if err := run([]string{"workbench", input, "-o", outDir}); err != nil {
 		t.Fatalf("run workbench: %v", err)
 	}
@@ -135,6 +138,9 @@ func TestWorkbenchJSONOutputForInvalidInput(t *testing.T) {
 func TestWorkbenchWritesDiagnosticReportForInvalidInput(t *testing.T) {
 	outDir := t.TempDir()
 	input := filepath.Join("..", "..", "testdata", "invalid", "packet_unproven_read.hzn")
+	if err := os.WriteFile(filepath.Join(outDir, "packet_unproven_read.bpf.o"), []byte("stale"), 0o644); err != nil {
+		t.Fatalf("write stale object: %v", err)
+	}
 	if err := run([]string{"workbench", input, "-o", outDir}); err == nil {
 		t.Fatal("run workbench succeeded, want diagnostics error")
 	}
@@ -200,6 +206,9 @@ func TestWorkbenchReportsClangDiagnostics(t *testing.T) {
 	fakeBin := t.TempDir()
 	input := filepath.Join("..", "..", "testdata", "golden", "exec", "input.hzn")
 	cPath := filepath.Join(outDir, "input.bpf.c")
+	if err := os.WriteFile(filepath.Join(outDir, "input.bpf.o"), []byte("stale"), 0o644); err != nil {
+		t.Fatalf("write stale object: %v", err)
+	}
 	fakeClang := filepath.Join(fakeBin, "clang")
 	output := cPath + ":57:5: error: synthetic clang failure"
 	script := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' %q >&2\nexit 1\n", output)

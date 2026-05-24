@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -100,6 +101,9 @@ func writeWorkbenchArtifacts(result *compiler.Result, opts workbenchOptions) (wo
 		Paths:           paths,
 		Diagnostics:     diagnosticsForReport(result.Diagnostics),
 		DiagnosticCount: len(result.Diagnostics),
+	}
+	if err := removeFileIfExists(paths.Object); err != nil {
+		return report, err
 	}
 	if !opts.Compile {
 		report.Paths.Object = ""
@@ -199,6 +203,16 @@ func (p artifactPaths) artifacts(includeObject bool) []string {
 
 func (p artifactPaths) diagnosticArtifacts() []string {
 	return []string{p.Diagnostics, p.Report}
+}
+
+func removeFileIfExists(path string) error {
+	if path == "" {
+		return nil
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
 }
 
 func diagnosticsForReport(diags []diag.Diagnostic) []diag.Diagnostic {
