@@ -94,6 +94,8 @@ func builtinTypes() map[string]bool {
 		"xdp.Context":     true,
 		"xdp.Eth":         true,
 		"xdp.IPv4":        true,
+		"xdp.TCP":         true,
+		"xdp.UDP":         true,
 	}
 }
 
@@ -120,6 +122,29 @@ func builtinStructs() map[string]ast.TypeDecl {
 				{Name: "check", Type: ast.TypeRef{Name: "u16"}},
 				{Name: "src", Type: ast.TypeRef{Name: "u32"}},
 				{Name: "dst", Type: ast.TypeRef{Name: "u32"}},
+			},
+		},
+		"xdp.TCP": {
+			Name: "xdp.TCP",
+			Fields: []ast.Field{
+				{Name: "src_port", Type: ast.TypeRef{Name: "u16"}},
+				{Name: "dst_port", Type: ast.TypeRef{Name: "u16"}},
+				{Name: "seq", Type: ast.TypeRef{Name: "u32"}},
+				{Name: "ack", Type: ast.TypeRef{Name: "u32"}},
+				{Name: "data_off", Type: ast.TypeRef{Name: "u8"}},
+				{Name: "flags", Type: ast.TypeRef{Name: "u8"}},
+				{Name: "window", Type: ast.TypeRef{Name: "u16"}},
+				{Name: "check", Type: ast.TypeRef{Name: "u16"}},
+				{Name: "urg_ptr", Type: ast.TypeRef{Name: "u16"}},
+			},
+		},
+		"xdp.UDP": {
+			Name: "xdp.UDP",
+			Fields: []ast.Field{
+				{Name: "src_port", Type: ast.TypeRef{Name: "u16"}},
+				{Name: "dst_port", Type: ast.TypeRef{Name: "u16"}},
+				{Name: "len", Type: ast.TypeRef{Name: "u16"}},
+				{Name: "check", Type: ast.TypeRef{Name: "u16"}},
 			},
 		},
 	}
@@ -767,13 +792,17 @@ func typeOfCall(call ast.CallExpr, locals map[string]valueType, maps map[string]
 
 func typeOfXDPCall(name string, call ast.CallExpr, locals map[string]valueType, maps map[string]ast.MapDecl, structs map[string]ast.TypeDecl) (valueType, []diag.Diagnostic) {
 	switch name {
-	case "eth", "ipv4":
+	case "eth", "ipv4", "tcp", "udp":
 		var header string
 		switch name {
 		case "eth":
 			header = "xdp.Eth"
 		case "ipv4":
 			header = "xdp.IPv4"
+		case "tcp":
+			header = "xdp.TCP"
+		case "udp":
+			header = "xdp.UDP"
 		}
 		if len(call.Args) != 1 {
 			return valueType{Name: header, Ptr: true, MaybeNil: true}, []diag.Diagnostic{argCountDiagnostic(call.Span, "xdp."+name, 1, len(call.Args))}
@@ -788,13 +817,27 @@ func typeOfXDPCall(name string, call ast.CallExpr, locals map[string]valueType, 
 			})
 		}
 		return valueType{Name: header, Ptr: true, MaybeNil: true}, diags
+	case "ntohs":
+		if len(call.Args) != 1 {
+			return valueType{Name: "u16"}, []diag.Diagnostic{argCountDiagnostic(call.Span, "xdp.ntohs", 1, len(call.Args))}
+		}
+		arg, diags := typeOfExpr(call.Args[0], locals, maps, structs)
+		if !assignable(valueType{Name: "u16"}, arg) {
+			diags = append(diags, diag.Diagnostic{
+				Code:     "HZN1437",
+				Severity: diag.SeverityError,
+				Message:  fmt.Sprintf("xdp.ntohs expects u16, got %s", typeName(arg)),
+				Primary:  call.Span,
+			})
+		}
+		return valueType{Name: "u16"}, diags
 	default:
 		return valueType{}, []diag.Diagnostic{{
 			Code:     "HZN1436",
 			Severity: diag.SeverityError,
 			Message:  fmt.Sprintf("unknown XDP packet helper xdp.%s", name),
 			Primary:  call.Span,
-			Suggest:  "use xdp.eth(ctx) or xdp.ipv4(ctx)",
+			Suggest:  "use xdp.eth(ctx), xdp.ipv4(ctx), xdp.tcp(ctx), or xdp.udp(ctx)",
 		}}
 	}
 }

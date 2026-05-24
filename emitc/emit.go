@@ -111,6 +111,29 @@ func xdpPacketStructs() []ir.Struct {
 				{Name: "dst", Type: ir.Type{Name: "u32"}},
 			},
 		},
+		{
+			Name: "xdp.TCP",
+			Fields: []ir.Field{
+				{Name: "src_port", Type: ir.Type{Name: "u16"}},
+				{Name: "dst_port", Type: ir.Type{Name: "u16"}},
+				{Name: "seq", Type: ir.Type{Name: "u32"}},
+				{Name: "ack", Type: ir.Type{Name: "u32"}},
+				{Name: "data_off", Type: ir.Type{Name: "u8"}},
+				{Name: "flags", Type: ir.Type{Name: "u8"}},
+				{Name: "window", Type: ir.Type{Name: "u16"}},
+				{Name: "check", Type: ir.Type{Name: "u16"}},
+				{Name: "urg_ptr", Type: ir.Type{Name: "u16"}},
+			},
+		},
+		{
+			Name: "xdp.UDP",
+			Fields: []ir.Field{
+				{Name: "src_port", Type: ir.Type{Name: "u16"}},
+				{Name: "dst_port", Type: ir.Type{Name: "u16"}},
+				{Name: "len", Type: ir.Type{Name: "u16"}},
+				{Name: "check", Type: ir.Type{Name: "u16"}},
+			},
+		},
 	}
 }
 
@@ -275,6 +298,25 @@ struct hzn_xdp_ipv4 {
     __u32 dst;
 } __attribute__((packed));
 
+struct hzn_xdp_tcp {
+    __u16 src_port;
+    __u16 dst_port;
+    __u32 seq;
+    __u32 ack;
+    __u8 data_off;
+    __u8 flags;
+    __u16 window;
+    __u16 check;
+    __u16 urg_ptr;
+} __attribute__((packed));
+
+struct hzn_xdp_udp {
+    __u16 src_port;
+    __u16 dst_port;
+    __u16 len;
+    __u16 check;
+} __attribute__((packed));
+
 static __always_inline struct hzn_xdp_eth *hzn_xdp_eth(struct xdp_md *ctx) {
     void *data = (void *)(long)ctx->data;
     void *data_end = (void *)(long)ctx->data_end;
@@ -299,6 +341,42 @@ static __always_inline struct hzn_xdp_ipv4 *hzn_xdp_ipv4(struct xdp_md *ctx) {
         return 0;
     }
     return ip;
+}
+
+static __always_inline __u64 hzn_xdp_l4_offset(struct xdp_md *ctx, __u8 protocol) {
+    struct hzn_xdp_ipv4 *ip = hzn_xdp_ipv4(ctx);
+
+    if (!ip || ip->protocol != protocol) {
+        return 0;
+    }
+
+    __u8 ihl = ip->version_ihl & 0x0f;
+    if (ihl < 5) {
+        return 0;
+    }
+    return sizeof(struct hzn_xdp_eth) + ((__u64)ihl * 4);
+}
+
+static __always_inline struct hzn_xdp_tcp *hzn_xdp_tcp(struct xdp_md *ctx) {
+    void *data = (void *)(long)ctx->data;
+    void *data_end = (void *)(long)ctx->data_end;
+    __u64 off = hzn_xdp_l4_offset(ctx, 6);
+
+    if (!off || data + off + sizeof(struct hzn_xdp_tcp) > data_end) {
+        return 0;
+    }
+    return data + off;
+}
+
+static __always_inline struct hzn_xdp_udp *hzn_xdp_udp(struct xdp_md *ctx) {
+    void *data = (void *)(long)ctx->data;
+    void *data_end = (void *)(long)ctx->data_end;
+    __u64 off = hzn_xdp_l4_offset(ctx, 17);
+
+    if (!off || data + off + sizeof(struct hzn_xdp_udp) > data_end) {
+        return 0;
+    }
+    return data + off;
 }
 `)
 }
@@ -430,6 +508,10 @@ func cStructType(name string) string {
 		return "struct hzn_xdp_eth"
 	case "xdp.IPv4":
 		return "struct hzn_xdp_ipv4"
+	case "xdp.TCP":
+		return "struct hzn_xdp_tcp"
+	case "xdp.UDP":
+		return "struct hzn_xdp_udp"
 	default:
 		return "struct " + name
 	}
@@ -615,6 +697,12 @@ func cExprType(expr *ir.Expr, env *cEnv) (ir.Type, bool) {
 				return ptrTo(ir.Type{Name: "xdp.Eth"}), true
 			case "xdp.ipv4":
 				return ptrTo(ir.Type{Name: "xdp.IPv4"}), true
+			case "xdp.tcp":
+				return ptrTo(ir.Type{Name: "xdp.TCP"}), true
+			case "xdp.udp":
+				return ptrTo(ir.Type{Name: "xdp.UDP"}), true
+			case "xdp.ntohs":
+				return ir.Type{Name: "u16"}, true
 			}
 		}
 		if mapName, ok := reserveCall(expr); ok {
@@ -852,6 +940,21 @@ func cCallExpr(expr *ir.Expr, env *cEnv) string {
 				arg := expr.Args[0]
 				return fmt.Sprintf("hzn_xdp_ipv4(%s)", cExpr(&arg, env))
 			}
+		case "xdp.tcp":
+			if len(expr.Args) == 1 {
+				arg := expr.Args[0]
+				return fmt.Sprintf("hzn_xdp_tcp(%s)", cExpr(&arg, env))
+			}
+		case "xdp.udp":
+			if len(expr.Args) == 1 {
+				arg := expr.Args[0]
+				return fmt.Sprintf("hzn_xdp_udp(%s)", cExpr(&arg, env))
+			}
+		case "xdp.ntohs":
+			if len(expr.Args) == 1 {
+				arg := expr.Args[0]
+				return fmt.Sprintf("bpf_ntohs(%s)", cExpr(&arg, env))
+			}
 		}
 	}
 	args := make([]string, 0, len(expr.Args))
@@ -921,7 +1024,7 @@ func xdpPacketCall(expr *ir.Expr) (string, bool) {
 		return "", false
 	}
 	switch expr.Func.Field {
-	case "eth", "ipv4":
+	case "eth", "ipv4", "tcp", "udp":
 		return expr.Func.Field, true
 	default:
 		return "", false

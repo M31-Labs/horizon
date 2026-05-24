@@ -201,11 +201,11 @@ func TestEmitXDPProgram(t *testing.T) {
 
 @xdp
 func DropTCP(ctx xdp.Context) i32 {
-    ip := xdp.ipv4(ctx)
-    if ip == nil {
+    tcp := xdp.tcp(ctx)
+    if tcp == nil {
         return xdp.Pass
     }
-    if ip.protocol == xdp.IPProtoTCP {
+    if xdp.ntohs(tcp.dst_port) == 443 {
         return xdp.Drop
     }
     return xdp.Pass
@@ -225,13 +225,18 @@ func DropTCP(ctx xdp.Context) i32 {
 		"#include <bpf/bpf_endian.h>",
 		"#define XDP_DROP 1",
 		"struct hzn_xdp_ipv4 {",
+		"struct hzn_xdp_tcp {",
+		"struct hzn_xdp_udp {",
 		"static __always_inline struct hzn_xdp_ipv4 *hzn_xdp_ipv4(struct xdp_md *ctx)",
+		"static __always_inline struct hzn_xdp_tcp *hzn_xdp_tcp(struct xdp_md *ctx)",
+		"static __always_inline struct hzn_xdp_udp *hzn_xdp_udp(struct xdp_md *ctx)",
+		"__u8 ihl = ip->version_ihl & 0x0f;",
 		"SEC(\"xdp\")",
 		"int DropTCP(struct xdp_md *ctx) {",
-		"struct hzn_xdp_ipv4 *ip = hzn_xdp_ipv4(ctx);",
-		"if (ip == 0) {",
+		"struct hzn_xdp_tcp *tcp = hzn_xdp_tcp(ctx);",
+		"if (tcp == 0) {",
 		"return XDP_PASS;",
-		"if (ip->protocol == 6) {",
+		"if (bpf_ntohs(tcp->dst_port) == 443) {",
 		"return XDP_DROP;",
 	} {
 		if !strings.Contains(out.Code, want) {

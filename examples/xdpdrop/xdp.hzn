@@ -3,11 +3,11 @@ package probes
 @capability("kernel.network.xdp.drop")
 @xdp
 func DropTCP(ctx xdp.Context) i32 {
-    ip := xdp.ipv4(ctx)
-    if ip == nil {
+    tcp := xdp.tcp(ctx)
+    if tcp == nil {
         return xdp.Pass
     }
-    if ip.protocol == xdp.IPProtoTCP {
+    if xdp.ntohs(tcp.dst_port) == 443 {
         return xdp.Drop
     }
 

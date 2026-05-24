@@ -271,11 +271,11 @@ func TestAnalyzeXDPProgramPasses(t *testing.T) {
 @capability("kernel.network.xdp.drop")
 @xdp
 func DropTCP(ctx xdp.Context) i32 {
-    ip := xdp.ipv4(ctx)
-    if ip == nil {
+    tcp := xdp.tcp(ctx)
+    if tcp == nil {
         return xdp.Pass
     }
-    if ip.protocol == xdp.IPProtoTCP {
+    if xdp.ntohs(tcp.dst_port) == 443 {
         return xdp.Drop
     }
     return xdp.Pass
@@ -335,14 +335,52 @@ func TestAnalyzeRejectsPacketHeaderDereferenceWithoutNilCheck(t *testing.T) {
 
 @xdp
 func DropTCP(ctx xdp.Context) i32 {
-    ip := xdp.ipv4(ctx)
-    if ip.protocol == xdp.IPProtoTCP {
+    tcp := xdp.tcp(ctx)
+    if xdp.ntohs(tcp.dst_port) == 443 {
         return xdp.Drop
     }
     return xdp.Pass
 }
 `)
 	requireDiagnosticCode(t, result, "HZN2600")
+}
+
+func TestAnalyzeRejectsNtohsNonU16Argument(t *testing.T) {
+	result := analyzeSource(t, "xdp.hzn", `package probes
+
+@xdp
+func DropTCP(ctx xdp.Context) i32 {
+    ip := xdp.ipv4(ctx)
+    if ip == nil {
+        return xdp.Pass
+    }
+    if xdp.ntohs(ip.protocol) == 6 {
+        return xdp.Drop
+    }
+    return xdp.Pass
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1437")
+}
+
+func TestAnalyzeUDPPacketHeaderPasses(t *testing.T) {
+	result := analyzeSource(t, "xdp.hzn", `package probes
+
+@xdp
+func DropDNS(ctx xdp.Context) i32 {
+    udp := xdp.udp(ctx)
+    if udp == nil {
+        return xdp.Pass
+    }
+    if xdp.ntohs(udp.dst_port) == 53 {
+        return xdp.Drop
+    }
+    return xdp.Pass
+}
+`)
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
 }
 
 func TestAnalyzeRejectsFixedArrayValueCopies(t *testing.T) {

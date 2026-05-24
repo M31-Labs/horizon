@@ -37,6 +37,25 @@ type IPv4 struct {
 	dst         uint32
 }
 
+type TCP struct {
+	src_port uint16
+	dst_port uint16
+	seq      uint32
+	ack      uint32
+	data_off uint8
+	flags    uint8
+	window   uint16
+	check    uint16
+	urg_ptr  uint16
+}
+
+type UDP struct {
+	src_port uint16
+	dst_port uint16
+	len      uint16
+	check    uint16
+}
+
 func eth(ctx Context) *Eth {
 	_ = ctx
 	return nil
@@ -45,4 +64,18 @@ func eth(ctx Context) *Eth {
 func ipv4(ctx Context) *IPv4 {
 	_ = ctx
 	return nil
+}
+
+func tcp(ctx Context) *TCP {
+	_ = ctx
+	return nil
+}
+
+func udp(ctx Context) *UDP {
+	_ = ctx
+	return nil
+}
+
+func ntohs(v uint16) uint16 {
+	return v
 }

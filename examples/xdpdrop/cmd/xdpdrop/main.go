@@ -69,7 +69,7 @@ func run(objPath string, ifaceName string, timeout time.Duration) error {
 		ctx, cancel = context.WithTimeout(ctx, timeout)
 		defer cancel()
 	}
-	fmt.Printf("dropping TCP packets on %s; press Ctrl-C to detach\n", ifaceName)
+	fmt.Printf("dropping TCP/443 packets on %s; press Ctrl-C to detach\n", ifaceName)
 	<-ctx.Done()
 	return nil
 }

@@ -149,7 +149,7 @@ func xdpPacketHeaderCall(expr *ir.Expr) (string, bool) {
 		return "", false
 	}
 	switch method {
-	case "eth", "ipv4":
+	case "eth", "ipv4", "tcp", "udp":
 		return "xdp." + method, true
 	default:
 		return "", false

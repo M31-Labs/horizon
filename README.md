@@ -94,11 +94,11 @@ package probes
 @capability("kernel.network.xdp.drop")
 @xdp
 func DropTCP(ctx xdp.Context) i32 {
-    ip := xdp.ipv4(ctx)
-    if ip == nil {
+    tcp := xdp.tcp(ctx)
+    if tcp == nil {
         return xdp.Pass
     }
-    if ip.protocol == xdp.IPProtoTCP {
+    if xdp.ntohs(tcp.dst_port) == 443 {
         return xdp.Drop
     }
 
@@ -141,7 +141,7 @@ Horizon makes verifier-sensitive behavior explicit before clang runs:
 - fixed array fields are address-only; pass `&event.comm` directly to helpers instead of copying arrays
 - only bounded counted loops are accepted
 - helper availability is checked against the program kind
-- packet headers returned by `xdp.eth(ctx)` and `xdp.ipv4(ctx)` must be nil-checked before field access
+- packet headers returned by `xdp.eth(ctx)`, `xdp.ipv4(ctx)`, `xdp.tcp(ctx)`, and `xdp.udp(ctx)` must be nil-checked before field access
 - XDP programs return named actions such as `xdp.Pass` and `xdp.Drop`
 - generated C stays readable so clang and verifier logs remain inspectable
 
