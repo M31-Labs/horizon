@@ -11,9 +11,10 @@ const (
 )
 
 type Map struct {
-	Name string
-	Kind MapKind
-	Key  Type
-	Val  Type
-	Span span.Span
+	Name       string
+	Kind       MapKind
+	Key        Type
+	Val        Type
+	MaxEntries string
+	Span       span.Span
 }

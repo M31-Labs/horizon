@@ -335,6 +335,48 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	}
 }
 
+func TestEmitMapMaxEntries(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "maps.hzn")
+	if err := os.WriteFile(path, []byte(`package probes
+
+@max_entries(4096)
+map Counts hash[u32, u32]
+
+@max_entries(0x40000)
+map Events ringbuf[u32]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    return 0
+}
+`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	result, err := compiler.AnalyzePath(dir)
+	if err != nil {
+		t.Fatalf("AnalyzePath: %v", err)
+	}
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+	out, err := Emit(result.Program)
+	if err != nil {
+		t.Fatalf("Emit: %v", err)
+	}
+	for _, want := range []string{
+		"__uint(max_entries, 4096);",
+		"__uint(max_entries, 0x40000);",
+	} {
+		if !strings.Contains(out.Code, want) {
+			t.Fatalf("generated C missing %q:\n%s", want, out.Code)
+		}
+	}
+	if strings.Contains(out.Code, "__uint(max_entries, 1024);") || strings.Contains(out.Code, "__uint(max_entries, 1 << 24);") {
+		t.Fatalf("generated C kept default map sizing:\n%s", out.Code)
+	}
+}
+
 func TestEmitStructLayoutAssertionsIncludePadding(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "layout.hzn")

@@ -37,11 +37,13 @@ const (
 )
 
 type MapDecl struct {
-	Name string
-	Kind MapKind
-	Key  TypeRef
-	Val  TypeRef
-	Span span.Span
+	Name       string
+	Attrs      []Attr
+	Kind       MapKind
+	Key        TypeRef
+	Val        TypeRef
+	MaxEntries string
+	Span       span.Span
 }
 
 func (MapDecl) declNode() {}

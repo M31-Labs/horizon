@@ -128,6 +128,24 @@ func OnExec(ctx tracepoint.Exec) i32 { // program
 	}
 }
 
+func TestSourceFormatsMapAttributes(t *testing.T) {
+	got, err := Source(parser.SourceFile{Path: "maps.hzn", Bytes: []byte(`package probes
+@max_entries(4096)
+map Counts hash[u32,u32]
+`)})
+	if err != nil {
+		t.Fatalf("Source: %v", err)
+	}
+	want := `package probes
+
+@max_entries(4096)
+map Counts hash[u32, u32]
+`
+	if string(got) != want {
+		t.Fatalf("formatted source mismatch\nwant:\n%s\ngot:\n%s", want, got)
+	}
+}
+
 func TestSourcePreservesElseInlineLineComment(t *testing.T) {
 	got, err := Source(parser.SourceFile{Path: "commented.hzn", Bytes: []byte(`package probes
 

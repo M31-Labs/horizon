@@ -63,6 +63,18 @@ func buildMapDecl(parsed *parser.File, n *gotreesitter.Node) MapDecl {
 		Name: text(parsed, n.ChildByFieldName("name", parsed.Lang)),
 		Span: spanForNode(parsed.Source.FileID, n),
 	}
+	for i := 0; i < int(n.NamedChildCount()); i++ {
+		child := n.NamedChild(i)
+		if child.Type(parsed.Lang) == "attribute" {
+			attr := buildAttr(parsed, child)
+			decl.Attrs = append(decl.Attrs, attr)
+			if attr.Name == "max_entries" && len(attr.Args) == 1 {
+				if value, ok := attr.Args[0].(IntExpr); ok {
+					decl.MaxEntries = value.Value
+				}
+			}
+		}
+	}
 	if typ.Name != "" {
 		decl.Kind = MapKind(typ.Name)
 	}
@@ -121,12 +133,32 @@ func buildAttr(parsed *parser.File, n *gotreesitter.Node) Attr {
 		Span: spanForNode(parsed.Source.FileID, n),
 	}
 	if value := n.ChildByFieldName("value", parsed.Lang); value != nil {
-		attr.Args = append(attr.Args, StringExpr{
-			Value: strings.Trim(text(parsed, value), `"`),
-			Span:  spanForNode(parsed.Source.FileID, value),
-		})
+		attr.Args = append(attr.Args, buildAttributeValue(parsed, value))
 	}
 	return attr
+}
+
+func buildAttributeValue(parsed *parser.File, n *gotreesitter.Node) Expr {
+	if n == nil {
+		return nil
+	}
+	if n.Type(parsed.Lang) == "attribute_value" && n.NamedChildCount() == 1 {
+		return buildAttributeValue(parsed, n.NamedChild(0))
+	}
+	switch n.Type(parsed.Lang) {
+	case "string_literal":
+		return StringExpr{
+			Value: strings.Trim(text(parsed, n), `"`),
+			Span:  spanForNode(parsed.Source.FileID, n),
+		}
+	case "number_literal":
+		return IntExpr{
+			Value: text(parsed, n),
+			Span:  spanForNode(parsed.Source.FileID, n),
+		}
+	default:
+		return buildExpr(parsed, n)
+	}
 }
 
 func buildConstDecl(parsed *parser.File, n *gotreesitter.Node) ConstDecl {
@@ -243,6 +275,8 @@ func buildExpr(parsed *parser.File, n *gotreesitter.Node) Expr {
 	switch n.Type(parsed.Lang) {
 	case "identifier":
 		return IdentExpr{Name: text(parsed, n), Span: spanForNode(parsed.Source.FileID, n)}
+	case "string_literal":
+		return StringExpr{Value: strings.Trim(text(parsed, n), `"`), Span: spanForNode(parsed.Source.FileID, n)}
 	case "number_literal":
 		return IntExpr{Value: text(parsed, n), Span: spanForNode(parsed.Source.FileID, n)}
 	case "bool_literal":

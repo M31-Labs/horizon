@@ -57,6 +57,10 @@ func defineDeclarations(g *grammargen.Grammar) {
 	))
 
 	g.Define("map_declaration", grammargen.Seq(
+		grammargen.Repeat(grammargen.Seq(
+			grammargen.Sym("attribute"),
+			grammargen.Repeat(grammargen.Sym("_terminator")),
+		)),
 		grammargen.Str("map"),
 		grammargen.Field("name", grammargen.Sym("identifier")),
 		grammargen.Field("type", grammargen.Sym("type_ref")),
@@ -137,9 +141,14 @@ func defineFunctions(g *grammargen.Grammar) {
 		grammargen.Field("name", grammargen.Sym("identifier")),
 		grammargen.Optional(grammargen.Seq(
 			grammargen.Str("("),
-			grammargen.Optional(grammargen.Field("value", grammargen.Sym("string_literal"))),
+			grammargen.Optional(grammargen.Field("value", grammargen.Sym("attribute_value"))),
 			grammargen.Str(")"),
 		)),
+	))
+
+	g.Define("attribute_value", grammargen.Choice(
+		grammargen.Sym("string_literal"),
+		grammargen.Sym("number_literal"),
 	))
 
 	g.Define("parameter_list", grammargen.Seq(

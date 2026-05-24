@@ -3,6 +3,7 @@ package capability
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"m31labs.dev/horizon/compiler/diag"
@@ -117,6 +118,15 @@ func indexManifestMaps(mapSpecs []Map) (map[string]Map, error) {
 		}
 		if mapSpec.Value == "" {
 			return nil, validationErrorf("capability manifest map %q value type is required", mapSpec.Name)
+		}
+		if mapSpec.MaxEntries != "" {
+			value, err := strconv.ParseUint(mapSpec.MaxEntries, 0, 32)
+			if err != nil || value == 0 {
+				return nil, validationErrorf("capability manifest map %q max_entries must be a positive integer literal", mapSpec.Name)
+			}
+			if mapSpec.Kind == "ringbuf" && value&(value-1) != 0 {
+				return nil, validationErrorf("capability manifest ringbuf map %q max_entries must be a power of two", mapSpec.Name)
+			}
 		}
 		maps[mapSpec.Name] = mapSpec
 	}

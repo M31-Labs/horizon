@@ -123,10 +123,11 @@ func TestFromIRIncludesMapKeyAndValueTypes(t *testing.T) {
 			},
 		}},
 		Maps: []ir.Map{{
-			Name: "Counts",
-			Kind: ir.MapKindHash,
-			Key:  ir.Type{Name: "u32"},
-			Val:  ir.Type{Name: "Count"},
+			Name:       "Counts",
+			Kind:       ir.MapKindHash,
+			Key:        ir.Type{Name: "u32"},
+			Val:        ir.Type{Name: "Count"},
+			MaxEntries: "4096",
 		}},
 		Capabilities: []ir.Capability{{
 			Name:    "kernel.process.exec.count",
@@ -145,6 +146,9 @@ func TestFromIRIncludesMapKeyAndValueTypes(t *testing.T) {
 	}
 	if len(m.Maps) != 1 || m.Maps[0].Key != "u32" || m.Maps[0].Value != "Count" {
 		t.Fatalf("maps = %#v, want Counts hash[u32, Count]", m.Maps)
+	}
+	if m.Maps[0].MaxEntries != "4096" {
+		t.Fatalf("max_entries = %q, want 4096", m.Maps[0].MaxEntries)
 	}
 }
 
@@ -209,6 +213,18 @@ func TestValidateRejectsUnsupportedEnumValues(t *testing.T) {
 			Schema:       SchemaV0,
 			Package:      "probes",
 			Maps:         []Map{{Name: "Events", Kind: "queue", Value: "u32"}},
+			Capabilities: []Capability{},
+		},
+		"map max entries": {
+			Schema:       SchemaV0,
+			Package:      "probes",
+			Maps:         []Map{{Name: "Events", Kind: "ringbuf", Value: "u32", MaxEntries: "0"}},
+			Capabilities: []Capability{},
+		},
+		"ringbuf max entries": {
+			Schema:       SchemaV0,
+			Package:      "probes",
+			Maps:         []Map{{Name: "Events", Kind: "ringbuf", Value: "u32", MaxEntries: "3000"}},
 			Capabilities: []Capability{},
 		},
 		"type kind": {

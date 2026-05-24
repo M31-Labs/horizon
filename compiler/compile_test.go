@@ -315,6 +315,100 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	}
 }
 
+func TestAnalyzeMapMaxEntriesPassesAndLowersToIR(t *testing.T) {
+	result := analyzeSource(t, "maps.hzn", `package probes
+
+@max_entries(4096)
+map Counts hash[u32, u32]
+
+@max_entries(262144)
+map Events ringbuf[u32]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    return 0
+}
+`)
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+	if len(result.Program.Maps) != 2 {
+		t.Fatalf("maps = %#v, want two", result.Program.Maps)
+	}
+	if result.Program.Maps[0].MaxEntries != "4096" || result.Program.Maps[1].MaxEntries != "262144" {
+		t.Fatalf("maps = %#v, want configured max entries", result.Program.Maps)
+	}
+}
+
+func TestAnalyzeRejectsInvalidMapMaxEntries(t *testing.T) {
+	tests := map[string]string{
+		"string value": `package probes
+
+@max_entries("4096")
+map Counts hash[u32, u32]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    return 0
+}
+`,
+		"zero value": `package probes
+
+@max_entries(0)
+map Counts hash[u32, u32]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    return 0
+}
+`,
+		"ringbuf non power of two": `package probes
+
+@max_entries(3000)
+map Events ringbuf[u32]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    return 0
+}
+`,
+		"unknown attribute": `package probes
+
+@capacity(4096)
+map Counts hash[u32, u32]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    return 0
+}
+`,
+		"duplicate attribute": `package probes
+
+@max_entries(4096)
+@max_entries(8192)
+map Counts hash[u32, u32]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    return 0
+}
+`,
+	}
+	want := map[string]string{
+		"string value":             "HZN1206",
+		"zero value":               "HZN1206",
+		"ringbuf non power of two": "HZN1207",
+		"unknown attribute":        "HZN1205",
+		"duplicate attribute":      "HZN1208",
+	}
+	for name, source := range tests {
+		t.Run(name, func(t *testing.T) {
+			result := analyzeSource(t, "maps.hzn", source)
+			requireDiagnosticCode(t, result, want[name])
+		})
+	}
+}
+
 func TestAnalyzeRejectsHashLookupDereferenceWithoutNilCheck(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "counts.hzn")

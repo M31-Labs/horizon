@@ -127,6 +127,38 @@ func F(ctx tracepoint.Exec) i32 {
 	}
 }
 
+func TestBuildMapAttribute(t *testing.T) {
+	parsed, err := parser.ParseSource(parser.SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
+
+@max_entries(4096)
+map Counts hash[u32, u32]
+`)})
+	if err != nil {
+		t.Fatalf("ParseSource: %v", err)
+	}
+	file, err := Build(parsed)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(file.Decls) != 1 {
+		t.Fatalf("decls = %d, want 1", len(file.Decls))
+	}
+	decl, ok := file.Decls[0].(MapDecl)
+	if !ok {
+		t.Fatalf("decl = %T, want MapDecl", file.Decls[0])
+	}
+	if decl.MaxEntries != "4096" {
+		t.Fatalf("MaxEntries = %q, want 4096", decl.MaxEntries)
+	}
+	if len(decl.Attrs) != 1 || decl.Attrs[0].Name != "max_entries" {
+		t.Fatalf("attrs = %#v, want @max_entries", decl.Attrs)
+	}
+	value, ok := decl.Attrs[0].Args[0].(IntExpr)
+	if !ok || value.Value != "4096" {
+		t.Fatalf("attr arg = %#v, want int 4096", decl.Attrs[0].Args)
+	}
+}
+
 func TestBuildBoolLiteralAST(t *testing.T) {
 	parsed, err := parser.ParseSource(parser.SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
 

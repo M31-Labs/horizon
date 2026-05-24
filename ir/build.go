@@ -103,11 +103,12 @@ func buildStruct(decl ast.TypeDecl) Struct {
 
 func buildMap(decl ast.MapDecl) Map {
 	return Map{
-		Name: decl.Name,
-		Kind: MapKind(decl.Kind),
-		Key:  buildType(decl.Key),
-		Val:  buildType(decl.Val),
-		Span: decl.Span,
+		Name:       decl.Name,
+		Kind:       MapKind(decl.Kind),
+		Key:        buildType(decl.Key),
+		Val:        buildType(decl.Val),
+		MaxEntries: decl.MaxEntries,
+		Span:       decl.Span,
 	}
 }
 

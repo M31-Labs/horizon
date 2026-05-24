@@ -40,10 +40,11 @@ func FromIR(program ir.Program) Manifest {
 	}
 	for _, m := range program.Maps {
 		manifest.Maps = append(manifest.Maps, Map{
-			Name:  m.Name,
-			Kind:  string(m.Kind),
-			Key:   manifestType(m.Key),
-			Value: manifestType(m.Val),
+			Name:       m.Name,
+			Kind:       string(m.Kind),
+			Key:        manifestType(m.Key),
+			Value:      manifestType(m.Val),
+			MaxEntries: m.MaxEntries,
 		})
 	}
 	structs := ir.StructsByName(program.Structs)

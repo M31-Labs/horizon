@@ -228,6 +228,27 @@ func F(ctx tracepoint.Exec) i32 {
 	}
 }
 
+func TestParseMapAttribute(t *testing.T) {
+	src := SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
+
+@max_entries(4096)
+map Counts hash[u32, u32]
+`)}
+	file, err := ParseSource(src)
+	if err != nil {
+		t.Fatalf("ParseSource: %v", err)
+	}
+	if countNamedDescendants(file.Tree.RootNode(), file.Lang, "map_declaration") != 1 {
+		t.Fatalf("map declaration count = %d, want 1; tree: %s", countNamedDescendants(file.Tree.RootNode(), file.Lang, "map_declaration"), file.Tree.RootNode().SExpr(file.Lang))
+	}
+	if countNamedDescendants(file.Tree.RootNode(), file.Lang, "attribute") != 1 {
+		t.Fatalf("attribute count = %d, want 1; tree: %s", countNamedDescendants(file.Tree.RootNode(), file.Lang, "attribute"), file.Tree.RootNode().SExpr(file.Lang))
+	}
+	if countNamedDescendants(file.Tree.RootNode(), file.Lang, "attribute_value") != 1 {
+		t.Fatalf("attribute value count = %d, want 1; tree: %s", countNamedDescendants(file.Tree.RootNode(), file.Lang, "attribute_value"), file.Tree.RootNode().SExpr(file.Lang))
+	}
+}
+
 func TestParseBareAttribute(t *testing.T) {
 	src := SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
 

@@ -871,9 +871,9 @@ func emitMap(b *strings.Builder, m ir.Map) {
 		fmt.Fprintf(b, `
 struct {
     __uint(type, BPF_MAP_TYPE_RINGBUF);
-    __uint(max_entries, 1 << 24);
+    __uint(max_entries, %s);
 } %s SEC(".maps");
-`, m.Name)
+`, mapMaxEntries(m, "1 << 24"), m.Name)
 	case ir.MapKindHash, ir.MapKindArray:
 		mapType := "BPF_MAP_TYPE_HASH"
 		if m.Kind == ir.MapKindArray {
@@ -882,12 +882,19 @@ struct {
 		fmt.Fprintf(b, `
 struct {
     __uint(type, %s);
-    __uint(max_entries, 1024);
+    __uint(max_entries, %s);
     __type(key, %s);
     __type(value, %s);
 } %s SEC(".maps");
-`, mapType, cType(m.Key), cType(m.Val), m.Name)
+`, mapType, mapMaxEntries(m, "1024"), cType(m.Key), cType(m.Val), m.Name)
 	}
+}
+
+func mapMaxEntries(m ir.Map, fallback string) string {
+	if m.MaxEntries != "" {
+		return m.MaxEntries
+	}
+	return fallback
 }
 
 func emitMapWrappers(b *strings.Builder, m ir.Map, methods map[string]bool) {

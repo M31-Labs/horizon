@@ -19,6 +19,7 @@ It keeps the kernel-side language deliberately small:
 - integer constants with optional scalar widths
 - ringbuf event output
 - hash and array maps
+- explicit `@max_entries(...)` map sizing
 - nil-checked map lookups
 - bounded counted loops
 - explicit integer scalar conversions such as `u64(pid)`
@@ -96,6 +97,17 @@ func OnExec(ctx tracepoint.Exec) i32 {
     count.seen = bpf.current_pid()
     return 0
 }
+```
+
+Maps can be sized deliberately with `@max_entries(...)`. Ringbuf sizes are byte
+sizes and must be powers of two; hash and array sizes are entry counts.
+
+```go
+@max_entries(4096)
+map Counts hash[u32, Count]
+
+@max_entries(262144)
+map ExecEvents ringbuf[ExecEvent]
 ```
 
 Packet-path programs use explicit section attributes, compiler-checked packet
@@ -291,6 +303,7 @@ Horizon makes verifier-sensitive behavior explicit before clang runs:
 - writes after ringbuf submit/discard are rejected
 - map lookup results must be nil-checked before field access
 - nullable map, packet, and ringbuf resource pointers cannot be copied or aliased
+- map sizing is explicit through `@max_entries(...)`; ringbuf sizes must be powers of two
 - map update/delete results must be checked with an explicit comparison
 - fixed array fields are address-only; pass `&event.comm` directly to helpers instead of copying arrays
 - conditions must be typed boolean expressions; integers and pointers need explicit comparison

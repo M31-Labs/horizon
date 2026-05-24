@@ -2,6 +2,7 @@ package validate
 
 import (
 	"fmt"
+	"strconv"
 
 	"m31labs.dev/horizon/compiler/diag"
 	"m31labs.dev/horizon/compiler/span"
@@ -35,9 +36,34 @@ func ValidateMaps(program ir.Program) []diag.Diagnostic {
 				Message:  fmt.Sprintf("unsupported map kind %q", m.Kind),
 			})
 		}
+		diags = append(diags, validateMapMaxEntries(m)...)
 	}
 	diags = append(diags, validateMapLookups(program)...)
 	return diags
+}
+
+func validateMapMaxEntries(m ir.Map) []diag.Diagnostic {
+	if m.MaxEntries == "" {
+		return nil
+	}
+	value, err := strconv.ParseUint(m.MaxEntries, 0, 32)
+	if err != nil || value == 0 {
+		return []diag.Diagnostic{{
+			Code:     "HZN2403",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("map %q max_entries must be a positive integer literal", m.Name),
+			Primary:  m.Span,
+		}}
+	}
+	if m.Kind == ir.MapKindRingbuf && value&(value-1) != 0 {
+		return []diag.Diagnostic{{
+			Code:     "HZN2404",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("ringbuf map %q max_entries must be a power of two", m.Name),
+			Primary:  m.Span,
+		}}
+	}
+	return nil
 }
 
 type lookupState struct {

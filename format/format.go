@@ -159,7 +159,10 @@ func (b *builder) decl(decl ast.Decl) {
 		line += " = " + expr(d.Value)
 		b.lineWithComment(line, d.Span.Start.Line)
 	case ast.MapDecl:
-		b.lineWithComment("map "+d.Name+" "+mapType(d), d.Span.Start.Line)
+		for _, attr := range d.Attrs {
+			b.lineWithComment(attrText(attr), attr.Span.Start.Line)
+		}
+		b.lineWithComment("map "+d.Name+" "+mapType(d), mapLine(d))
 	case ast.FuncDecl:
 		for _, attr := range d.Attrs {
 			b.lineWithComment(attrText(attr), attr.Span.Start.Line)
@@ -179,6 +182,16 @@ func (b *builder) decl(decl ast.Decl) {
 		b.indent--
 		b.lineWithComment("}", d.Span.End.Line)
 	}
+}
+
+func mapLine(decl ast.MapDecl) int {
+	if decl.Key.Span.Start.Line > 0 {
+		return decl.Key.Span.Start.Line
+	}
+	if decl.Val.Span.Start.Line > 0 {
+		return decl.Val.Span.Start.Line
+	}
+	return decl.Span.Start.Line
 }
 
 func funcHeaderLine(decl ast.FuncDecl) int {

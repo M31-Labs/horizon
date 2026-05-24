@@ -2,6 +2,7 @@ package types
 
 import (
 	"fmt"
+	"strconv"
 
 	"m31labs.dev/horizon/ast"
 	"m31labs.dev/horizon/compiler/diag"
@@ -170,6 +171,7 @@ func fixedArrayType(elem string, len string) ast.TypeRef {
 
 func validateMapDecl(decl ast.MapDecl, known map[string]bool) []diag.Diagnostic {
 	var diags []diag.Diagnostic
+	diags = append(diags, validateMapAttrs(decl)...)
 	switch decl.Kind {
 	case ast.MapKindRingbuf:
 		if decl.Val.IsZero() {
@@ -210,6 +212,74 @@ func validateMapDecl(decl ast.MapDecl, known map[string]bool) []diag.Diagnostic 
 		})
 	}
 	return diags
+}
+
+func validateMapAttrs(decl ast.MapDecl) []diag.Diagnostic {
+	var diags []diag.Diagnostic
+	seenMaxEntries := false
+	for _, attr := range decl.Attrs {
+		switch attr.Name {
+		case "max_entries":
+			if seenMaxEntries {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1208",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("map %q declares @max_entries more than once", decl.Name),
+					Primary:  attr.Span,
+				})
+				continue
+			}
+			seenMaxEntries = true
+			value, ok := mapMaxEntriesValue(attr)
+			if !ok {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1206",
+					Severity: diag.SeverityError,
+					Message:  "@max_entries requires one positive integer literal",
+					Primary:  attr.Span,
+					Suggest:  "write `@max_entries(4096)` above the map declaration",
+				})
+				continue
+			}
+			if decl.Kind == ast.MapKindRingbuf && !isPowerOfTwo(value) {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1207",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("ringbuf map %q @max_entries must be a power of two", decl.Name),
+					Primary:  attr.Span,
+					Suggest:  "use a power-of-two byte size such as 262144",
+				})
+			}
+		default:
+			diags = append(diags, diag.Diagnostic{
+				Code:     "HZN1205",
+				Severity: diag.SeverityError,
+				Message:  fmt.Sprintf("unsupported map attribute @%s", attr.Name),
+				Primary:  attr.Span,
+				Suggest:  "Horizon maps support @max_entries(...)",
+			})
+		}
+	}
+	return diags
+}
+
+func mapMaxEntriesValue(attr ast.Attr) (uint64, bool) {
+	if len(attr.Args) != 1 {
+		return 0, false
+	}
+	value, ok := attr.Args[0].(ast.IntExpr)
+	if !ok {
+		return 0, false
+	}
+	parsed, err := strconv.ParseUint(value.Value, 0, 32)
+	if err != nil || parsed == 0 {
+		return 0, false
+	}
+	return parsed, true
+}
+
+func isPowerOfTwo(value uint64) bool {
+	return value != 0 && value&(value-1) == 0
 }
 
 func validateConstDecl(decl ast.ConstDecl, known map[string]bool) []diag.Diagnostic {

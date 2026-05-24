@@ -34,10 +34,11 @@ type MapAccess struct {
 }
 
 type Map struct {
-	Name  string `json:"name"`
-	Kind  string `json:"kind"`
-	Key   string `json:"key,omitempty"`
-	Value string `json:"value,omitempty"`
+	Name       string `json:"name"`
+	Kind       string `json:"kind"`
+	Key        string `json:"key,omitempty"`
+	Value      string `json:"value,omitempty"`
+	MaxEntries string `json:"max_entries,omitempty"`
 }
 
 type TypeSchema struct {
