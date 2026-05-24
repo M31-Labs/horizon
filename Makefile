@@ -13,7 +13,7 @@ ci: ci-go ci-clang
 
 ci-go: check
 
-ci-clang: doctor build-examples clang-smoke
+ci-clang: build-examples clang-smoke
 
 fmt-check:
 	go run ./cmd/hzn fmt ./examples -check

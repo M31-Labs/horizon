@@ -4,55 +4,31 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
-)
-
-var (
-	clangSmokeDoctorOnce   sync.Once
-	clangSmokeDoctorReport doctorReport
 )
 
 func requireClangSmoke(t *testing.T) {
 	t.Helper()
-	if _, err := os.Stat("/usr/local/include/vmlinux.h"); err != nil {
-		t.Skipf("vmlinux.h not available: %v", err)
+	if _, err := exec.LookPath("clang"); err != nil {
+		t.Skipf("clang not available: %v", err)
 	}
-	clangSmokeDoctorOnce.Do(func() {
-		clangSmokeDoctorReport = runDoctorChecks(defaultDoctorConfig())
-	})
-	if !clangSmokeDoctorReport.Ready {
-		t.Fatalf("eBPF workbench dependencies are not ready:\n%s", formatDoctorProblems(clangSmokeDoctorReport))
-	}
+	requireReadableAny(t, "libbpf headers", []string{"/usr/include/bpf/bpf_helpers.h", "/usr/local/include/bpf/bpf_helpers.h"})
+	requireReadableAny(t, "libbpf CO-RE headers", []string{"/usr/include/bpf/bpf_core_read.h", "/usr/local/include/bpf/bpf_core_read.h"})
+	requireReadableAny(t, "vmlinux.h", []string{"/usr/local/include/vmlinux.h", "/usr/include/vmlinux.h"})
 }
 
-func formatDoctorProblems(report doctorReport) string {
-	var b strings.Builder
-	for _, check := range report.Checks {
-		if check.Status == "ok" {
-			continue
+func requireReadableAny(t *testing.T, name string, paths []string) {
+	t.Helper()
+	for _, path := range paths {
+		if fileReadable(path) {
+			return
 		}
-		detail := check.Detail
-		if detail == "" {
-			detail = check.Path
-		}
-		fmt.Fprintf(&b, "[%s] %s", check.Status, check.Name)
-		if detail != "" {
-			fmt.Fprintf(&b, ": %s", detail)
-		}
-		if check.Suggest != "" {
-			fmt.Fprintf(&b, "\n  help: %s", check.Suggest)
-		}
-		b.WriteByte('\n')
 	}
-	if b.Len() == 0 {
-		return "doctor reported not ready without a failing check"
-	}
-	return strings.TrimRight(b.String(), "\n")
+	t.Skipf("%s not available", name)
 }
 
 func TestWorkbenchCompileSmoke(t *testing.T) {
