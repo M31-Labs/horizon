@@ -1,6 +1,6 @@
 OUT ?= dist
 
-.PHONY: test check fmt-check doctor setup-vmlinux workbench build-example build-examples clang-smoke
+.PHONY: test check ci ci-go ci-clang fmt-check doctor setup-vmlinux workbench build-example build-examples clang-smoke
 
 test:
 	go test ./...
@@ -8,6 +8,12 @@ test:
 check:
 	go test ./...
 	go run ./cmd/hzn fmt ./examples -check
+
+ci: ci-go ci-clang
+
+ci-go: check
+
+ci-clang: doctor build-examples clang-smoke
 
 fmt-check:
 	go run ./cmd/hzn fmt ./examples -check

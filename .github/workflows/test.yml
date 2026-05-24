@@ -26,10 +26,8 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: '1.24.x'
-      - name: Check example formatting
-        run: go run ./cmd/hzn fmt ./examples -check
-      - name: Test Go packages
-        run: go test ./...
+      - name: Run Go CI
+        run: make ci-go
 
   clang-smoke:
     runs-on: ubuntu-latest
@@ -42,7 +40,8 @@ jobs:
       - name: Install clang/libbpf dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends clang llvm libbpf-dev
+          sudo env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a \
+            apt-get install -y -qq --no-install-recommends clang llvm libbpf-dev
       - name: Prepare vmlinux.h
         run: |
           set -euo pipefail
@@ -76,9 +75,5 @@ jobs:
               'struct trace_event_raw_sched_process_exec {};' |
               sudo tee /usr/local/include/vmlinux.h >/dev/null
           fi
-      - name: Check eBPF toolchain
-        run: go run ./cmd/hzn doctor
-      - name: Build examples with clang
-        run: make build-examples OUT=/tmp/horizon-ci
-      - name: Run clang smoke tests
-        run: make clang-smoke
+      - name: Run clang CI
+        run: make ci-clang OUT=/tmp/horizon-ci
