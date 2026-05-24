@@ -11,6 +11,7 @@ It keeps the kernel-side language deliberately small:
 - kprobe and kretprobe programs
 - XDP programs
 - typed structs and fixed arrays
+- package-scoped declarations across multiple `.hzn` files
 - integer constants
 - ringbuf event output
 - hash and array maps

@@ -10,6 +10,11 @@ import (
 func FromAST(file ast.File) (Program, []diag.Diagnostic) {
 	program := Program{Package: file.Package}
 	var diags []diag.Diagnostic
+	type functionDecl struct {
+		Decl ast.FuncDecl
+		Func Function
+	}
+	var funcs []functionDecl
 	for _, decl := range file.Decls {
 		switch d := decl.(type) {
 		case ast.TypeDecl:
@@ -19,10 +24,15 @@ func FromAST(file ast.File) (Program, []diag.Diagnostic) {
 		case ast.MapDecl:
 			program.Maps = append(program.Maps, buildMap(d))
 		case ast.FuncDecl:
-			fn := buildFunction(d)
-			program.Functions = append(program.Functions, fn)
-			program.Capabilities = append(program.Capabilities, buildCapabilities(d, fn, program.Maps)...)
+			funcs = append(funcs, functionDecl{
+				Decl: d,
+				Func: buildFunction(d),
+			})
 		}
+	}
+	for _, fn := range funcs {
+		program.Functions = append(program.Functions, fn.Func)
+		program.Capabilities = append(program.Capabilities, buildCapabilities(fn.Decl, fn.Func, program.Maps)...)
 	}
 	return program, diags
 }
@@ -40,7 +50,34 @@ func Merge(programs ...Program) Program {
 		merged.Capabilities = append(merged.Capabilities, program.Capabilities...)
 		merged.SourceMap.Mappings = append(merged.SourceMap.Mappings, program.SourceMap.Mappings...)
 	}
+	merged.Capabilities = refreshCapabilityAccesses(merged)
 	return merged
+}
+
+func refreshCapabilityAccesses(program Program) []Capability {
+	if len(program.Capabilities) == 0 {
+		return nil
+	}
+	functions := map[string]Function{}
+	for _, fn := range program.Functions {
+		functions[fn.Name] = fn
+	}
+	out := make([]Capability, 0, len(program.Capabilities))
+	for _, cap := range program.Capabilities {
+		if fn, ok := functions[cap.Program]; ok {
+			access := mapAccesses(fn, program.Maps)
+			cap.Maps = access.Maps
+			cap.Emits = access.Emits
+			if cap.Section == "" {
+				cap.Section = manifestSection(fn.Section)
+			}
+			if cap.Danger == "" {
+				cap.Danger = inferDanger(fn)
+			}
+		}
+		out = append(out, cap)
+	}
+	return out
 }
 
 func buildConst(decl ast.ConstDecl) Const {

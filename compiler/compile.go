@@ -31,8 +31,8 @@ func AnalyzePath(root string) (*Result, error) {
 		return nil, err
 	}
 	var result Result
-	var programs []ir.Program
 	packageName := ""
+	files := make([]ast.File, 0, len(paths))
 	for _, path := range paths {
 		parsed, err := parser.ParsePath(path)
 		if err != nil {
@@ -42,30 +42,48 @@ func AnalyzePath(root string) (*Result, error) {
 		if err != nil {
 			return nil, err
 		}
-		diags := htypes.Check(*file)
-		if packageName == "" {
-			packageName = file.Package
-		} else if file.Package != "" && file.Package != packageName {
-			diags = append(diags, diag.Diagnostic{
-				Code:     "HZN1003",
-				Severity: diag.SeverityError,
-				Message:  "all files in a Horizon package must use the same package declaration",
-				Primary:  file.Span,
-			})
-		}
-		program, lowerDiags := ir.FromAST(*file)
-		diags = append(diags, lowerDiags...)
-		programs = append(programs, program)
+		files = append(files, *file)
 		result.Files = append(result.Files, FileResult{
-			Path:        path,
-			Package:     file.Package,
-			Diagnostics: diags,
+			Path:    path,
+			Package: file.Package,
 		})
+	}
+	typeDiags := htypes.CheckPackage(files)
+	for i, file := range files {
+		diags := append([]diag.Diagnostic{}, typeDiags[i]...)
+		if file.Package != "" {
+			if packageName == "" {
+				packageName = file.Package
+			} else if file.Package != packageName {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1003",
+					Severity: diag.SeverityError,
+					Message:  "all files in a Horizon package must use the same package declaration",
+					Primary:  file.Span,
+				})
+			}
+		}
+		result.Files[i].Diagnostics = diags
 		result.Diagnostics = append(result.Diagnostics, diags...)
 	}
-	result.Program = ir.Merge(programs...)
+	program, lowerDiags := ir.FromAST(mergeASTFiles(files, packageName))
+	result.Program = program
+	result.Diagnostics = append(result.Diagnostics, lowerDiags...)
 	if !diag.HasErrors(result.Diagnostics) {
 		result.Diagnostics = append(result.Diagnostics, validate.Program(result.Program)...)
 	}
 	return &result, nil
+}
+
+func mergeASTFiles(files []ast.File, packageName string) ast.File {
+	var merged ast.File
+	merged.Package = packageName
+	if len(files) > 0 {
+		merged.Span = files[0].Span
+	}
+	for _, file := range files {
+		merged.Imports = append(merged.Imports, file.Imports...)
+		merged.Decls = append(merged.Decls, file.Decls...)
+	}
+	return merged
 }

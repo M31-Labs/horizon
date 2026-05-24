@@ -27,6 +27,82 @@ func TestAnalyzeExecwatchPasses(t *testing.T) {
 	}
 }
 
+func TestAnalyzeMultiFilePackageUsesSharedDeclarations(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a_program.hzn"), []byte(`package probes
+
+@capability("kernel.process.exec.observe")
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    event := Events.reserve()
+    if event == nil {
+        return 0
+    }
+    event.pid = bpf.current_pid()
+    Events.submit(event)
+    return 0
+}
+`), 0o600); err != nil {
+		t.Fatalf("WriteFile program: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "z_events.hzn"), []byte(`package probes
+
+type Event struct {
+    pid u32
+}
+
+map Events ringbuf[Event]
+`), 0o600); err != nil {
+		t.Fatalf("WriteFile events: %v", err)
+	}
+	result, err := AnalyzePath(dir)
+	if err != nil {
+		t.Fatalf("AnalyzePath: %v", err)
+	}
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+	if len(result.Program.Structs) != 1 || result.Program.Structs[0].Name != "Event" {
+		t.Fatalf("structs = %#v, want Event from package file", result.Program.Structs)
+	}
+	if len(result.Program.Maps) != 1 || result.Program.Maps[0].Name != "Events" {
+		t.Fatalf("maps = %#v, want Events from package file", result.Program.Maps)
+	}
+	manifest := capability.FromIR(result.Program)
+	if len(manifest.Capabilities) != 1 {
+		t.Fatalf("capabilities = %#v, want one", manifest.Capabilities)
+	}
+	capability := manifest.Capabilities[0]
+	if capability.Emits != "Event" || !slices.Contains(capability.Maps.Events, "Events") {
+		t.Fatalf("capability = %#v, want Event emitted through Events", capability)
+	}
+}
+
+func TestAnalyzeRejectsDuplicateDeclarationsAcrossFiles(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.hzn"), []byte(`package probes
+
+type Event struct {
+    pid u32
+}
+`), 0o600); err != nil {
+		t.Fatalf("WriteFile a: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "b.hzn"), []byte(`package probes
+
+type Event struct {
+    uid u32
+}
+`), 0o600); err != nil {
+		t.Fatalf("WriteFile b: %v", err)
+	}
+	result, err := AnalyzePath(dir)
+	if err != nil {
+		t.Fatalf("AnalyzePath: %v", err)
+	}
+	requireDiagnosticCode(t, result, "HZN1002")
+}
+
 func TestAnalyzeInvalidRingbufPrograms(t *testing.T) {
 	tests := map[string]string{
 		"../testdata/invalid/ringbuf_missing_nil_check.hzn":  "HZN2100",

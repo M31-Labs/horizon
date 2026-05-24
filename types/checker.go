@@ -9,59 +9,71 @@ import (
 )
 
 func Check(file ast.File) []diag.Diagnostic {
+	diags := CheckPackage([]ast.File{file})
+	if len(diags) == 0 {
+		return nil
+	}
+	return diags[0]
+}
+
+func CheckPackage(files []ast.File) [][]diag.Diagnostic {
+	diags := make([][]diag.Diagnostic, len(files))
 	env := NewEnv()
-	var diags []diag.Diagnostic
 	knownTypes := builtinTypes()
 	structs := builtinStructs()
 	maps := map[string]ast.MapDecl{}
 	consts := map[string]ast.ConstDecl{}
-	if file.Package == "" {
-		diags = append(diags, diag.Diagnostic{
-			Code:     "HZN1001",
-			Severity: diag.SeverityError,
-			Message:  "missing package declaration",
-			Primary:  file.Span,
-		})
-	}
-	for _, decl := range file.Decls {
-		name := declName(decl)
-		if name == "" {
-			continue
-		}
-		if prev, ok := env.Decl(name); ok {
-			diags = append(diags, diag.Diagnostic{
-				Code:     "HZN1002",
+	for i, file := range files {
+		if file.Package == "" {
+			diags[i] = append(diags[i], diag.Diagnostic{
+				Code:     "HZN1001",
 				Severity: diag.SeverityError,
-				Message:  fmt.Sprintf("duplicate declaration %q", name),
-				Primary:  decl.GetSpan(),
-				Notes:    []string{fmt.Sprintf("previous declaration at line %d", prev.GetSpan().Start.Line)},
+				Message:  "missing package declaration",
+				Primary:  file.Span,
 			})
-			continue
 		}
-		env.Add(name, decl)
-		if typed, ok := decl.(ast.TypeDecl); ok && typed.Name != "" {
-			knownTypes[typed.Name] = true
-			structs[typed.Name] = typed
-		}
-		if mapped, ok := decl.(ast.MapDecl); ok && mapped.Name != "" {
-			maps[mapped.Name] = mapped
-		}
-		if constant, ok := decl.(ast.ConstDecl); ok && constant.Name != "" {
-			consts[constant.Name] = constant
+		for _, decl := range file.Decls {
+			name := declName(decl)
+			if name == "" {
+				continue
+			}
+			if prev, ok := env.Decl(name); ok {
+				diags[i] = append(diags[i], diag.Diagnostic{
+					Code:     "HZN1002",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("duplicate declaration %q", name),
+					Primary:  decl.GetSpan(),
+					Notes:    []string{fmt.Sprintf("previous declaration at line %d", prev.GetSpan().Start.Line)},
+				})
+				continue
+			}
+			env.Add(name, decl)
+			if typed, ok := decl.(ast.TypeDecl); ok && typed.Name != "" {
+				knownTypes[typed.Name] = true
+				structs[typed.Name] = typed
+			}
+			if mapped, ok := decl.(ast.MapDecl); ok && mapped.Name != "" {
+				maps[mapped.Name] = mapped
+			}
+			if constant, ok := decl.(ast.ConstDecl); ok && constant.Name != "" {
+				consts[constant.Name] = constant
+			}
 		}
 	}
-	for _, decl := range file.Decls {
-		switch d := decl.(type) {
-		case ast.TypeDecl:
-			for _, field := range d.Fields {
-				diags = append(diags, validateTypeRef(field.Type, knownTypes)...)
+	for i, file := range files {
+		for _, decl := range file.Decls {
+			switch d := decl.(type) {
+			case ast.TypeDecl:
+				for _, field := range d.Fields {
+					diags[i] = append(diags[i], validateTypeRef(field.Type, knownTypes)...)
+				}
+			case ast.MapDecl:
+				diags[i] = append(diags[i], validateMapDecl(d, knownTypes)...)
+			case ast.FuncDecl:
+				diags[i] = append(diags[i], validateFuncDecl(d, knownTypes, maps, structs, consts)...)
+			case ast.ConstDecl:
+				diags[i] = append(diags[i], validateConstDecl(d)...)
 			}
-		case ast.MapDecl:
-			diags = append(diags, validateMapDecl(d, knownTypes)...)
-		case ast.FuncDecl:
-			diags = append(diags, validateFuncDecl(d, knownTypes, maps, structs, consts)...)
-		case ast.ConstDecl:
-			diags = append(diags, validateConstDecl(d)...)
 		}
 	}
 	return diags
