@@ -4,6 +4,7 @@ import (
 	"flag"
 
 	"m31labs.dev/horizon/capability"
+	"m31labs.dev/horizon/compiler/diag"
 )
 
 func runCapabilities(args []string) error {
@@ -18,6 +19,10 @@ func runCapabilities(args []string) error {
 	}
 	manifest := capability.FromIR(result.Program)
 	if err := capability.Validate(manifest); err != nil {
+		if d, ok := capability.DiagnosticForError(err); ok {
+			printDiagnostics([]diag.Diagnostic{d})
+			return errDiagnostics(1)
+		}
 		return err
 	}
 	return writeJSON(*outPath, manifest)

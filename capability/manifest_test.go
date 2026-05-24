@@ -3,6 +3,7 @@ package capability
 import (
 	"testing"
 
+	"m31labs.dev/horizon/compiler/diag"
 	"m31labs.dev/horizon/ir"
 )
 
@@ -191,6 +192,54 @@ func TestValidateRejectsInvalidTypeLayoutMetadata(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			if err := Validate(manifest); err == nil {
 				t.Fatal("Validate succeeded, want layout metadata error")
+			}
+		})
+	}
+}
+
+func TestValidateRejectsUnsupportedEnumValues(t *testing.T) {
+	tests := map[string]Manifest{
+		"program kind": {
+			Schema:       SchemaV0,
+			Package:      "probes",
+			Programs:     []Program{{Name: "OnExec", Kind: "tc", Section: "tc/ingress"}},
+			Capabilities: []Capability{},
+		},
+		"map kind": {
+			Schema:       SchemaV0,
+			Package:      "probes",
+			Maps:         []Map{{Name: "Events", Kind: "queue", Value: "u32"}},
+			Capabilities: []Capability{},
+		},
+		"type kind": {
+			Schema:       SchemaV0,
+			Package:      "probes",
+			Types:        []TypeSchema{{Name: "Event", Kind: "union"}},
+			Capabilities: []Capability{},
+		},
+		"capability kind": {
+			Schema:       SchemaV0,
+			Package:      "probes",
+			Capabilities: []Capability{{Name: "kernel.process.exec.observe", Kind: "sink", Danger: "observe", Program: "OnExec", Section: "tracepoint/sched/sched_process_exec"}},
+		},
+		"danger": {
+			Schema:       SchemaV0,
+			Package:      "probes",
+			Capabilities: []Capability{{Name: "kernel.process.exec.observe", Kind: "source", Danger: "destroy", Program: "OnExec", Section: "tracepoint/sched/sched_process_exec"}},
+		},
+	}
+	for name, manifest := range tests {
+		t.Run(name, func(t *testing.T) {
+			err := Validate(manifest)
+			if err == nil {
+				t.Fatal("Validate succeeded, want enum validation error")
+			}
+			d, ok := DiagnosticForError(err)
+			if !ok {
+				t.Fatalf("DiagnosticForError(%T) = false", err)
+			}
+			if d.Code != "HZN3300" || d.Severity != diag.SeverityError {
+				t.Fatalf("diagnostic = %#v, want HZN3300 error", d)
 			}
 		})
 	}

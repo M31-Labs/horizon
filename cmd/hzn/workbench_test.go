@@ -376,6 +376,70 @@ func TestWorkbenchReportsBindgenDiagnostics(t *testing.T) {
 	}
 }
 
+func TestWorkbenchReportsCapabilityDiagnostics(t *testing.T) {
+	outDir := t.TempDir()
+	sourcePath := filepath.Join(t.TempDir(), "badcap.hzn")
+	if err := os.WriteFile(sourcePath, []byte("package probes\n"), 0o600); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	result := &compiler.Result{
+		Files: []compiler.FileResult{{Path: sourcePath, Package: "probes"}},
+		Program: ir.Program{
+			Package: "probes",
+			Functions: []ir.Function{{
+				Name:    "OnExec",
+				Section: ir.Section{Kind: ir.ProgramTracepoint, Name: "tracepoint/sched/sched_process_exec", Attach: "sched:sched_process_exec"},
+				Body: []ir.Block{{
+					Statements: []ir.Statement{{Kind: "return", Value: &ir.Expr{Kind: "int", Value: "0"}}},
+				}},
+			}},
+			Capabilities: []ir.Capability{{
+				Name:    "kernel.process.exec.observe",
+				Kind:    ir.CapabilitySource,
+				Danger:  ir.DangerLevel("destroy"),
+				Program: "OnExec",
+				Section: "tracepoint/sched/sched_process_exec",
+			}},
+		},
+	}
+
+	report, err := writeWorkbenchArtifacts(result, workbenchOptions{OutDir: outDir})
+	if err == nil {
+		t.Fatal("writeWorkbenchArtifacts succeeded, want capability error")
+	}
+	if report.Status != "capability_error" {
+		t.Fatalf("status = %q, want capability_error", report.Status)
+	}
+	if report.DiagnosticCount != 1 || !hasDiagnosticCode(report.Diagnostics, "HZN3300") {
+		t.Fatalf("diagnostics = %#v, want HZN3300", report.Diagnostics)
+	}
+	for _, name := range []string{
+		"badcap.bpf.c",
+		"badcap.hznmap.json",
+		"badcap.bindings.go",
+		"badcap.diagnostics.json",
+		"badcap.report.json",
+	} {
+		if _, err := os.Stat(filepath.Join(outDir, name)); err != nil {
+			t.Fatalf("missing capability failure artifact %s: %v", name, err)
+		}
+	}
+	for _, name := range []string{
+		"badcap.cap.json",
+		"badcap.bpf.o",
+	} {
+		if _, err := os.Stat(filepath.Join(outDir, name)); !os.IsNotExist(err) {
+			t.Fatalf("downstream artifact %s should not exist for capability error: %v", name, err)
+		}
+	}
+	for _, kind := range []string{"bpf_c", "source_map", "bindings", "diagnostics"} {
+		assertArtifactDetail(t, report, kind)
+	}
+	if _, ok := artifactDetailByKind(report.ArtifactDetails, "capabilities"); ok {
+		t.Fatalf("artifact details include capabilities on capability error: %#v", report.ArtifactDetails)
+	}
+}
+
 func TestWorkbenchReportsClangDiagnostics(t *testing.T) {
 	outDir := t.TempDir()
 	fakeBin := t.TempDir()

@@ -201,6 +201,21 @@ func writeWorkbenchArtifacts(result *compiler.Result, opts workbenchOptions) (wo
 	}
 	manifest := capability.FromIR(result.Program)
 	if err := capability.Validate(manifest); err != nil {
+		if d, ok := capability.DiagnosticForError(err); ok {
+			report.Status = "capability_error"
+			report.Diagnostics = append(report.Diagnostics, d)
+			report.DiagnosticCount = len(report.Diagnostics)
+			report.Artifacts = []string{paths.C, paths.SourceMap, paths.Bindings, paths.Diagnostics, paths.Report}
+			if writeErr := writeJSON(paths.Diagnostics, report.Diagnostics); writeErr != nil {
+				return report, writeErr
+			}
+			if writeErr := addArtifactDetails(&report, paths); writeErr != nil {
+				return report, writeErr
+			}
+			if writeErr := writeJSON(paths.Report, report); writeErr != nil {
+				return report, writeErr
+			}
+		}
 		return report, err
 	}
 	if err := writeJSON(paths.Capabilities, manifest); err != nil {
