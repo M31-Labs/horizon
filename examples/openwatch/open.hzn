@@ -1,0 +1,27 @@
+package probes
+
+import bpf "m31labs.dev/horizon/runtime/kernel"
+
+type OpenEvent struct {
+    pid  u32
+    uid  u32
+    comm [16]u8
+}
+
+map OpenEvents ringbuf[OpenEvent]
+
+@capability("kernel.file.open.observe")
+@kprobe("do_sys_openat2")
+func OnOpen(ctx kprobe.Context) i32 {
+    event := OpenEvents.reserve()
+    if event == nil {
+        return 0
+    }
+
+    event.pid = bpf.current_pid()
+    event.uid = bpf.current_uid()
+    bpf.current_comm(&event.comm)
+
+    OpenEvents.submit(event)
+    return 0
+}

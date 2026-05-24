@@ -140,6 +140,8 @@ hzn workbench ./examples/execwatch -o dist
 hzn workbench ./examples/execwatch -o dist -compile
 hzn build ./examples/execwatch -o dist
 go run ./examples/execwatch/cmd/execwatch -obj dist/exec.bpf.o
+hzn build ./examples/openwatch -o dist
+sudo go run ./examples/openwatch/cmd/openwatch -obj dist/open.bpf.o
 hzn build ./examples/xdpdrop -o dist
 sudo go run ./examples/xdpdrop/cmd/xdpdrop -obj dist/xdp.bpf.o -iface lo
 hzn diagnose dist/exec.verifier.log --map dist/exec.hznmap.json
