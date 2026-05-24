@@ -368,8 +368,10 @@ longer matches Horizon's ABI model.
 Capability manifests include programs, map access, emitted event names, map key
 and value types, and struct size/align/field-offset schemas for declared
 Horizon types. They also include minimum kernel requirements for program types,
-map kinds, and compiler-known helpers, so Continuum consumers can inspect what a
-program observes, emits, and needs from a target host without parsing BPF C.
+map kinds, and compiler-known helpers, plus deploy-time permission and host
+feature requirements for attach surfaces such as tracefs, XDP, tc, cgroup v2,
+and BPF LSM. Continuum consumers can inspect what a program observes, emits, and
+needs from a target host without parsing BPF C.
 Compiler-known helpers stay explicit: `bpf.ktime_get_ns()` lowers to
 `bpf_ktime_get_ns()` and returns a typed `u64` monotonic kernel timestamp.
 `bpf.current_ppid()` lowers through a typed CO-RE task read, so the generated C

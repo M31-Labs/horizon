@@ -74,6 +74,13 @@
             "name": "bpf_ringbuf_submit",
             "min_kernel": "5.8"
           }
+        ],
+        "permissions": [
+          "bpf_program_load",
+          "perf_event_open"
+        ],
+        "features": [
+          "tracefs"
         ]
       }
     }
@@ -167,6 +174,13 @@
         "name": "bpf_ringbuf_submit",
         "min_kernel": "5.8"
       }
+    ],
+    "permissions": [
+      "bpf_program_load",
+      "perf_event_open"
+    ],
+    "features": [
+      "tracefs"
     ]
   }
 }

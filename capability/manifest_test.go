@@ -244,6 +244,9 @@ func TestFromIRIncludesKernelRequirements(t *testing.T) {
 	requireFeature(t, m.Requirements.Helpers, "bpf_ktime_get_ns", "4.1")
 	requireFeature(t, m.Requirements.Helpers, "bpf_ringbuf_reserve", "5.8")
 	requireFeature(t, m.Requirements.Helpers, "bpf_ringbuf_submit", "5.8")
+	requireString(t, m.Requirements.Permissions, "bpf_program_load")
+	requireString(t, m.Requirements.Permissions, "perf_event_open")
+	requireString(t, m.Requirements.Features, "tracefs")
 
 	if len(m.Capabilities) != 1 || m.Capabilities[0].Requirements == nil {
 		t.Fatalf("capabilities = %#v, want per-capability requirements", m.Capabilities)
@@ -257,6 +260,9 @@ func TestFromIRIncludesKernelRequirements(t *testing.T) {
 	rejectFeature(t, capReqs.Maps, "lru_percpu_hash")
 	requireFeature(t, capReqs.Helpers, "bpf_probe_read_user_str", "5.5")
 	requireFeature(t, capReqs.Helpers, "bpf_ringbuf_submit", "5.8")
+	requireString(t, capReqs.Permissions, "bpf_program_load")
+	requireString(t, capReqs.Permissions, "perf_event_open")
+	requireString(t, capReqs.Features, "tracefs")
 }
 
 func requireFeature(t *testing.T, items []FeatureRequirement, name string, minKernel string) {
@@ -278,6 +284,91 @@ func rejectFeature(t *testing.T, items []FeatureRequirement, name string) {
 		if item.Name == name {
 			t.Fatalf("requirements include unexpected %s in %#v", name, items)
 		}
+	}
+}
+
+func requireString(t *testing.T, items []string, want string) {
+	t.Helper()
+	for _, item := range items {
+		if item == want {
+			return
+		}
+	}
+	t.Fatalf("requirements missing %q in %#v", want, items)
+}
+
+func TestFromIRIncludesProgramRuntimeRequirements(t *testing.T) {
+	tests := []struct {
+		name        string
+		kind        ir.ProgramKind
+		permissions []string
+		features    []string
+	}{
+		{
+			name:        "tracepoint",
+			kind:        ir.ProgramTracepoint,
+			permissions: []string{"bpf_program_load", "perf_event_open"},
+			features:    []string{"tracefs"},
+		},
+		{
+			name:        "kprobe",
+			kind:        ir.ProgramKprobe,
+			permissions: []string{"bpf_program_load", "perf_event_open"},
+			features:    []string{"kprobes", "tracefs"},
+		},
+		{
+			name:        "kretprobe",
+			kind:        ir.ProgramKretprobe,
+			permissions: []string{"bpf_program_load", "perf_event_open"},
+			features:    []string{"kprobes", "tracefs"},
+		},
+		{
+			name:        "xdp",
+			kind:        ir.ProgramXDP,
+			permissions: []string{"bpf_program_load", "net_admin"},
+			features:    []string{"netdev_xdp"},
+		},
+		{
+			name:        "tc",
+			kind:        ir.ProgramTC,
+			permissions: []string{"bpf_program_load", "net_admin"},
+			features:    []string{"tc_clsact"},
+		},
+		{
+			name:        "cgroup",
+			kind:        ir.ProgramCgroup,
+			permissions: []string{"bpf_program_load", "cgroup_admin"},
+			features:    []string{"cgroup_v2"},
+		},
+		{
+			name:        "lsm",
+			kind:        ir.ProgramLSM,
+			permissions: []string{"bpf_program_load", "lsm_admin"},
+			features:    []string{"bpf_lsm"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := FromIR(ir.Program{
+				Package: "probes",
+				Functions: []ir.Function{{
+					Name:    "Program",
+					Section: ir.Section{Kind: tt.kind, Attach: "attach"},
+				}},
+			})
+			if err := Validate(m); err != nil {
+				t.Fatalf("Validate: %v", err)
+			}
+			if m.Requirements == nil {
+				t.Fatal("requirements = nil, want runtime requirements")
+			}
+			for _, permission := range tt.permissions {
+				requireString(t, m.Requirements.Permissions, permission)
+			}
+			for _, feature := range tt.features {
+				requireString(t, m.Requirements.Features, feature)
+			}
+		})
 	}
 }
 
@@ -397,6 +488,38 @@ func TestValidateRejectsUnsupportedEnumValues(t *testing.T) {
 			Requirements: &Requirements{
 				MinKernel: "4.1",
 				Maps:      []FeatureRequirement{{Name: "ringbuf", MinKernel: "5.8"}},
+			},
+		},
+		"unknown permission requirement": {
+			Schema:       SchemaV0,
+			Package:      "probes",
+			Capabilities: []Capability{},
+			Requirements: &Requirements{
+				Permissions: []string{"root"},
+			},
+		},
+		"duplicate permission requirement": {
+			Schema:       SchemaV0,
+			Package:      "probes",
+			Capabilities: []Capability{},
+			Requirements: &Requirements{
+				Permissions: []string{"bpf_program_load", "bpf_program_load"},
+			},
+		},
+		"unknown feature requirement": {
+			Schema:       SchemaV0,
+			Package:      "probes",
+			Capabilities: []Capability{},
+			Requirements: &Requirements{
+				Features: []string{"debugfs"},
+			},
+		},
+		"duplicate feature requirement": {
+			Schema:       SchemaV0,
+			Package:      "probes",
+			Capabilities: []Capability{},
+			Requirements: &Requirements{
+				Features: []string{"tracefs", "tracefs"},
 			},
 		},
 		"capability requirement": {

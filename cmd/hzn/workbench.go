@@ -113,6 +113,8 @@ type workbenchSummary struct {
 	MapKinds          []string `json:"map_kinds,omitempty"`
 	CapabilityDangers []string `json:"capability_dangers,omitempty"`
 	MinKernel         string   `json:"min_kernel,omitempty"`
+	Permissions       []string `json:"permissions,omitempty"`
+	Features          []string `json:"features,omitempty"`
 }
 
 type artifactPaths struct {
@@ -345,6 +347,8 @@ func (s *workbenchSummary) applyManifest(manifest capability.Manifest) {
 		return
 	}
 	s.MinKernel = manifest.Requirements.MinKernel
+	s.Permissions = append([]string(nil), manifest.Requirements.Permissions...)
+	s.Features = append([]string(nil), manifest.Requirements.Features...)
 }
 
 func sortedKeys(values map[string]bool) []string {

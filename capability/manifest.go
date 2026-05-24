@@ -58,10 +58,12 @@ type FieldSchema struct {
 }
 
 type Requirements struct {
-	MinKernel string               `json:"min_kernel,omitempty"`
-	Programs  []FeatureRequirement `json:"programs,omitempty"`
-	Maps      []FeatureRequirement `json:"maps,omitempty"`
-	Helpers   []FeatureRequirement `json:"helpers,omitempty"`
+	MinKernel   string               `json:"min_kernel,omitempty"`
+	Programs    []FeatureRequirement `json:"programs,omitempty"`
+	Maps        []FeatureRequirement `json:"maps,omitempty"`
+	Helpers     []FeatureRequirement `json:"helpers,omitempty"`
+	Permissions []string             `json:"permissions,omitempty"`
+	Features    []string             `json:"features,omitempty"`
 }
 
 type FeatureRequirement struct {

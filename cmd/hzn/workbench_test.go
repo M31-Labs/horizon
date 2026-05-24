@@ -677,6 +677,12 @@ func assertExecWorkbenchSummary(t *testing.T, report workbenchReport) {
 	if summary.MinKernel != "5.8" {
 		t.Fatalf("min_kernel = %q, want 5.8", summary.MinKernel)
 	}
+	if !artifactsContain(summary.Permissions, "bpf_program_load") || !artifactsContain(summary.Permissions, "perf_event_open") {
+		t.Fatalf("permissions = %#v, want bpf_program_load and perf_event_open", summary.Permissions)
+	}
+	if !artifactsContain(summary.Features, "tracefs") {
+		t.Fatalf("features = %#v, want tracefs", summary.Features)
+	}
 }
 
 func assertReportProvenance(t *testing.T, report workbenchReport) {

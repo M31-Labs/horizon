@@ -307,6 +307,12 @@ func validateRequirements(reqs *Requirements) error {
 			}
 		}
 	}
+	if err := validateStringRequirements("permission", reqs.Permissions, validPermissionRequirement); err != nil {
+		return err
+	}
+	if err := validateStringRequirements("feature", reqs.Features, validHostFeatureRequirement); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -333,6 +339,23 @@ func validateFeatureRequirements(kind string, items []FeatureRequirement, valid 
 	return nil
 }
 
+func validateStringRequirements(kind string, items []string, valid func(string) bool) error {
+	seen := map[string]bool{}
+	for _, item := range items {
+		if item == "" {
+			return validationErrorf("%s requirement name is required", kind)
+		}
+		if !valid(item) {
+			return validationErrorf("%s requirement %q is not supported", kind, item)
+		}
+		if seen[item] {
+			return validationErrorf("%s requirement %q is declared more than once", kind, item)
+		}
+		seen[item] = true
+	}
+	return nil
+}
+
 func validKernelVersion(version string) bool {
 	_, _, ok := parseKernelVersion(version)
 	return ok
@@ -340,6 +363,24 @@ func validKernelVersion(version string) bool {
 
 func validHelperRequirement(name string) bool {
 	return helperMinKernel(name) != ""
+}
+
+func validPermissionRequirement(name string) bool {
+	switch name {
+	case "bpf_program_load", "cgroup_admin", "lsm_admin", "net_admin", "perf_event_open":
+		return true
+	default:
+		return false
+	}
+}
+
+func validHostFeatureRequirement(name string) bool {
+	switch name {
+	case "bpf_lsm", "cgroup_v2", "kprobes", "netdev_xdp", "tc_clsact", "tracefs":
+		return true
+	default:
+		return false
+	}
 }
 
 func validateTypeRefs(typeName string, known map[string]bool) error {

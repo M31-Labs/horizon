@@ -11,7 +11,7 @@ import (
 func requirementsFromIR(program ir.Program) Requirements {
 	var reqs requirementBuilder
 	for _, fn := range program.Functions {
-		reqs.addProgram(string(fn.Section.Kind), programMinKernel(fn.Section.Kind))
+		reqs.addProgram(fn.Section.Kind)
 		reqs.walkFunction(fn)
 	}
 	for _, m := range program.Maps {
@@ -22,7 +22,7 @@ func requirementsFromIR(program ir.Program) Requirements {
 
 func requirementsForCapability(program ir.Program, cap ir.Capability, fn ir.Function) Requirements {
 	var reqs requirementBuilder
-	reqs.addProgram(string(fn.Section.Kind), programMinKernel(fn.Section.Kind))
+	reqs.addProgram(fn.Section.Kind)
 	reqs.walkFunction(fn)
 	maps := mapsByName(program.Maps)
 	for _, name := range capabilityMapNames(cap.Maps) {
@@ -58,19 +58,31 @@ func capabilityMapNames(access ir.CapabilityMapAccess) []string {
 }
 
 type requirementBuilder struct {
-	programs map[string]string
-	maps     map[string]string
-	helpers  map[string]string
+	programs    map[string]string
+	maps        map[string]string
+	helpers     map[string]string
+	permissions map[string]bool
+	features    map[string]bool
 }
 
-func (b *requirementBuilder) addProgram(name string, minKernel string) {
-	if name == "" || minKernel == "" {
+func (b *requirementBuilder) addProgram(kind ir.ProgramKind) {
+	name := string(kind)
+	minKernel := programMinKernel(kind)
+	if name == "" {
 		return
 	}
-	if b.programs == nil {
-		b.programs = map[string]string{}
+	if minKernel != "" {
+		if b.programs == nil {
+			b.programs = map[string]string{}
+		}
+		b.programs[name] = maxKernelVersion(b.programs[name], minKernel)
 	}
-	b.programs[name] = maxKernelVersion(b.programs[name], minKernel)
+	for _, permission := range programPermissions(kind) {
+		b.addPermission(permission)
+	}
+	for _, feature := range programFeatures(kind) {
+		b.addFeature(feature)
+	}
 }
 
 func (b *requirementBuilder) addMap(name string, minKernel string) {
@@ -93,11 +105,33 @@ func (b *requirementBuilder) addHelper(name string, minKernel string) {
 	b.helpers[name] = maxKernelVersion(b.helpers[name], minKernel)
 }
 
+func (b *requirementBuilder) addPermission(name string) {
+	if name == "" {
+		return
+	}
+	if b.permissions == nil {
+		b.permissions = map[string]bool{}
+	}
+	b.permissions[name] = true
+}
+
+func (b *requirementBuilder) addFeature(name string) {
+	if name == "" {
+		return
+	}
+	if b.features == nil {
+		b.features = map[string]bool{}
+	}
+	b.features[name] = true
+}
+
 func (b *requirementBuilder) build() Requirements {
 	reqs := Requirements{
-		Programs: featureRequirements(b.programs),
-		Maps:     featureRequirements(b.maps),
-		Helpers:  featureRequirements(b.helpers),
+		Programs:    featureRequirements(b.programs),
+		Maps:        featureRequirements(b.maps),
+		Helpers:     featureRequirements(b.helpers),
+		Permissions: sortedSet(b.permissions),
+		Features:    sortedSet(b.features),
 	}
 	reqs.MinKernel = maxRequirementKernel(reqs)
 	return reqs
@@ -116,6 +150,18 @@ func featureRequirements(in map[string]string) []FeatureRequirement {
 	for _, name := range names {
 		out = append(out, FeatureRequirement{Name: name, MinKernel: in[name]})
 	}
+	return out
+}
+
+func sortedSet(in map[string]bool) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(in))
+	for item := range in {
+		out = append(out, item)
+	}
+	sort.Strings(out)
 	return out
 }
 
@@ -247,6 +293,42 @@ func programMinKernel(kind ir.ProgramKind) string {
 		return "5.7"
 	default:
 		return ""
+	}
+}
+
+func programPermissions(kind ir.ProgramKind) []string {
+	switch kind {
+	case ir.ProgramTracepoint:
+		return []string{"bpf_program_load", "perf_event_open"}
+	case ir.ProgramKprobe, ir.ProgramKretprobe:
+		return []string{"bpf_program_load", "perf_event_open"}
+	case ir.ProgramXDP, ir.ProgramTC:
+		return []string{"bpf_program_load", "net_admin"}
+	case ir.ProgramCgroup:
+		return []string{"bpf_program_load", "cgroup_admin"}
+	case ir.ProgramLSM:
+		return []string{"bpf_program_load", "lsm_admin"}
+	default:
+		return nil
+	}
+}
+
+func programFeatures(kind ir.ProgramKind) []string {
+	switch kind {
+	case ir.ProgramTracepoint:
+		return []string{"tracefs"}
+	case ir.ProgramKprobe, ir.ProgramKretprobe:
+		return []string{"kprobes", "tracefs"}
+	case ir.ProgramXDP:
+		return []string{"netdev_xdp"}
+	case ir.ProgramTC:
+		return []string{"tc_clsact"}
+	case ir.ProgramCgroup:
+		return []string{"cgroup_v2"}
+	case ir.ProgramLSM:
+		return []string{"bpf_lsm"}
+	default:
+		return nil
 	}
 }
 
