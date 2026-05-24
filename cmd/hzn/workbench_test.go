@@ -64,6 +64,15 @@ func TestWorkbenchWritesAuthoringArtifactsWithoutObject(t *testing.T) {
 	if len(report.Artifacts) != 6 {
 		t.Fatalf("artifacts = %d, want 6", len(report.Artifacts))
 	}
+	for _, kind := range []string{"bpf_c", "source_map", "bindings", "capabilities", "diagnostics"} {
+		assertArtifactDetail(t, report, kind)
+	}
+	if _, ok := artifactDetailByKind(report.ArtifactDetails, "bpf_object"); ok {
+		t.Fatalf("artifact details include object without -compile: %#v", report.ArtifactDetails)
+	}
+	if _, ok := artifactDetailByKind(report.ArtifactDetails, "report"); ok {
+		t.Fatalf("artifact details should not include self-referential report: %#v", report.ArtifactDetails)
+	}
 
 	var diagnostics []struct {
 		Code string `json:"code"`
@@ -106,6 +115,8 @@ func TestWorkbenchJSONOutput(t *testing.T) {
 	if len(report.Artifacts) != 6 {
 		t.Fatalf("artifacts = %d, want 6", len(report.Artifacts))
 	}
+	assertArtifactDetail(t, report, "bpf_c")
+	assertArtifactDetail(t, report, "diagnostics")
 }
 
 func TestWorkbenchJSONOutputForInvalidInput(t *testing.T) {
@@ -133,6 +144,10 @@ func TestWorkbenchJSONOutputForInvalidInput(t *testing.T) {
 	}
 	if len(report.Artifacts) != 2 {
 		t.Fatalf("artifacts = %d, want 2", len(report.Artifacts))
+	}
+	assertArtifactDetail(t, report, "diagnostics")
+	if len(report.ArtifactDetails) != 1 {
+		t.Fatalf("artifact details = %#v, want diagnostics only", report.ArtifactDetails)
 	}
 }
 
@@ -225,6 +240,10 @@ func TestWorkbenchWritesDiagnosticReportForInvalidInput(t *testing.T) {
 	if len(report.Artifacts) != 2 {
 		t.Fatalf("artifacts = %d, want 2", len(report.Artifacts))
 	}
+	assertArtifactDetail(t, report, "diagnostics")
+	if len(report.ArtifactDetails) != 1 {
+		t.Fatalf("artifact details = %#v, want diagnostics only", report.ArtifactDetails)
+	}
 
 	data, err = os.ReadFile(filepath.Join(outDir, "packet_unproven_read.diagnostics.json"))
 	if err != nil {
@@ -287,6 +306,12 @@ func TestWorkbenchReportsClangDiagnostics(t *testing.T) {
 	if artifactsContain(report.Artifacts, filepath.Join(outDir, "input.bpf.o")) {
 		t.Fatalf("artifacts include missing object: %#v", report.Artifacts)
 	}
+	for _, kind := range []string{"bpf_c", "source_map", "bindings", "capabilities", "diagnostics"} {
+		assertArtifactDetail(t, report, kind)
+	}
+	if _, ok := artifactDetailByKind(report.ArtifactDetails, "bpf_object"); ok {
+		t.Fatalf("artifact details include missing object: %#v", report.ArtifactDetails)
+	}
 
 	data, err = os.ReadFile(filepath.Join(outDir, "input.diagnostics.json"))
 	if err != nil {
@@ -317,6 +342,37 @@ func artifactsContain(artifacts []string, path string) bool {
 		}
 	}
 	return false
+}
+
+func artifactDetailByKind(details []artifactDetail, kind string) (artifactDetail, bool) {
+	for _, detail := range details {
+		if detail.Kind == kind {
+			return detail, true
+		}
+	}
+	return artifactDetail{}, false
+}
+
+func assertArtifactDetail(t *testing.T, report workbenchReport, kind string) {
+	t.Helper()
+	detail, ok := artifactDetailByKind(report.ArtifactDetails, kind)
+	if !ok {
+		t.Fatalf("artifact details missing %q: %#v", kind, report.ArtifactDetails)
+	}
+	if detail.Path == "" {
+		t.Fatalf("%s path is empty", kind)
+	}
+	if detail.Size <= 0 {
+		t.Fatalf("%s size = %d, want positive", kind, detail.Size)
+	}
+	if len(detail.SHA256) != 64 {
+		t.Fatalf("%s sha256 = %q, want 64 hex chars", kind, detail.SHA256)
+	}
+	for _, ch := range detail.SHA256 {
+		if (ch < '0' || ch > '9') && (ch < 'a' || ch > 'f') {
+			t.Fatalf("%s sha256 = %q, want lowercase hex", kind, detail.SHA256)
+		}
+	}
 }
 
 func hasDiagnosticCodeLite(diags []struct {

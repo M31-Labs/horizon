@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
@@ -68,10 +70,18 @@ type workbenchReport struct {
 	Status          string            `json:"status"`
 	Compile         bool              `json:"compile"`
 	Artifacts       []string          `json:"artifacts"`
+	ArtifactDetails []artifactDetail  `json:"artifact_details,omitempty"`
 	Paths           artifactPaths     `json:"paths"`
 	Diagnostics     []diag.Diagnostic `json:"diagnostics"`
 	DiagnosticCount int               `json:"diagnostic_count"`
 	Clang           string            `json:"clang,omitempty"`
+}
+
+type artifactDetail struct {
+	Path   string `json:"path"`
+	Kind   string `json:"kind"`
+	Size   int64  `json:"size"`
+	SHA256 string `json:"sha256"`
 }
 
 type artifactPaths struct {
@@ -111,6 +121,9 @@ func writeWorkbenchArtifacts(result *compiler.Result, opts workbenchOptions) (wo
 		report.Status = "diagnostic_error"
 		report.Artifacts = paths.diagnosticArtifacts()
 		if err := writeJSON(paths.Diagnostics, report.Diagnostics); err != nil {
+			return report, err
+		}
+		if err := addArtifactDetails(&report, paths); err != nil {
 			return report, err
 		}
 		if err := writeJSON(paths.Report, report); err != nil {
@@ -165,6 +178,9 @@ func writeWorkbenchArtifacts(result *compiler.Result, opts workbenchOptions) (wo
 			if writeErr := writeJSON(paths.Diagnostics, report.Diagnostics); writeErr != nil {
 				return report, writeErr
 			}
+			if writeErr := addArtifactDetails(&report, paths); writeErr != nil {
+				return report, writeErr
+			}
 			if writeErr := writeJSON(paths.Report, report); writeErr != nil {
 				return report, writeErr
 			}
@@ -172,6 +188,9 @@ func writeWorkbenchArtifacts(result *compiler.Result, opts workbenchOptions) (wo
 		}
 		report.Status = "ok"
 		report.Artifacts = paths.artifacts(true)
+	}
+	if err := addArtifactDetails(&report, paths); err != nil {
+		return report, err
 	}
 	if err := writeJSON(paths.Report, report); err != nil {
 		return report, err
@@ -202,6 +221,55 @@ func (p artifactPaths) artifacts(includeObject bool) []string {
 
 func (p artifactPaths) diagnosticArtifacts() []string {
 	return []string{p.Diagnostics, p.Report}
+}
+
+func addArtifactDetails(report *workbenchReport, paths artifactPaths) error {
+	details, err := collectArtifactDetails(report.Artifacts, paths)
+	if err != nil {
+		return err
+	}
+	report.ArtifactDetails = details
+	return nil
+}
+
+func collectArtifactDetails(artifacts []string, paths artifactPaths) ([]artifactDetail, error) {
+	details := make([]artifactDetail, 0, len(artifacts))
+	for _, path := range artifacts {
+		if path == "" || path == paths.Report {
+			continue
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+		sum := sha256.Sum256(data)
+		details = append(details, artifactDetail{
+			Path:   path,
+			Kind:   artifactKind(path, paths),
+			Size:   int64(len(data)),
+			SHA256: hex.EncodeToString(sum[:]),
+		})
+	}
+	return details, nil
+}
+
+func artifactKind(path string, paths artifactPaths) string {
+	switch path {
+	case paths.C:
+		return "bpf_c"
+	case paths.Object:
+		return "bpf_object"
+	case paths.SourceMap:
+		return "source_map"
+	case paths.Bindings:
+		return "bindings"
+	case paths.Capabilities:
+		return "capabilities"
+	case paths.Diagnostics:
+		return "diagnostics"
+	default:
+		return "artifact"
+	}
 }
 
 func removeFileIfExists(path string) error {

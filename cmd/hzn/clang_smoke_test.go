@@ -3,6 +3,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -33,6 +34,15 @@ func TestWorkbenchCompileSmoke(t *testing.T) {
 			t.Fatalf("missing compiled artifact %s: %v", name, err)
 		}
 	}
+	data, err := os.ReadFile(filepath.Join(outDir, "exec.report.json"))
+	if err != nil {
+		t.Fatalf("read report: %v", err)
+	}
+	var report workbenchReport
+	if err := json.Unmarshal(data, &report); err != nil {
+		t.Fatalf("unmarshal report: %v", err)
+	}
+	assertArtifactDetail(t, report, "bpf_object")
 }
 
 func TestKprobeCompileSmoke(t *testing.T) {
