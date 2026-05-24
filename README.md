@@ -375,6 +375,7 @@ Horizon makes verifier-sensitive behavior explicit before clang runs:
 - writes after ringbuf submit/discard are rejected
 - map lookup results must be nil-checked before field access
 - nullable map, packet, and ringbuf resource pointers cannot be copied or aliased
+- raw address-taking and explicit pointer dereference are rejected; use compiler-known resource/header helpers and direct fixed-array helper operands instead
 - map sizing is explicit through `@max_entries(...)`; integer constants are resolved before C emission, and ringbuf sizes must be powers of two
 - map update/delete results must be checked with an explicit comparison
 - fixed array fields are address-only; pass `&event.comm` directly to helpers instead of copying arrays

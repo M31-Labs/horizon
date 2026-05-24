@@ -1,0 +1,21 @@
+package probes
+
+type Count struct {
+    seen u64
+}
+
+map Counts hash[u32, Count]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    pid := bpf.current_pid()
+    count := Counts.lookup(pid)
+    if count == nil {
+        return 0
+    }
+    copy := *count
+    if copy.seen == 0 {
+        return 0
+    }
+    return 0
+}

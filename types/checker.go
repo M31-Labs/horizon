@@ -1113,6 +1113,31 @@ func (t exprTyper) unary(e ast.UnaryExpr) (valueType, []diag.Diagnostic) {
 	switch e.Op {
 	case "&":
 		operand.Ptr = true
+		if len(diags) == 0 && !isFixedArray(operand) {
+			diags = append(diags, diag.Diagnostic{
+				Code:     "HZN1472",
+				Severity: diag.SeverityError,
+				Message:  "operator & is only supported for fixed array fields passed directly to compiler-known helpers",
+				Primary:  e.Span,
+				Suggest:  "avoid raw pointer authoring; use map lookup, ringbuf reserve, packet helpers, or pass &event.comm directly to bpf.current_comm",
+			})
+		}
+		return operand, diags
+	case "*":
+		if len(diags) == 0 {
+			diags = append(diags, diag.Diagnostic{
+				Code:     "HZN1473",
+				Severity: diag.SeverityError,
+				Message:  "explicit pointer dereference is not supported in Horizon v0",
+				Primary:  e.Span,
+				Suggest:  "read and write fields through nil-checked map, ringbuf, or packet helper locals instead of using *ptr",
+			})
+		}
+		if operand.Ptr {
+			operand.Ptr = false
+			operand.MaybeNil = false
+			operand.Resource = false
+		}
 		return operand, diags
 	case "-":
 		if operand.Void || operand.Name == "" {

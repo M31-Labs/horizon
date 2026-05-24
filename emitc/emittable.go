@@ -481,7 +481,7 @@ func selectorRoot(expr *ir.Expr) string {
 
 func validUnaryOp(op string) bool {
 	switch op {
-	case "&", "*", "!", "-", "+", "^":
+	case "&", "!", "-", "+", "^":
 		return true
 	default:
 		return false

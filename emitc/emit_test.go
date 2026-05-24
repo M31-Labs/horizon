@@ -1133,6 +1133,34 @@ func TestEmitRejectsUnsupportedExpressionKind(t *testing.T) {
 	}
 }
 
+func TestEmitRejectsPointerDereference(t *testing.T) {
+	out, err := Emit(ir.Program{
+		Functions: []ir.Function{{
+			Name:    "Bad",
+			Section: ir.Section{Kind: ir.ProgramTracepoint, Name: "tracepoint/sched/sched_process_exec"},
+			Body: []ir.Block{{
+				Statements: []ir.Statement{{
+					Kind: "expr",
+					Expr: &ir.Expr{
+						Kind:    "unary",
+						Op:      "*",
+						Operand: &ir.Expr{Kind: "ident", Name: "ptr"},
+					},
+				}},
+			}},
+		}},
+	})
+	if err == nil {
+		t.Fatalf("Emit succeeded, code:\n%s", out.Code)
+	}
+	if out.Code != "" {
+		t.Fatalf("Emit returned code for pointer dereference:\n%s", out.Code)
+	}
+	if !strings.Contains(err.Error(), `unsupported expression kind "unary *"`) {
+		t.Fatalf("Emit error = %v, want unsupported unary pointer dereference", err)
+	}
+}
+
 func TestEmitRejectsUnknownCallTarget(t *testing.T) {
 	out, err := Emit(ir.Program{
 		Functions: []ir.Function{{
