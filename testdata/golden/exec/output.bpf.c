@@ -5,19 +5,19 @@
 
 char LICENSE[] SEC("license") = "GPL";
 
-static __always_inline __u32 hzn_current_pid(void) {
+static __always_inline __attribute__((unused)) __u32 hzn_current_pid(void) {
     return (__u32)(bpf_get_current_pid_tgid() >> 32);
 }
 
-static __always_inline __u32 hzn_current_ppid(void) {
+static __always_inline __attribute__((unused)) __u32 hzn_current_ppid(void) {
     return 0;
 }
 
-static __always_inline __u32 hzn_current_uid(void) {
+static __always_inline __attribute__((unused)) __u32 hzn_current_uid(void) {
     return (__u32)bpf_get_current_uid_gid();
 }
 
-static __always_inline long hzn_current_comm(void *dst, __u32 size) {
+static __always_inline __attribute__((unused)) long hzn_current_comm(void *dst, __u32 size) {
     return bpf_get_current_comm(dst, size);
 }
 
@@ -33,20 +33,21 @@ struct {
     __uint(max_entries, 1 << 24);
 } ExecEvents SEC(".maps");
 
-static __always_inline struct ExecEvent *ExecEvents_reserve(void) {
+static __always_inline __attribute__((unused)) struct ExecEvent *ExecEvents_reserve(void) {
     return bpf_ringbuf_reserve(&ExecEvents, sizeof(struct ExecEvent), 0);
 }
 
-static __always_inline void ExecEvents_submit(struct ExecEvent *value) {
+static __always_inline __attribute__((unused)) void ExecEvents_submit(struct ExecEvent *value) {
     bpf_ringbuf_submit(value, 0);
 }
 
-static __always_inline void ExecEvents_discard(struct ExecEvent *value) {
+static __always_inline __attribute__((unused)) void ExecEvents_discard(struct ExecEvent *value) {
     bpf_ringbuf_discard(value, 0);
 }
 
 SEC("tracepoint/sched/sched_process_exec")
 int OnExec(struct trace_event_raw_sched_process_exec *ctx) {
+    (void)ctx;
     struct ExecEvent *event = ExecEvents_reserve();
     if (event == 0) {
         return 0;

@@ -19,7 +19,8 @@ func TestEmitExecwatchUsesTypedCWrappers(t *testing.T) {
 		t.Fatalf("Emit: %v", err)
 	}
 	for _, want := range []string{
-		"static __always_inline struct ExecEvent *ExecEvents_reserve(void)",
+		"static __always_inline __attribute__((unused)) struct ExecEvent *ExecEvents_reserve(void)",
+		"(void)ctx;",
 		"struct ExecEvent *event = ExecEvents_reserve();",
 		"event->pid = hzn_current_pid();",
 		"hzn_current_comm(&event->comm, sizeof(event->comm));",
@@ -92,9 +93,9 @@ func OnExec(ctx tracepoint.Exec) i32 {
 		"__uint(type, BPF_MAP_TYPE_HASH);",
 		"__type(key, __u32);",
 		"__type(value, __u32);",
-		"static __always_inline __u32 *Counts_lookup(__u32 key)",
-		"static __always_inline long Counts_update(__u32 key, __u32 value)",
-		"static __always_inline long Counts_delete(__u32 key)",
+		"static __always_inline __attribute__((unused)) __u32 *Counts_lookup(__u32 key)",
+		"static __always_inline __attribute__((unused)) long Counts_update(__u32 key, __u32 value)",
+		"static __always_inline __attribute__((unused)) long Counts_delete(__u32 key)",
 		"Counts_update(pid, pid);",
 		"__u32 *value = Counts_lookup(pid);",
 		"Counts_delete(pid);",
@@ -138,7 +139,7 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	}
 	for _, want := range []string{
 		"struct Count {",
-		"static __always_inline long Counts_update(__u32 key, struct Count value)",
+		"static __always_inline __attribute__((unused)) long Counts_update(__u32 key, struct Count value)",
 		"struct Count state = (struct Count){ .seen = pid };",
 		"state.seen = hzn_current_pid();",
 		"__u32 seen = state.seen;",
@@ -308,9 +309,9 @@ func DropTCP(ctx xdp.Context) i32 {
 		"struct hzn_xdp_ipv4 {",
 		"struct hzn_xdp_tcp {",
 		"struct hzn_xdp_udp {",
-		"static __always_inline struct hzn_xdp_ipv4 *hzn_xdp_ipv4(struct xdp_md *ctx)",
-		"static __always_inline struct hzn_xdp_tcp *hzn_xdp_tcp(struct xdp_md *ctx)",
-		"static __always_inline struct hzn_xdp_udp *hzn_xdp_udp(struct xdp_md *ctx)",
+		"static __always_inline __attribute__((unused)) struct hzn_xdp_ipv4 *hzn_xdp_ipv4(struct xdp_md *ctx)",
+		"static __always_inline __attribute__((unused)) struct hzn_xdp_tcp *hzn_xdp_tcp(struct xdp_md *ctx)",
+		"static __always_inline __attribute__((unused)) struct hzn_xdp_udp *hzn_xdp_udp(struct xdp_md *ctx)",
 		"__u8 ihl = ip->version_ihl & 0x0f;",
 		"SEC(\"xdp\")",
 		"int DropTCP(struct xdp_md *ctx) {",

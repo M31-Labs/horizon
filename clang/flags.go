@@ -13,5 +13,5 @@ func (o Options) ClangPathOrDefault() string {
 }
 
 func DefaultFlags() []string {
-	return []string{"-target", "bpf", "-O2", "-g"}
+	return []string{"-target", "bpf", "-O2", "-g", "-Wall", "-Wextra", "-Werror"}
 }

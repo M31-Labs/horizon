@@ -44,6 +44,7 @@ func Emit(program ir.Program) (Output, error) {
 		env := newCEnv(program)
 		startLine := strings.Count(b.String(), "\n") + 1
 		fmt.Fprintf(&b, "\nSEC(%q)\nint %s(%s) {\n", fn.Section.Name, fn.Name, cContext(fn))
+		b.WriteString("    (void)ctx;\n")
 		for _, stmt := range functionStatements(fn) {
 			emitStatement(&b, stmt, program, 1, &sourceMap, fn, env)
 		}
@@ -174,19 +175,19 @@ func (e *cEnv) local(name string) (ir.Type, bool) {
 
 func emitHelperWrappers(b *strings.Builder) {
 	b.WriteString(`
-static __always_inline __u32 hzn_current_pid(void) {
+static __always_inline __attribute__((unused)) __u32 hzn_current_pid(void) {
     return (__u32)(bpf_get_current_pid_tgid() >> 32);
 }
 
-static __always_inline __u32 hzn_current_ppid(void) {
+static __always_inline __attribute__((unused)) __u32 hzn_current_ppid(void) {
     return 0;
 }
 
-static __always_inline __u32 hzn_current_uid(void) {
+static __always_inline __attribute__((unused)) __u32 hzn_current_uid(void) {
     return (__u32)bpf_get_current_uid_gid();
 }
 
-static __always_inline long hzn_current_comm(void *dst, __u32 size) {
+static __always_inline __attribute__((unused)) long hzn_current_comm(void *dst, __u32 size) {
     return bpf_get_current_comm(dst, size);
 }
 `)
@@ -325,7 +326,7 @@ struct hzn_xdp_udp {
     __u16 check;
 } __attribute__((packed));
 
-static __always_inline struct hzn_xdp_eth *hzn_xdp_eth(struct xdp_md *ctx) {
+static __always_inline __attribute__((unused)) struct hzn_xdp_eth *hzn_xdp_eth(struct xdp_md *ctx) {
     void *data = (void *)(long)ctx->data;
     void *data_end = (void *)(long)ctx->data_end;
 
@@ -335,7 +336,7 @@ static __always_inline struct hzn_xdp_eth *hzn_xdp_eth(struct xdp_md *ctx) {
     return data;
 }
 
-static __always_inline struct hzn_xdp_ipv4 *hzn_xdp_ipv4(struct xdp_md *ctx) {
+static __always_inline __attribute__((unused)) struct hzn_xdp_ipv4 *hzn_xdp_ipv4(struct xdp_md *ctx) {
     void *data = (void *)(long)ctx->data;
     void *data_end = (void *)(long)ctx->data_end;
     struct hzn_xdp_eth *eth = hzn_xdp_eth(ctx);
@@ -351,7 +352,7 @@ static __always_inline struct hzn_xdp_ipv4 *hzn_xdp_ipv4(struct xdp_md *ctx) {
     return ip;
 }
 
-static __always_inline __u64 hzn_xdp_l4_offset(struct xdp_md *ctx, __u8 protocol) {
+static __always_inline __attribute__((unused)) __u64 hzn_xdp_l4_offset(struct xdp_md *ctx, __u8 protocol) {
     struct hzn_xdp_ipv4 *ip = hzn_xdp_ipv4(ctx);
 
     if (!ip || ip->protocol != protocol) {
@@ -365,7 +366,7 @@ static __always_inline __u64 hzn_xdp_l4_offset(struct xdp_md *ctx, __u8 protocol
     return sizeof(struct hzn_xdp_eth) + ((__u64)ihl * 4);
 }
 
-static __always_inline struct hzn_xdp_tcp *hzn_xdp_tcp(struct xdp_md *ctx) {
+static __always_inline __attribute__((unused)) struct hzn_xdp_tcp *hzn_xdp_tcp(struct xdp_md *ctx) {
     void *data = (void *)(long)ctx->data;
     void *data_end = (void *)(long)ctx->data_end;
     __u64 off = hzn_xdp_l4_offset(ctx, 6);
@@ -376,7 +377,7 @@ static __always_inline struct hzn_xdp_tcp *hzn_xdp_tcp(struct xdp_md *ctx) {
     return data + off;
 }
 
-static __always_inline struct hzn_xdp_udp *hzn_xdp_udp(struct xdp_md *ctx) {
+static __always_inline __attribute__((unused)) struct hzn_xdp_udp *hzn_xdp_udp(struct xdp_md *ctx) {
     void *data = (void *)(long)ctx->data;
     void *data_end = (void *)(long)ctx->data_end;
     __u64 off = hzn_xdp_l4_offset(ctx, 17);
@@ -448,15 +449,15 @@ func emitRingbufWrappers(b *strings.Builder, m ir.Map) {
 	}
 	typ := "struct " + m.Val.Name
 	fmt.Fprintf(b, `
-static __always_inline %s *%s_reserve(void) {
+static __always_inline __attribute__((unused)) %s *%s_reserve(void) {
     return bpf_ringbuf_reserve(&%s, sizeof(%s), 0);
 }
 
-static __always_inline void %s_submit(%s *value) {
+static __always_inline __attribute__((unused)) void %s_submit(%s *value) {
     bpf_ringbuf_submit(value, 0);
 }
 
-static __always_inline void %s_discard(%s *value) {
+static __always_inline __attribute__((unused)) void %s_discard(%s *value) {
     bpf_ringbuf_discard(value, 0);
 }
 `, typ, m.Name, m.Name, typ, m.Name, typ, m.Name, typ)
@@ -469,17 +470,17 @@ func emitLookupMapWrappers(b *strings.Builder, m ir.Map) {
 	keyType := cType(m.Key)
 	valueType := cType(m.Val)
 	fmt.Fprintf(b, `
-static __always_inline %s *%s_lookup(%s key) {
+static __always_inline __attribute__((unused)) %s *%s_lookup(%s key) {
     return bpf_map_lookup_elem(&%s, &key);
 }
 
-static __always_inline long %s_update(%s key, %s value) {
+static __always_inline __attribute__((unused)) long %s_update(%s key, %s value) {
     return bpf_map_update_elem(&%s, &key, &value, BPF_ANY);
 }
 `, valueType, m.Name, keyType, m.Name, m.Name, keyType, valueType, m.Name)
 	if m.Kind == ir.MapKindHash {
 		fmt.Fprintf(b, `
-static __always_inline long %s_delete(%s key) {
+static __always_inline __attribute__((unused)) long %s_delete(%s key) {
     return bpf_map_delete_elem(&%s, &key);
 }
 `, m.Name, keyType, m.Name)
