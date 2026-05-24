@@ -387,6 +387,7 @@ func defineExpressionAtoms(g *grammargen.Grammar) {
 			grammargen.Str("&"),
 			grammargen.Str("*"),
 			grammargen.Str("!"),
+			grammargen.Str("-"),
 		)),
 		grammargen.Field("operand", grammargen.Sym("_simple_expression")),
 	)))
@@ -396,6 +397,7 @@ func defineExpressionAtoms(g *grammargen.Grammar) {
 			grammargen.Str("&"),
 			grammargen.Str("*"),
 			grammargen.Str("!"),
+			grammargen.Str("-"),
 		)),
 		grammargen.Field("operand", grammargen.Sym("_simple_condition_expression")),
 	)))

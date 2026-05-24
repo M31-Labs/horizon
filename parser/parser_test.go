@@ -200,6 +200,30 @@ func F(ctx xdp.Context) i32 {
 	}
 }
 
+func TestParseSignedIntegerUnaryExpressions(t *testing.T) {
+	src := SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
+
+const Negative i32 = -1
+
+@kretprobe("do_sys_openat2")
+func F(ctx kretprobe.Context) i32 {
+    rc := kretprobe.ret(ctx)
+    if rc < -1 {
+        return Negative
+    }
+    return 0
+}
+`)}
+	file, err := ParseSource(src)
+	if err != nil {
+		t.Fatalf("ParseSource: %v", err)
+	}
+	unaryCount := countNamedDescendants(file.Tree.RootNode(), file.Lang, "unary_expression") + countNamedDescendants(file.Tree.RootNode(), file.Lang, "condition_unary_expression")
+	if unaryCount != 2 {
+		t.Fatalf("unary expression count = %d, want 2; tree: %s", unaryCount, file.Tree.RootNode().SExpr(file.Lang))
+	}
+}
+
 func TestParseStructLiteral(t *testing.T) {
 	src := SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
 

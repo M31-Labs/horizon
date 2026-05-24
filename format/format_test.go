@@ -154,6 +154,36 @@ map ConstCounts hash[u32, u32]
 	}
 }
 
+func TestSourceFormatsSignedIntegerLiterals(t *testing.T) {
+	got, err := Source(parser.SourceFile{Path: "signed.hzn", Bytes: []byte(`package probes
+const Negative i32=-1
+@kretprobe("do_sys_openat2")
+func OnOpenReturn(ctx kretprobe.Context)i32{
+rc:=kretprobe.ret(ctx)
+if rc<-1{return Negative}
+return 0
+}`)})
+	if err != nil {
+		t.Fatalf("Source: %v", err)
+	}
+	want := `package probes
+
+const Negative i32 = -1
+
+@kretprobe("do_sys_openat2")
+func OnOpenReturn(ctx kretprobe.Context) i32 {
+    rc := kretprobe.ret(ctx)
+    if rc < -1 {
+        return Negative
+    }
+    return 0
+}
+`
+	if string(got) != want {
+		t.Fatalf("formatted source mismatch\nwant:\n%s\ngot:\n%s", want, got)
+	}
+}
+
 func TestSourceFormatsPerCPUAndLRUMaps(t *testing.T) {
 	got, err := Source(parser.SourceFile{Path: "maps.hzn", Bytes: []byte(`package probes
 map Counts percpu_hash[u32,u64]

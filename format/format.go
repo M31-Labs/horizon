@@ -434,7 +434,11 @@ func exprPrec(e ast.Expr, parent int) string {
 		}
 		return typeRef(v.Type) + "{" + strings.Join(fields, ", ") + "}"
 	case ast.UnaryExpr:
-		text := v.Op + exprPrec(v.Expr, 9)
+		operand := exprPrec(v.Expr, 9)
+		if _, nested := v.Expr.(ast.UnaryExpr); nested {
+			operand = "(" + expr(v.Expr) + ")"
+		}
+		text := v.Op + operand
 		if 9 < parent {
 			return "(" + text + ")"
 		}

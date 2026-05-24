@@ -17,6 +17,7 @@ It keeps the kernel-side language deliberately small:
 - boolean literals and typed boolean expressions
 - package-scoped declarations across multiple `.hzn` files
 - integer constants with optional scalar widths
+- signed integer literals such as `-1` for signed scalar fields and helpers
 - ringbuf event output
 - hash, array, per-CPU, and LRU maps
 - explicit `@max_entries(...)` map sizing
@@ -24,6 +25,7 @@ It keeps the kernel-side language deliberately small:
 - bounded counted loops
 - explicit integer scalar conversions such as `u64(pid)`
 - explicitly typed constants such as `const Port u16 = 443`
+- signed constants such as `const Errno i32 = -1`
 - compiler-known kernel helpers
 - typed kprobe argument and kretprobe return helpers
 - readable generated BPF C
@@ -373,6 +375,7 @@ Horizon makes verifier-sensitive behavior explicit before clang runs:
 - integer, bitwise, comparison, and boolean operators are typed before C emission
 - integer width changes are explicit; write `u64(pid)` or `u16(port)` instead of relying on implicit C coercions
 - integer literals are checked against their target scalar width before C emission
+- unary negation is only allowed for signed scalar values or direct integer literals; unsigned values must be converted deliberately before signed arithmetic
 - constants can carry scalar widths, and generated C preserves those widths
 - every program must return an explicit `i32` on every control-flow path
 - only bounded counted loops with numeric literal or integer const upper bounds are accepted

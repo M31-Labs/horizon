@@ -834,9 +834,12 @@ func constType(c ir.Const) ir.Type {
 	switch c.Value.Kind {
 	case "bool":
 		return ir.Type{Name: "bool"}
-	default:
-		return ir.Type{Name: "u64"}
+	case "unary":
+		if c.Value.Op == "-" {
+			return ir.Type{Name: "i64"}
+		}
 	}
+	return ir.Type{Name: "u64"}
 }
 
 func emitScalarABIAssertions(b *strings.Builder) {
@@ -1453,6 +1456,12 @@ func (t cExprTyper) unary(expr *ir.Expr) (ir.Type, bool) {
 		return ptrTo(operand), true
 	case "!":
 		return ir.Type{Name: "bool"}, true
+	case "-":
+		operand, ok := t.typeOf(expr.Operand)
+		if !ok || !isCIntegerLike(operand) {
+			return ir.Type{}, false
+		}
+		return operand, true
 	case "*":
 		operand, ok := t.typeOf(expr.Operand)
 		if !ok || !operand.Ptr || operand.Elem == nil {
@@ -1575,7 +1584,7 @@ func (e cExprEmitter) emit(expr *ir.Expr) string {
 	case "selector":
 		return e.selector(expr)
 	case "unary":
-		return expr.Op + e.emit(expr.Operand)
+		return e.unary(expr)
 	case "binary":
 		return e.binary(expr)
 	case "call":
@@ -1587,6 +1596,18 @@ func (e cExprEmitter) emit(expr *ir.Expr) string {
 	default:
 		return "0"
 	}
+}
+
+func (e cExprEmitter) unary(expr *ir.Expr) string {
+	op := expr.Op
+	if op == "^" {
+		op = "~"
+	}
+	operand := e.emit(expr.Operand)
+	if expr.Operand != nil && (expr.Operand.Kind == "binary" || expr.Operand.Kind == "unary") {
+		operand = "(" + operand + ")"
+	}
+	return op + operand
 }
 
 func (e cExprEmitter) ident(expr *ir.Expr) string {

@@ -58,6 +58,8 @@ func TestKprobeCompileSmoke(t *testing.T) {
 
 import bpf "m31labs.dev/horizon/runtime/kernel"
 
+const Negative i32 = -1
+
 @kprobe("do_sys_openat2")
 func OnOpen(ctx kprobe.Context) i32 {
     dfd := i32(kprobe.arg1(ctx))
@@ -71,8 +73,9 @@ func OnOpen(ctx kprobe.Context) i32 {
 @kretprobe("do_sys_openat2")
 func OnOpenReturn(ctx kretprobe.Context) i32 {
     rc := kretprobe.ret(ctx)
-    if rc < 0 {
-        return 0
+    neg := -rc
+    if neg < -1 {
+        return Negative
     }
     return 0
 }

@@ -3,6 +3,7 @@ package types
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	"m31labs.dev/horizon/ast"
 	"m31labs.dev/horizon/compiler/diag"
@@ -352,6 +353,16 @@ func constValueType(expr ast.Expr) (valueType, bool) {
 		return valueType{Name: "untyped_int", IntLiteral: e.Value}, true
 	case ast.BoolExpr:
 		return valueType{Name: "bool"}, true
+	case ast.UnaryExpr:
+		if e.Op != "-" {
+			return valueType{}, false
+		}
+		operand, ok := constValueType(e.Expr)
+		if !ok || operand.Name != "untyped_int" || operand.IntLiteral == "" {
+			return valueType{}, false
+		}
+		operand.IntLiteral = negateIntegerLiteral(operand.IntLiteral)
+		return operand, true
 	default:
 		return valueType{}, false
 	}
@@ -1103,6 +1114,24 @@ func (t exprTyper) unary(e ast.UnaryExpr) (valueType, []diag.Diagnostic) {
 	case "&":
 		operand.Ptr = true
 		return operand, diags
+	case "-":
+		if operand.Void || operand.Name == "" {
+			return valueType{Void: true}, diags
+		}
+		if operand.Name == "untyped_int" && !operand.Ptr && unaryIntegerLiteralOperand(e.Expr) {
+			operand.IntLiteral = negateIntegerLiteral(operand.IntLiteral)
+			return operand, diags
+		}
+		if isSignedIntegerScalar(operand.Name) && !operand.Ptr {
+			return operand, diags
+		}
+		return valueType{Name: operand.Name}, append(diags, diag.Diagnostic{
+			Code:     "HZN1471",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("operator - expects a signed integer operand, got %s", typeName(operand)),
+			Primary:  e.Span,
+			Suggest:  "write a negative integer literal directly or convert to a signed scalar such as i64 before negating",
+		})
 	case "!":
 		if operand.Void || operand.Name == "" {
 			return valueType{Void: true}, diags
@@ -1118,6 +1147,17 @@ func (t exprTyper) unary(e ast.UnaryExpr) (valueType, []diag.Diagnostic) {
 		})
 	default:
 		return operand, diags
+	}
+}
+
+func unaryIntegerLiteralOperand(expr ast.Expr) bool {
+	switch e := expr.(type) {
+	case ast.IntExpr:
+		return e.Value != ""
+	case ast.UnaryExpr:
+		return e.Op == "-" && unaryIntegerLiteralOperand(e.Expr)
+	default:
+		return false
 	}
 }
 
@@ -1866,37 +1906,25 @@ func cgroupIP4OctetRangeDiagnostic(src valueType, primary span.Span) (diag.Diagn
 }
 
 func integerLiteralFitsScalar(lit string, scalar string) bool {
-	max, ok := integerScalarMax(scalar)
-	if !ok {
-		return false
-	}
-	value, err := strconv.ParseUint(lit, 0, 64)
-	if err != nil {
-		return false
-	}
-	return value <= max
-}
-
-func integerScalarMax(scalar string) (uint64, bool) {
 	switch scalar {
 	case "u8":
-		return 255, true
+		return unsignedLiteralFits(lit, 255)
 	case "u16":
-		return 65535, true
+		return unsignedLiteralFits(lit, 65535)
 	case "u32":
-		return 4294967295, true
+		return unsignedLiteralFits(lit, 4294967295)
 	case "u64":
-		return ^uint64(0), true
+		return unsignedLiteralFits(lit, ^uint64(0))
 	case "i8":
-		return 127, true
+		return signedLiteralFits(lit, -128, 127)
 	case "i16":
-		return 32767, true
+		return signedLiteralFits(lit, -32768, 32767)
 	case "i32":
-		return 2147483647, true
+		return signedLiteralFits(lit, -2147483648, 2147483647)
 	case "i64":
-		return 9223372036854775807, true
+		return signedLiteralFits(lit, -9223372036854775808, 9223372036854775807)
 	default:
-		return 0, false
+		return false
 	}
 }
 
@@ -1911,16 +1939,42 @@ func integerScalarBounds(scalar string) string {
 	case "u64":
 		return "0..18446744073709551615"
 	case "i8":
-		return "0..127"
+		return "-128..127"
 	case "i16":
-		return "0..32767"
+		return "-32768..32767"
 	case "i32":
-		return "0..2147483647"
+		return "-2147483648..2147483647"
 	case "i64":
-		return "0..9223372036854775807"
+		return "-9223372036854775808..9223372036854775807"
 	default:
 		return "the scalar range"
 	}
+}
+
+func unsignedLiteralFits(lit string, max uint64) bool {
+	value, err := strconv.ParseUint(lit, 0, 64)
+	if err != nil {
+		return false
+	}
+	return value <= max
+}
+
+func signedLiteralFits(lit string, min int64, max int64) bool {
+	value, err := strconv.ParseInt(lit, 0, 64)
+	if err != nil {
+		return false
+	}
+	return value >= min && value <= max
+}
+
+func negateIntegerLiteral(lit string) string {
+	if lit == "" || lit == "0" {
+		return lit
+	}
+	if strings.HasPrefix(lit, "-") {
+		return strings.TrimPrefix(lit, "-")
+	}
+	return "-" + lit
 }
 
 func isFixedArray(t valueType) bool {
@@ -2083,6 +2137,15 @@ func isScalar(name string) bool {
 func isIntegerScalar(name string) bool {
 	switch name {
 	case "u8", "u16", "u32", "u64", "i8", "i16", "i32", "i64":
+		return true
+	default:
+		return false
+	}
+}
+
+func isSignedIntegerScalar(name string) bool {
+	switch name {
+	case "i8", "i16", "i32", "i64":
 		return true
 	default:
 		return false

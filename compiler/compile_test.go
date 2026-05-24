@@ -1088,6 +1088,73 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	requireDiagnosticCode(t, result, "HZN1470")
 }
 
+func TestAnalyzeAllowsNegativeSignedIntegerLiterals(t *testing.T) {
+	result := analyzeSource(t, "signed.hzn", `package probes
+
+const Negative i32 = -1
+
+type Ret struct {
+    rc    i64
+    small i8
+    code  i32
+}
+
+map Results hash[u32, Ret]
+
+@kretprobe("do_sys_openat2")
+func OnOpenReturn(ctx kretprobe.Context) i32 {
+    rc := kretprobe.ret(ctx)
+    neg := -rc
+    if neg < -1 {
+        return 0
+    }
+    if Results.update(1, Ret{rc: -1, small: -128, code: Negative}) != 0 {
+        return 0
+    }
+    return 0
+}
+`)
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+}
+
+func TestAnalyzeRejectsNegativeIntegerLiteralOverflow(t *testing.T) {
+	result := analyzeSource(t, "signed.hzn", `package probes
+
+type Ret struct {
+    small i8
+}
+
+map Results hash[u32, Ret]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    if Results.update(1, Ret{small: -129}) != 0 {
+        return 0
+    }
+    return 0
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1470")
+}
+
+func TestAnalyzeRejectsUnsignedNegation(t *testing.T) {
+	result := analyzeSource(t, "signed.hzn", `package probes
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    pid := bpf.current_pid()
+    neg := -pid
+    if neg != 0 {
+        return 0
+    }
+    return 0
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1471")
+}
+
 func TestAnalyzeRejectsIntegerLiteralComparisonOverflow(t *testing.T) {
 	result := analyzeSource(t, "compare.hzn", `package probes
 

@@ -190,6 +190,34 @@ map Counts hash[u32, u32]
 	}
 }
 
+func TestBuildSignedIntegerConst(t *testing.T) {
+	parsed, err := parser.ParseSource(parser.SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
+
+const Negative i32 = -1
+`)})
+	if err != nil {
+		t.Fatalf("ParseSource: %v", err)
+	}
+	file, err := Build(parsed)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(file.Decls) != 1 {
+		t.Fatalf("decls = %d, want 1", len(file.Decls))
+	}
+	decl, ok := file.Decls[0].(ConstDecl)
+	if !ok {
+		t.Fatalf("decl = %T, want ConstDecl", file.Decls[0])
+	}
+	value, ok := decl.Value.(UnaryExpr)
+	if !ok || value.Op != "-" {
+		t.Fatalf("const value = %#v, want unary -", decl.Value)
+	}
+	if lit, ok := value.Expr.(IntExpr); !ok || lit.Value != "1" {
+		t.Fatalf("unary operand = %#v, want int 1", value.Expr)
+	}
+}
+
 func TestBuildPerCPUAndLRUMapKinds(t *testing.T) {
 	parsed, err := parser.ParseSource(parser.SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
 

@@ -569,6 +569,60 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	}
 }
 
+func TestEmitNegativeSignedIntegerLiterals(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "signed.hzn")
+	if err := os.WriteFile(path, []byte(`package probes
+
+const Negative i32 = -1
+
+type Ret struct {
+    rc    i64
+    small i8
+    code  i32
+}
+
+map Results hash[u32, Ret]
+
+@kretprobe("do_sys_openat2")
+func OnOpenReturn(ctx kretprobe.Context) i32 {
+    rc := kretprobe.ret(ctx)
+    neg := -rc
+    if neg < -1 {
+        return Negative
+    }
+    if Results.update(1, Ret{rc: -1, small: -128, code: Negative}) != 0 {
+        return 0
+    }
+    return 0
+}
+`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	result, err := compiler.AnalyzePath(dir)
+	if err != nil {
+		t.Fatalf("AnalyzePath: %v", err)
+	}
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+	out, err := Emit(result.Program)
+	if err != nil {
+		t.Fatalf("Emit: %v", err)
+	}
+	for _, want := range []string{
+		"static const __s32 hzn_const_Negative = -1;",
+		"__s64 neg = -rc;",
+		"if (neg < -1) {",
+		"return hzn_const_Negative;",
+		"if (Results_update(1, (struct hzn_type_Ret){ .rc = -1, .small = -128, .code = hzn_const_Negative }) != 0) {",
+	} {
+		if !strings.Contains(out.Code, want) {
+			t.Fatalf("generated C missing %q:\n%s", want, out.Code)
+		}
+	}
+}
+
 func TestEmitBoolLiteralsAndConsts(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "flags.hzn")
