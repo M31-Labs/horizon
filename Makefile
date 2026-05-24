@@ -35,4 +35,4 @@ build-examples:
 	go run ./cmd/hzn build ./examples/xdpdrop -o $(OUT)
 
 clang-smoke:
-	go test ./... -tags clang_smoke
+	go test ./cmd/hzn -tags clang_smoke

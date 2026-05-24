@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestDoctorReadyWithRequiredWorkbenchDeps(t *testing.T) {
@@ -61,6 +63,42 @@ func TestDoctorNotReadyWithoutVmlinuxHeader(t *testing.T) {
 	})
 	if report.Ready {
 		t.Fatalf("ready = true, want false")
+	}
+}
+
+func TestDoctorRetriesTransientClangProbeFailure(t *testing.T) {
+	binDir := t.TempDir()
+	writeExecutable(t, filepath.Join(binDir, "clang"))
+	includeDir := t.TempDir()
+	bpfHeader := filepath.Join(includeDir, "bpf_helpers.h")
+	vmlinuxHeader := filepath.Join(includeDir, "vmlinux.h")
+	for _, path := range []string{bpfHeader, vmlinuxHeader} {
+		if err := os.WriteFile(path, []byte("ok\n"), 0o644); err != nil {
+			t.Fatalf("write %s: %v", path, err)
+		}
+	}
+
+	calls := 0
+	report := runDoctorChecks(doctorConfig{
+		PathEnv:              binDir,
+		BPFHeaders:           []string{bpfHeader},
+		VmlinuxHeaders:       []string{vmlinuxHeader},
+		BTFPath:              filepath.Join(includeDir, "missing-btf"),
+		ClangProbeAttempts:   2,
+		ClangProbeRetryDelay: time.Nanosecond,
+		RunCommand: func(_ context.Context, _ string, _ []string, _ string) error {
+			calls++
+			if calls == 1 {
+				return fmt.Errorf("signal: killed")
+			}
+			return nil
+		},
+	})
+	if !report.Ready {
+		t.Fatalf("ready = false after retry, checks = %#v", report.Checks)
+	}
+	if calls != 2 {
+		t.Fatalf("clang probe calls = %d, want 2", calls)
 	}
 }
 

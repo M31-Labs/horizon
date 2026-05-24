@@ -14,6 +14,8 @@ import (
 )
 
 const clangProbeTimeout = 30 * time.Second
+const clangProbeAttempts = 3
+const clangProbeRetryDelay = 250 * time.Millisecond
 
 func runDoctor(args []string) error {
 	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
@@ -56,12 +58,14 @@ type doctorCheck struct {
 }
 
 type doctorConfig struct {
-	PathEnv         string
-	BTFPath         string
-	BPFHeaders      []string
-	VmlinuxHeaders  []string
-	RunCommand      func(context.Context, string, []string, string) error
-	AdditionalTools []string
+	PathEnv              string
+	BTFPath              string
+	BPFHeaders           []string
+	VmlinuxHeaders       []string
+	RunCommand           func(context.Context, string, []string, string) error
+	AdditionalTools      []string
+	ClangProbeAttempts   int
+	ClangProbeRetryDelay time.Duration
 }
 
 func defaultDoctorConfig() doctorConfig {
@@ -118,11 +122,26 @@ func checkCommand(cfg doctorConfig, name string, required bool, suggest string) 
 }
 
 func checkClangBPF(cfg doctorConfig, clangPath string) doctorCheck {
-	ctx, cancel := context.WithTimeout(context.Background(), clangProbeTimeout)
-	defer cancel()
-	err := cfg.RunCommand(ctx, clangPath, []string{"-target", "bpf", "-x", "c", "-c", "-o", os.DevNull, "-"}, "int x;\n")
-	if err == nil {
-		return doctorCheck{Name: "clang bpf target", Status: "ok", Required: true, Detail: "clang can compile eBPF objects"}
+	attempts := cfg.ClangProbeAttempts
+	if attempts <= 0 {
+		attempts = clangProbeAttempts
+	}
+	delay := cfg.ClangProbeRetryDelay
+	if delay <= 0 {
+		delay = clangProbeRetryDelay
+	}
+	var err error
+	for attempt := 1; attempt <= attempts; attempt++ {
+		ctx, cancel := context.WithTimeout(context.Background(), clangProbeTimeout)
+		err = cfg.RunCommand(ctx, clangPath, []string{"-target", "bpf", "-x", "c", "-c", "-o", os.DevNull, "-"}, "int x;\n")
+		cancel()
+		if err == nil {
+			return doctorCheck{Name: "clang bpf target", Status: "ok", Required: true, Detail: "clang can compile eBPF objects"}
+		}
+		if !transientClangProbeError(err) || attempt == attempts {
+			break
+		}
+		time.Sleep(delay)
 	}
 	return doctorCheck{
 		Name:     "clang bpf target",
@@ -131,6 +150,14 @@ func checkClangBPF(cfg doctorConfig, clangPath string) doctorCheck {
 		Detail:   err.Error(),
 		Suggest:  "install a clang build with the BPF backend enabled",
 	}
+}
+
+func transientClangProbeError(err error) bool {
+	if err == nil {
+		return false
+	}
+	text := err.Error()
+	return strings.Contains(text, "signal: killed") || strings.Contains(text, "signal: terminated")
 }
 
 func checkAnyFile(name string, paths []string, required bool, suggest string) doctorCheck {
@@ -208,6 +235,9 @@ func runDoctorCommand(ctx context.Context, path string, args []string, stdin str
 	cmd.Stdin = strings.NewReader(stdin)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		text := strings.TrimSpace(string(out))
 		if text != "" {
 			return fmt.Errorf("%w: %s", err, text)

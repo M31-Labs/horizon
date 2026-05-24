@@ -4,19 +4,59 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
-func TestWorkbenchCompileSmoke(t *testing.T) {
+var (
+	clangSmokeDoctorOnce   sync.Once
+	clangSmokeDoctorReport doctorReport
+)
+
+func requireClangSmoke(t *testing.T) {
+	t.Helper()
 	if _, err := os.Stat("/usr/local/include/vmlinux.h"); err != nil {
 		t.Skipf("vmlinux.h not available: %v", err)
 	}
-	if err := run([]string{"doctor"}); err != nil {
-		t.Fatalf("doctor: %v", err)
+	clangSmokeDoctorOnce.Do(func() {
+		clangSmokeDoctorReport = runDoctorChecks(defaultDoctorConfig())
+	})
+	if !clangSmokeDoctorReport.Ready {
+		t.Fatalf("eBPF workbench dependencies are not ready:\n%s", formatDoctorProblems(clangSmokeDoctorReport))
 	}
+}
+
+func formatDoctorProblems(report doctorReport) string {
+	var b strings.Builder
+	for _, check := range report.Checks {
+		if check.Status == "ok" {
+			continue
+		}
+		detail := check.Detail
+		if detail == "" {
+			detail = check.Path
+		}
+		fmt.Fprintf(&b, "[%s] %s", check.Status, check.Name)
+		if detail != "" {
+			fmt.Fprintf(&b, ": %s", detail)
+		}
+		if check.Suggest != "" {
+			fmt.Fprintf(&b, "\n  help: %s", check.Suggest)
+		}
+		b.WriteByte('\n')
+	}
+	if b.Len() == 0 {
+		return "doctor reported not ready without a failing check"
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func TestWorkbenchCompileSmoke(t *testing.T) {
+	requireClangSmoke(t)
 	outDir := t.TempDir()
 	input := filepath.Join("..", "..", "examples", "execwatch")
 	if err := run([]string{"workbench", input, "-o", outDir, "-compile"}); err != nil {
@@ -47,12 +87,7 @@ func TestWorkbenchCompileSmoke(t *testing.T) {
 }
 
 func TestKprobeCompileSmoke(t *testing.T) {
-	if _, err := os.Stat("/usr/local/include/vmlinux.h"); err != nil {
-		t.Skipf("vmlinux.h not available: %v", err)
-	}
-	if err := run([]string{"doctor"}); err != nil {
-		t.Fatalf("doctor: %v", err)
-	}
+	requireClangSmoke(t)
 	srcDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(srcDir, "open.hzn"), []byte(`package probes
 
@@ -102,12 +137,7 @@ func OnOpenReturn(ctx kretprobe.Context) i32 {
 }
 
 func TestTCCompileSmoke(t *testing.T) {
-	if _, err := os.Stat("/usr/local/include/vmlinux.h"); err != nil {
-		t.Skipf("vmlinux.h not available: %v", err)
-	}
-	if err := run([]string{"doctor"}); err != nil {
-		t.Fatalf("doctor: %v", err)
-	}
+	requireClangSmoke(t)
 	srcDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(srcDir, "tc.hzn"), []byte(`package probes
 
@@ -138,12 +168,7 @@ func PassIngress(ctx tc.Context) i32 {
 }
 
 func TestCgroupConnectCompileSmoke(t *testing.T) {
-	if _, err := os.Stat("/usr/local/include/vmlinux.h"); err != nil {
-		t.Skipf("vmlinux.h not available: %v", err)
-	}
-	if err := run([]string{"doctor"}); err != nil {
-		t.Fatalf("doctor: %v", err)
-	}
+	requireClangSmoke(t)
 	srcDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(srcDir, "connect.hzn"), []byte(`package probes
 
@@ -189,12 +214,7 @@ func BlockSMTP(ctx cgroup.Connect) i32 {
 }
 
 func TestLSMCompileSmoke(t *testing.T) {
-	if _, err := os.Stat("/usr/local/include/vmlinux.h"); err != nil {
-		t.Skipf("vmlinux.h not available: %v", err)
-	}
-	if err := run([]string{"doctor"}); err != nil {
-		t.Fatalf("doctor: %v", err)
-	}
+	requireClangSmoke(t)
 	srcDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(srcDir, "lsm.hzn"), []byte(`package probes
 
@@ -225,12 +245,7 @@ func AllowFileOpen(ctx lsm.Context) i32 {
 }
 
 func TestConstantSymbolCollisionCompileSmoke(t *testing.T) {
-	if _, err := os.Stat("/usr/local/include/vmlinux.h"); err != nil {
-		t.Skipf("vmlinux.h not available: %v", err)
-	}
-	if err := run([]string{"doctor"}); err != nil {
-		t.Fatalf("doctor: %v", err)
-	}
+	requireClangSmoke(t)
 	srcDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(srcDir, "flags.hzn"), []byte(`package probes
 
@@ -270,12 +285,7 @@ func OnExec(ctx tracepoint.Exec) i32 {
 }
 
 func TestConstBoundedLoopCompileSmoke(t *testing.T) {
-	if _, err := os.Stat("/usr/local/include/vmlinux.h"); err != nil {
-		t.Skipf("vmlinux.h not available: %v", err)
-	}
-	if err := run([]string{"doctor"}); err != nil {
-		t.Fatalf("doctor: %v", err)
-	}
+	requireClangSmoke(t)
 	srcDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(srcDir, "loop.hzn"), []byte(`package probes
 
@@ -305,12 +315,7 @@ func OnExec(ctx tracepoint.Exec) i32 {
 }
 
 func TestStructSymbolCollisionCompileSmoke(t *testing.T) {
-	if _, err := os.Stat("/usr/local/include/vmlinux.h"); err != nil {
-		t.Skipf("vmlinux.h not available: %v", err)
-	}
-	if err := run([]string{"doctor"}); err != nil {
-		t.Fatalf("doctor: %v", err)
-	}
+	requireClangSmoke(t)
 	srcDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(srcDir, "file.hzn"), []byte(`package probes
 
