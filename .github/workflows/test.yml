@@ -34,10 +34,24 @@ jobs:
           else
             printf '%s\n' \
               'typedef unsigned char __u8;' \
+              'typedef unsigned short __u16;' \
               'typedef unsigned int __u32;' \
+              'typedef unsigned long long __u64;' \
+              'typedef signed char __s8;' \
+              'typedef signed short __s16;' \
+              'typedef signed int __s32;' \
+              'typedef signed long long __s64;' \
+              'typedef __u16 __be16;' \
+              'typedef __u32 __be32;' \
+              'typedef __u32 __wsum;' \
+              'enum bpf_map_type { BPF_MAP_TYPE_HASH = 1, BPF_MAP_TYPE_ARRAY = 2, BPF_MAP_TYPE_RINGBUF = 27 };' \
+              'enum { BPF_ANY = 0 };' \
+              'struct __sk_buff;' \
+              'struct pt_regs {};' \
+              'struct xdp_md { __u32 data; __u32 data_end; };' \
               'struct trace_event_raw_sched_process_exec {};' |
               sudo tee /usr/local/include/vmlinux.h >/dev/null
           fi
       - run: go run ./cmd/hzn doctor
-      - run: go run ./cmd/hzn workbench ./examples/execwatch -o /tmp/horizon-ci -compile
+      - run: make build-examples OUT=/tmp/horizon-ci
       - run: go test ./... -tags clang_smoke

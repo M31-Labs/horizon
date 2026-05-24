@@ -1,4 +1,6 @@
-.PHONY: test check doctor setup-vmlinux workbench build-example clang-smoke
+OUT ?= dist
+
+.PHONY: test check doctor setup-vmlinux workbench build-example build-examples clang-smoke
 
 test:
 	go test ./...
@@ -13,10 +15,17 @@ setup-vmlinux:
 	bpftool btf dump file /sys/kernel/btf/vmlinux format c | sudo tee /usr/local/include/vmlinux.h >/dev/null
 
 workbench:
-	go run ./cmd/hzn workbench ./examples/execwatch -o dist
+	go run ./cmd/hzn workbench ./examples/execwatch -o $(OUT)
 
 build-example:
-	go run ./cmd/hzn build ./examples/execwatch -o dist
+	go run ./cmd/hzn build ./examples/execwatch -o $(OUT)
+
+build-examples:
+	go run ./cmd/hzn build ./examples/execwatch -o $(OUT)
+	go run ./cmd/hzn build ./examples/execcount -o $(OUT)
+	go run ./cmd/hzn build ./examples/openwatch -o $(OUT)
+	go run ./cmd/hzn build ./examples/tcpconnect -o $(OUT)
+	go run ./cmd/hzn build ./examples/xdpdrop -o $(OUT)
 
 clang-smoke:
 	go test ./... -tags clang_smoke
