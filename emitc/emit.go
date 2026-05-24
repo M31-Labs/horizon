@@ -10,19 +10,20 @@ import (
 
 func Emit(program ir.Program) (Output, error) {
 	var b strings.Builder
+	usage := analyzeUsage(program)
 	b.WriteString("#include \"vmlinux.h\"\n")
 	b.WriteString("#include <bpf/bpf_helpers.h>\n\n")
 	b.WriteString("#include <bpf/bpf_tracing.h>\n\n")
-	if programUsesXDPPacketHelpers(program) {
+	if usage.hasXDPPacketHelpers() {
 		b.WriteString("#include <bpf/bpf_endian.h>\n\n")
 	}
 	if programHasXDP(program) {
 		emitXDPActionFallbacks(&b)
 	}
 	b.WriteString("char LICENSE[] SEC(\"license\") = \"GPL\";\n")
-	emitHelperWrappers(&b)
-	if programUsesXDPPacketHelpers(program) {
-		emitXDPPacketHelpers(&b)
+	emitHelperWrappers(&b, usage)
+	if usage.hasXDPPacketHelpers() {
+		emitXDPPacketHelpers(&b, usage)
 	}
 	for _, c := range program.Constants {
 		emitConst(&b, c)
@@ -34,7 +35,7 @@ func Emit(program ir.Program) (Output, error) {
 		emitMap(&b, m)
 	}
 	for _, m := range program.Maps {
-		emitMapWrappers(&b, m)
+		emitMapWrappers(&b, m, usage.mapMethods[m.Name])
 	}
 	sourceMap := ir.SourceMap{
 		Schema:    "m31labs.dev/horizon/sourcemap/v0",
@@ -173,24 +174,149 @@ func (e *cEnv) local(name string) (ir.Type, bool) {
 	return typ, ok
 }
 
-func emitHelperWrappers(b *strings.Builder) {
-	b.WriteString(`
-static __always_inline __attribute__((unused)) __u32 hzn_current_pid(void) {
+type cUsage struct {
+	helpers    map[string]bool
+	mapMethods map[string]map[string]bool
+	xdpHelpers map[string]bool
+	maps       map[string]ir.Map
+}
+
+func analyzeUsage(program ir.Program) cUsage {
+	usage := cUsage{
+		helpers:    map[string]bool{},
+		mapMethods: map[string]map[string]bool{},
+		xdpHelpers: map[string]bool{},
+		maps:       map[string]ir.Map{},
+	}
+	for _, m := range program.Maps {
+		usage.maps[m.Name] = m
+	}
+	for _, fn := range program.Functions {
+		for _, stmt := range functionStatements(fn) {
+			usage.walkStatement(stmt)
+		}
+	}
+	usage.expandXDPPacketDependencies()
+	return usage
+}
+
+func (u *cUsage) walkStatement(stmt ir.Statement) {
+	switch stmt.Kind {
+	case "short_var":
+		u.walkExpr(stmt.Value)
+	case "assign":
+		u.walkExpr(stmt.Target)
+		u.walkExpr(stmt.Value)
+	case "expr":
+		u.walkExpr(stmt.Expr)
+	case "return":
+		u.walkExpr(stmt.Value)
+	case "if":
+		u.walkExpr(stmt.Cond)
+		u.walkStatements(stmt.Then)
+		u.walkStatements(stmt.Else)
+	case "for":
+		if stmt.Init != nil {
+			u.walkStatement(*stmt.Init)
+		}
+		u.walkExpr(stmt.Cond)
+		if stmt.Post != nil {
+			u.walkStatement(*stmt.Post)
+		}
+		u.walkStatements(stmt.Body)
+	case "raw":
+		u.walkExpr(stmt.Value)
+	}
+}
+
+func (u *cUsage) walkStatements(stmts []ir.Statement) {
+	for _, stmt := range stmts {
+		u.walkStatement(stmt)
+	}
+}
+
+func (u *cUsage) walkExpr(expr *ir.Expr) {
+	if expr == nil {
+		return
+	}
+	if helper, ok := helperWrapperCall(expr); ok {
+		u.helpers[helper] = true
+	}
+	if mapName, method, ok := wrapperMethodCall(expr); ok {
+		u.addMapMethod(mapName, method)
+	}
+	if helper, ok := xdpPacketCall(expr); ok {
+		u.xdpHelpers[helper] = true
+	}
+	u.walkExpr(expr.Operand)
+	u.walkExpr(expr.Left)
+	u.walkExpr(expr.Right)
+	u.walkExpr(expr.Func)
+	for i := range expr.Args {
+		u.walkExpr(&expr.Args[i])
+	}
+	for i := range expr.Fields {
+		u.walkExpr(&expr.Fields[i].Value)
+	}
+}
+
+func (u *cUsage) addMapMethod(mapName string, method string) {
+	if _, ok := u.maps[mapName]; !ok {
+		return
+	}
+	if u.mapMethods[mapName] == nil {
+		u.mapMethods[mapName] = map[string]bool{}
+	}
+	u.mapMethods[mapName][method] = true
+}
+
+func (u cUsage) hasXDPPacketHelpers() bool {
+	return len(u.xdpHelpers) > 0
+}
+
+func (u *cUsage) expandXDPPacketDependencies() {
+	if u.xdpHelpers["udp"] || u.xdpHelpers["tcp"] {
+		u.xdpHelpers["l4_offset"] = true
+		u.xdpHelpers["ipv4"] = true
+		u.xdpHelpers["eth"] = true
+	}
+	if u.xdpHelpers["ipv4"] {
+		u.xdpHelpers["eth"] = true
+	}
+}
+
+func emitHelperWrappers(b *strings.Builder, usage cUsage) {
+	if usage.helpers["current_pid"] {
+		b.WriteString(`
+static __always_inline __u32 hzn_current_pid(void) {
     return (__u32)(bpf_get_current_pid_tgid() >> 32);
 }
+`)
+	}
 
-static __always_inline __attribute__((unused)) __u32 hzn_current_ppid(void) {
+	if usage.helpers["current_ppid"] {
+		b.WriteString(`
+static __always_inline __u32 hzn_current_ppid(void) {
     return 0;
 }
+`)
+	}
 
-static __always_inline __attribute__((unused)) __u32 hzn_current_uid(void) {
+	if usage.helpers["current_uid"] {
+		b.WriteString(`
+static __always_inline __u32 hzn_current_uid(void) {
     return (__u32)bpf_get_current_uid_gid();
 }
+`)
+	}
 
-static __always_inline __attribute__((unused)) long hzn_current_comm(void *dst, __u32 size) {
+	if usage.helpers["current_comm"] {
+		b.WriteString(`
+static __always_inline long hzn_current_comm(void *dst, __u32 size) {
     return bpf_get_current_comm(dst, size);
 }
 `)
+	}
 }
 
 func emitXDPActionFallbacks(b *strings.Builder) {
@@ -214,84 +340,7 @@ func programHasXDP(program ir.Program) bool {
 	return false
 }
 
-func programUsesXDPPacketHelpers(program ir.Program) bool {
-	for _, fn := range program.Functions {
-		for _, stmt := range functionStatements(fn) {
-			if statementUsesXDPPacketHelpers(stmt) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func statementUsesXDPPacketHelpers(stmt ir.Statement) bool {
-	switch stmt.Kind {
-	case "short_var":
-		return exprUsesXDPPacketHelpers(stmt.Value)
-	case "assign":
-		return exprUsesXDPPacketHelpers(stmt.Target) || exprUsesXDPPacketHelpers(stmt.Value)
-	case "expr":
-		return exprUsesXDPPacketHelpers(stmt.Expr)
-	case "return":
-		return exprUsesXDPPacketHelpers(stmt.Value)
-	case "if":
-		if exprUsesXDPPacketHelpers(stmt.Cond) {
-			return true
-		}
-		for _, child := range stmt.Then {
-			if statementUsesXDPPacketHelpers(child) {
-				return true
-			}
-		}
-		for _, child := range stmt.Else {
-			if statementUsesXDPPacketHelpers(child) {
-				return true
-			}
-		}
-	case "for":
-		if stmt.Init != nil && statementUsesXDPPacketHelpers(*stmt.Init) {
-			return true
-		}
-		if exprUsesXDPPacketHelpers(stmt.Cond) {
-			return true
-		}
-		if stmt.Post != nil && statementUsesXDPPacketHelpers(*stmt.Post) {
-			return true
-		}
-		for _, child := range stmt.Body {
-			if statementUsesXDPPacketHelpers(child) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func exprUsesXDPPacketHelpers(expr *ir.Expr) bool {
-	if expr == nil {
-		return false
-	}
-	if _, ok := xdpPacketCall(expr); ok {
-		return true
-	}
-	if exprUsesXDPPacketHelpers(expr.Operand) || exprUsesXDPPacketHelpers(expr.Left) || exprUsesXDPPacketHelpers(expr.Right) || exprUsesXDPPacketHelpers(expr.Func) {
-		return true
-	}
-	for i := range expr.Args {
-		if exprUsesXDPPacketHelpers(&expr.Args[i]) {
-			return true
-		}
-	}
-	for i := range expr.Fields {
-		if exprUsesXDPPacketHelpers(&expr.Fields[i].Value) {
-			return true
-		}
-	}
-	return false
-}
-
-func emitXDPPacketHelpers(b *strings.Builder) {
+func emitXDPPacketHelpers(b *strings.Builder, usage cUsage) {
 	b.WriteString(`
 struct hzn_xdp_eth {
     __u8 dst[6];
@@ -330,8 +379,11 @@ struct hzn_xdp_udp {
     __u16 len;
     __u16 check;
 } __attribute__((packed));
+`)
 
-static __always_inline __attribute__((unused)) struct hzn_xdp_eth *hzn_xdp_eth(struct xdp_md *ctx) {
+	if usage.xdpHelpers["eth"] {
+		b.WriteString(`
+static __always_inline struct hzn_xdp_eth *hzn_xdp_eth(struct xdp_md *ctx) {
     void *data = (void *)(long)ctx->data;
     void *data_end = (void *)(long)ctx->data_end;
 
@@ -340,8 +392,12 @@ static __always_inline __attribute__((unused)) struct hzn_xdp_eth *hzn_xdp_eth(s
     }
     return data;
 }
+`)
+	}
 
-static __always_inline __attribute__((unused)) struct hzn_xdp_ipv4 *hzn_xdp_ipv4(struct xdp_md *ctx) {
+	if usage.xdpHelpers["ipv4"] {
+		b.WriteString(`
+static __always_inline struct hzn_xdp_ipv4 *hzn_xdp_ipv4(struct xdp_md *ctx) {
     void *data = (void *)(long)ctx->data;
     void *data_end = (void *)(long)ctx->data_end;
     struct hzn_xdp_eth *eth = hzn_xdp_eth(ctx);
@@ -356,8 +412,12 @@ static __always_inline __attribute__((unused)) struct hzn_xdp_ipv4 *hzn_xdp_ipv4
     }
     return ip;
 }
+`)
+	}
 
-static __always_inline __attribute__((unused)) __u64 hzn_xdp_l4_offset(struct xdp_md *ctx, __u8 protocol) {
+	if usage.xdpHelpers["l4_offset"] {
+		b.WriteString(`
+static __always_inline __u64 hzn_xdp_l4_offset(struct xdp_md *ctx, __u8 protocol) {
     struct hzn_xdp_ipv4 *ip = hzn_xdp_ipv4(ctx);
 
     if (!ip || ip->protocol != protocol) {
@@ -370,8 +430,12 @@ static __always_inline __attribute__((unused)) __u64 hzn_xdp_l4_offset(struct xd
     }
     return sizeof(struct hzn_xdp_eth) + ((__u64)ihl * 4);
 }
+`)
+	}
 
-static __always_inline __attribute__((unused)) struct hzn_xdp_tcp *hzn_xdp_tcp(struct xdp_md *ctx) {
+	if usage.xdpHelpers["tcp"] {
+		b.WriteString(`
+static __always_inline struct hzn_xdp_tcp *hzn_xdp_tcp(struct xdp_md *ctx) {
     void *data = (void *)(long)ctx->data;
     void *data_end = (void *)(long)ctx->data_end;
     __u64 off = hzn_xdp_l4_offset(ctx, 6);
@@ -381,8 +445,12 @@ static __always_inline __attribute__((unused)) struct hzn_xdp_tcp *hzn_xdp_tcp(s
     }
     return data + off;
 }
+`)
+	}
 
-static __always_inline __attribute__((unused)) struct hzn_xdp_udp *hzn_xdp_udp(struct xdp_md *ctx) {
+	if usage.xdpHelpers["udp"] {
+		b.WriteString(`
+static __always_inline struct hzn_xdp_udp *hzn_xdp_udp(struct xdp_md *ctx) {
     void *data = (void *)(long)ctx->data;
     void *data_end = (void *)(long)ctx->data_end;
     __u64 off = hzn_xdp_l4_offset(ctx, 17);
@@ -393,6 +461,7 @@ static __always_inline __attribute__((unused)) struct hzn_xdp_udp *hzn_xdp_udp(s
     return data + off;
 }
 `)
+	}
 }
 
 func emitConst(b *strings.Builder, c ir.Const) {
@@ -439,53 +508,72 @@ struct {
 	}
 }
 
-func emitMapWrappers(b *strings.Builder, m ir.Map) {
+func emitMapWrappers(b *strings.Builder, m ir.Map, methods map[string]bool) {
+	if len(methods) == 0 {
+		return
+	}
 	switch m.Kind {
 	case ir.MapKindRingbuf:
-		emitRingbufWrappers(b, m)
+		emitRingbufWrappers(b, m, methods)
 	case ir.MapKindHash, ir.MapKindArray:
-		emitLookupMapWrappers(b, m)
+		emitLookupMapWrappers(b, m, methods)
 	}
 }
 
-func emitRingbufWrappers(b *strings.Builder, m ir.Map) {
+func emitRingbufWrappers(b *strings.Builder, m ir.Map, methods map[string]bool) {
 	if m.Val.Name == "" {
 		return
 	}
 	typ := "struct " + m.Val.Name
-	fmt.Fprintf(b, `
-static __always_inline __attribute__((unused)) %s *%s_reserve(void) {
+	if methods["reserve"] {
+		fmt.Fprintf(b, `
+static __always_inline %s *%s_reserve(void) {
     return bpf_ringbuf_reserve(&%s, sizeof(%s), 0);
 }
+`, typ, m.Name, m.Name, typ)
+	}
 
-static __always_inline __attribute__((unused)) void %s_submit(%s *value) {
+	if methods["submit"] {
+		fmt.Fprintf(b, `
+static __always_inline void %s_submit(%s *value) {
     bpf_ringbuf_submit(value, 0);
 }
+`, m.Name, typ)
+	}
 
-static __always_inline __attribute__((unused)) void %s_discard(%s *value) {
+	if methods["discard"] {
+		fmt.Fprintf(b, `
+static __always_inline void %s_discard(%s *value) {
     bpf_ringbuf_discard(value, 0);
 }
-`, typ, m.Name, m.Name, typ, m.Name, typ, m.Name, typ)
+`, m.Name, typ)
+	}
 }
 
-func emitLookupMapWrappers(b *strings.Builder, m ir.Map) {
+func emitLookupMapWrappers(b *strings.Builder, m ir.Map, methods map[string]bool) {
 	if m.Key.Name == "" || m.Val.Name == "" {
 		return
 	}
 	keyType := cType(m.Key)
 	valueType := cType(m.Val)
-	fmt.Fprintf(b, `
-static __always_inline __attribute__((unused)) %s *%s_lookup(%s key) {
+	if methods["lookup"] {
+		fmt.Fprintf(b, `
+static __always_inline %s *%s_lookup(%s key) {
     return bpf_map_lookup_elem(&%s, &key);
 }
+`, valueType, m.Name, keyType, m.Name)
+	}
 
-static __always_inline __attribute__((unused)) long %s_update(%s key, %s value) {
+	if methods["update"] {
+		fmt.Fprintf(b, `
+static __always_inline long %s_update(%s key, %s value) {
     return bpf_map_update_elem(&%s, &key, &value, BPF_ANY);
 }
-`, valueType, m.Name, keyType, m.Name, m.Name, keyType, valueType, m.Name)
-	if m.Kind == ir.MapKindHash {
+`, m.Name, keyType, valueType, m.Name)
+	}
+	if methods["delete"] && m.Kind == ir.MapKindHash {
 		fmt.Fprintf(b, `
-static __always_inline __attribute__((unused)) long %s_delete(%s key) {
+static __always_inline long %s_delete(%s key) {
     return bpf_map_delete_elem(&%s, &key);
 }
 `, m.Name, keyType, m.Name)
@@ -1094,6 +1182,34 @@ func reserveCall(expr *ir.Expr) (string, bool) {
 		return "", false
 	}
 	return expr.Func.Operand.Name, true
+}
+
+func helperWrapperCall(expr *ir.Expr) (string, bool) {
+	if expr == nil || expr.Kind != "call" {
+		return "", false
+	}
+	switch qualifiedName(expr.Func) {
+	case "bpf.current_pid":
+		return "current_pid", true
+	case "bpf.current_ppid":
+		return "current_ppid", true
+	case "bpf.current_uid":
+		return "current_uid", true
+	case "bpf.current_comm":
+		return "current_comm", true
+	default:
+		return "", false
+	}
+}
+
+func wrapperMethodCall(expr *ir.Expr) (string, string, bool) {
+	if mapName, ok := reserveCall(expr); ok {
+		return mapName, "reserve", true
+	}
+	if mapName, method, _, ok := consumeCall(expr); ok {
+		return mapName, method, true
+	}
+	return mapMethodCall(expr)
 }
 
 func lookupCall(expr *ir.Expr) (string, bool) {
