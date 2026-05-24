@@ -85,7 +85,6 @@ func looksLikeVerifierDiagnostic(line string) bool {
 		"math between",
 		"stack depth",
 		"cannot access",
-		"processed ",
 		"failed",
 	} {
 		if strings.Contains(lower, marker) {

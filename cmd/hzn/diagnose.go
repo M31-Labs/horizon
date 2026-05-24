@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"m31labs.dev/horizon/compiler/diag"
 	"m31labs.dev/horizon/ir"
@@ -136,6 +137,13 @@ func diagnosticsFromVerifier(remapped []verifier.Diagnostic) []diag.Diagnostic {
 				Span:    d.Generated,
 				Message: "generated BPF C",
 			})
+			converted.Notes = append(converted.Notes, fmt.Sprintf("generated BPF C: %s:%d:%d", d.Generated.File, d.Generated.Start.Line, d.Generated.Start.Column))
+		}
+		if d.Function != "" || d.Section != "" || d.Node != "" {
+			converted.Notes = append(converted.Notes, sourceMapNote(d))
+		}
+		if d.Mapping == "nearest" {
+			converted.Notes = append(converted.Notes, "location was mapped to the nearest preceding Horizon source span")
 		}
 		if d.Raw != "" && d.Raw != d.Message {
 			converted.Notes = append(converted.Notes, d.Raw)
@@ -143,4 +151,18 @@ func diagnosticsFromVerifier(remapped []verifier.Diagnostic) []diag.Diagnostic {
 		out = append(out, converted)
 	}
 	return out
+}
+
+func sourceMapNote(d verifier.Diagnostic) string {
+	var parts []string
+	if d.Function != "" {
+		parts = append(parts, "function "+d.Function)
+	}
+	if d.Section != "" {
+		parts = append(parts, "section "+d.Section)
+	}
+	if d.Node != "" {
+		parts = append(parts, "node "+d.Node)
+	}
+	return "source map: " + strings.Join(parts, ", ")
 }

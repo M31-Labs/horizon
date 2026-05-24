@@ -24,6 +24,18 @@ func TestRemapClangDiagnosticToHorizonSource(t *testing.T) {
 	if got, want := diags[0].Generated.Start.Line, 57; got != want {
 		t.Fatalf("generated line = %d, want %d", got, want)
 	}
+	if got, want := diags[0].Function, "OnExec"; got != want {
+		t.Fatalf("function = %q, want %q", got, want)
+	}
+	if got, want := diags[0].Section, "tracepoint/sched/sched_process_exec"; got != want {
+		t.Fatalf("section = %q, want %q", got, want)
+	}
+	if got, want := diags[0].Node, "expr"; got != want {
+		t.Fatalf("node = %q, want %q", got, want)
+	}
+	if got, want := diags[0].Mapping, "exact"; got != want {
+		t.Fatalf("mapping = %q, want %q", got, want)
+	}
 }
 
 func TestRemapVerifierSourceCommentToHorizonSource(t *testing.T) {
@@ -45,6 +57,25 @@ invalid mem access 'scalar'`)
 	}
 	if got, want := diags[0].Generated.Start.Line, 3; got != want {
 		t.Fatalf("generated line = %d, want %d", got, want)
+	}
+	if got, want := diags[0].Mapping, "exact"; got != want {
+		t.Fatalf("mapping = %q, want %q", got, want)
+	}
+}
+
+func TestRemapNearestGeneratedLocationIsMarked(t *testing.T) {
+	sourceMap := testSourceMap(57)
+	log := ParseLog(`/tmp/exec.bpf.c:59:3: error: synthetic helper failure`)
+
+	diags := Remap(log, sourceMap)
+	if len(diags) != 1 {
+		t.Fatalf("diagnostics = %d, want 1", len(diags))
+	}
+	if got, want := diags[0].Span.Start.Line, 25; got != want {
+		t.Fatalf("span line = %d, want nearest source line %d", got, want)
+	}
+	if got, want := diags[0].Mapping, "nearest"; got != want {
+		t.Fatalf("mapping = %q, want %q", got, want)
 	}
 }
 

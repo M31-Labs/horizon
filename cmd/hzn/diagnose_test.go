@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"m31labs.dev/horizon/compiler/diag"
@@ -50,6 +51,12 @@ func TestDiagnoseJSONUsesCompilerDiagnosticShape(t *testing.T) {
 	}
 	if len(diagnostics[0].Labels) != 1 || diagnostics[0].Labels[0].Message != "generated BPF C" {
 		t.Fatalf("labels = %#v, want generated BPF C label", diagnostics[0].Labels)
+	}
+	if !hasNoteContaining(diagnostics[0], "generated BPF C: "+cPath+":2:5") {
+		t.Fatalf("notes = %#v, want generated BPF C location", diagnostics[0].Notes)
+	}
+	if !hasNoteContaining(diagnostics[0], "source map: function OnExec, section tracepoint/sched/sched_process_exec, node expr") {
+		t.Fatalf("notes = %#v, want source map metadata", diagnostics[0].Notes)
 	}
 }
 
@@ -155,4 +162,13 @@ func writeDiagnoseSourceMap(t *testing.T, path string, sourceMap ir.SourceMap) {
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		t.Fatalf("write source map: %v", err)
 	}
+}
+
+func hasNoteContaining(diagnostic diag.Diagnostic, needle string) bool {
+	for _, note := range diagnostic.Notes {
+		if strings.Contains(note, needle) {
+			return true
+		}
+	}
+	return false
 }

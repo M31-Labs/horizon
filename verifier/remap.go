@@ -34,7 +34,8 @@ func RemapWithGenerated(log Log, sourceMap ir.SourceMap, generated []byte) []Dia
 				End:   span.Point{Line: entry.Line, Column: entry.Column + 1},
 			}
 			if generatedMatches(entry.Path, sourceMap.Generated.Path) {
-				diag.Span = sourceForGenerated(sourceMap, entry.Line, entry.Column)
+				mapping, ok, exact := mappingForGenerated(sourceMap, entry.Line, entry.Column)
+				applySourceMapping(&diag, mapping, ok, exact)
 			}
 		}
 		if diag.Span.IsZero() && entry.CSource != "" && len(lines) > 0 {
@@ -44,7 +45,8 @@ func RemapWithGenerated(log Log, sourceMap ir.SourceMap, generated []byte) []Dia
 					Start: span.Point{Line: line, Column: 1},
 					End:   span.Point{Line: line, Column: 1},
 				}
-				diag.Span = sourceForGenerated(sourceMap, line, 1)
+				mapping, ok, exact := mappingForGenerated(sourceMap, line, 1)
+				applySourceMapping(&diag, mapping, ok, exact)
 			}
 		}
 		if diag.Span.IsZero() && entry.Path != "" && !generatedMatches(entry.Path, sourceMap.Generated.Path) {
@@ -59,9 +61,24 @@ func RemapWithGenerated(log Log, sourceMap ir.SourceMap, generated []byte) []Dia
 	return diags
 }
 
-func sourceForGenerated(sourceMap ir.SourceMap, line int, column int) span.Span {
+func applySourceMapping(diag *Diagnostic, mapping ir.SourceMapping, ok bool, exact bool) {
+	if diag == nil || !ok {
+		return
+	}
+	diag.Span = mapping.Source
+	diag.Function = mapping.Function
+	diag.Section = mapping.Section
+	diag.Node = mapping.Node
+	if exact {
+		diag.Mapping = "exact"
+	} else {
+		diag.Mapping = "nearest"
+	}
+}
+
+func mappingForGenerated(sourceMap ir.SourceMap, line int, column int) (ir.SourceMapping, bool, bool) {
 	if line <= 0 {
-		return span.Span{}
+		return ir.SourceMapping{}, false, false
 	}
 	best := ir.SourceMapping{}
 	bestSet := false
@@ -75,7 +92,7 @@ func sourceForGenerated(sourceMap ir.SourceMap, line int, column int) span.Span 
 		}
 	}
 	if bestSet {
-		return best.Source
+		return best, true, true
 	}
 	for _, mapping := range sourceMap.Mappings {
 		if mapping.Generated.Start.Line > line {
@@ -87,9 +104,9 @@ func sourceForGenerated(sourceMap ir.SourceMap, line int, column int) span.Span 
 		}
 	}
 	if bestSet {
-		return best.Source
+		return best, true, false
 	}
-	return span.Span{}
+	return ir.SourceMapping{}, false, false
 }
 
 func containsGenerated(generated span.Span, line int, column int) bool {

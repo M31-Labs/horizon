@@ -18,7 +18,7 @@ It keeps the kernel-side language deliberately small:
 - bounded counted loops
 - compiler-known kernel helpers
 - readable generated BPF C
-- source maps for diagnostics
+- source maps with function/section context for diagnostics
 - typed Go bindings and Continuum capability manifests
 
 ## Pipeline
@@ -160,8 +160,10 @@ writing new ones, records replaced paths, and includes generator/timestamp
 provenance in the report. Invalid programs still produce
 `<name>.diagnostics.json` and `<name>.report.json`, and clang failures are
 remapped into the same diagnostics artifact, so editors and automation can show
-actionable feedback without scraping terminal output. Use `-compile` or
-`hzn build` when the local clang/BPF C toolchain should also produce a `.bpf.o`.
+actionable feedback without scraping terminal output. Remapped diagnostics keep
+the generated BPF C location plus source-map metadata such as Horizon function,
+section, and AST node. Use `-compile` or `hzn build` when the local clang/BPF C
+toolchain should also produce a `.bpf.o`.
 
 Generated Go bindings expose typed helpers around the loaded objects: ringbuf
 maps get `Read<Name>(context.Context, func(Event) error)`, hash maps get
