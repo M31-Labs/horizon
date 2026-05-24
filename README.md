@@ -141,6 +141,8 @@ hzn workbench ./examples/execwatch -o dist -json
 hzn workbench ./examples/execwatch -o dist -compile
 hzn build ./examples/execwatch -o dist
 go run ./examples/execwatch/cmd/execwatch -obj dist/exec.bpf.o
+hzn build ./examples/execcount -o dist
+sudo go run ./examples/execcount/cmd/execcount -obj dist/count.bpf.o -timeout 10s
 hzn build ./examples/openwatch -o dist
 sudo go run ./examples/openwatch/cmd/openwatch -obj dist/open.bpf.o
 hzn build ./examples/tcpconnect -o dist

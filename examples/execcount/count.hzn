@@ -1,0 +1,25 @@
+package probes
+
+import bpf "m31labs.dev/horizon/runtime/kernel"
+
+const FirstSeen = 1
+
+type Count struct {
+    seen u64
+}
+
+map ExecCounts hash[u32, Count]
+
+@capability("kernel.process.exec.count")
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    pid := bpf.current_pid()
+    count := ExecCounts.lookup(pid)
+    if count == nil {
+        ExecCounts.update(pid, Count{seen: FirstSeen})
+        return 0
+    }
+
+    count.seen = count.seen + 1
+    return 0
+}

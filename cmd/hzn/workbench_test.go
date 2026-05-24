@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"m31labs.dev/horizon/compiler/diag"
@@ -132,6 +133,45 @@ func TestWorkbenchJSONOutputForInvalidInput(t *testing.T) {
 	}
 	if len(report.Artifacts) != 2 {
 		t.Fatalf("artifacts = %d, want 2", len(report.Artifacts))
+	}
+}
+
+func TestWorkbenchGeneratesTypedMapBindingsForExecCount(t *testing.T) {
+	outDir := t.TempDir()
+	input := filepath.Join("..", "..", "examples", "execcount")
+	if err := run([]string{"workbench", input, "-o", outDir}); err != nil {
+		t.Fatalf("run workbench: %v", err)
+	}
+	bindings, err := os.ReadFile(filepath.Join(outDir, "count.bindings.go"))
+	if err != nil {
+		t.Fatalf("read bindings: %v", err)
+	}
+	for _, want := range []string{
+		"type Count struct",
+		"func (o *Objects) LookupExecCounts(key uint32) (Count, bool, error)",
+		"func (o *Objects) UpdateExecCounts(key uint32, value Count) error",
+		"func (o *Objects) ForEachExecCounts(handle func(key uint32, value Count) error) error",
+		"func (o *Objects) DeleteExecCounts(key uint32) error",
+	} {
+		if !strings.Contains(string(bindings), want) {
+			t.Fatalf("bindings missing %q:\n%s", want, bindings)
+		}
+	}
+	manifest, err := os.ReadFile(filepath.Join(outDir, "count.cap.json"))
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	for _, want := range []string{
+		`"name": "ExecCounts"`,
+		`"key": "u32"`,
+		`"value": "Count"`,
+		`"name": "Count"`,
+		`"name": "seen"`,
+		`"type": "u64"`,
+	} {
+		if !strings.Contains(string(manifest), want) {
+			t.Fatalf("manifest missing %q:\n%s", want, manifest)
+		}
 	}
 }
 
