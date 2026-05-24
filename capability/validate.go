@@ -44,6 +44,33 @@ func DiagnosticForError(err error) (diag.Diagnostic, bool) {
 }
 
 func Validate(m Manifest) error {
+	if err := validateManifestHeader(m); err != nil {
+		return err
+	}
+	programs, err := indexManifestPrograms(m.Programs)
+	if err != nil {
+		return err
+	}
+	maps, err := indexManifestMaps(m.Maps)
+	if err != nil {
+		return err
+	}
+	types, err := indexManifestTypes(m.Types)
+	if err != nil {
+		return err
+	}
+	if err := validateManifestTypeFields(m.Types, types); err != nil {
+		return err
+	}
+	if len(types) > 0 {
+		if err := validateManifestMapTypeRefs(maps, types); err != nil {
+			return err
+		}
+	}
+	return validateManifestCapabilities(m.Capabilities, programs, maps, types)
+}
+
+func validateManifestHeader(m Manifest) error {
 	if m.Schema == "" {
 		return validationErrorf("capability manifest schema is required")
 	}
@@ -53,90 +80,119 @@ func Validate(m Manifest) error {
 	if m.Package == "" {
 		return validationErrorf("capability manifest package is required")
 	}
+	return nil
+}
+
+func indexManifestPrograms(programSpecs []Program) (map[string]bool, error) {
 	programs := map[string]bool{}
-	for _, program := range m.Programs {
+	for _, program := range programSpecs {
 		if program.Name == "" {
-			return validationErrorf("capability manifest program name is required")
+			return nil, validationErrorf("capability manifest program name is required")
 		}
 		if program.Kind == "" {
-			return validationErrorf("capability manifest program %q kind is required", program.Name)
+			return nil, validationErrorf("capability manifest program %q kind is required", program.Name)
 		}
 		if !validProgramKind(program.Kind) {
-			return validationErrorf("capability manifest program %q kind %q is not supported", program.Name, program.Kind)
+			return nil, validationErrorf("capability manifest program %q kind %q is not supported", program.Name, program.Kind)
 		}
 		if program.Section == "" {
-			return validationErrorf("capability manifest program %q section is required", program.Name)
+			return nil, validationErrorf("capability manifest program %q section is required", program.Name)
 		}
 		programs[program.Name] = true
 	}
+	return programs, nil
+}
+
+func indexManifestMaps(mapSpecs []Map) (map[string]Map, error) {
 	maps := map[string]Map{}
-	for _, mapSpec := range m.Maps {
+	for _, mapSpec := range mapSpecs {
 		if mapSpec.Name == "" {
-			return validationErrorf("capability manifest map name is required")
+			return nil, validationErrorf("capability manifest map name is required")
 		}
 		if mapSpec.Kind == "" {
-			return validationErrorf("capability manifest map %q kind is required", mapSpec.Name)
+			return nil, validationErrorf("capability manifest map %q kind is required", mapSpec.Name)
 		}
 		if !validMapKind(mapSpec.Kind) {
-			return validationErrorf("capability manifest map %q kind %q is not supported", mapSpec.Name, mapSpec.Kind)
+			return nil, validationErrorf("capability manifest map %q kind %q is not supported", mapSpec.Name, mapSpec.Kind)
 		}
 		if mapSpec.Value == "" {
-			return validationErrorf("capability manifest map %q value type is required", mapSpec.Name)
+			return nil, validationErrorf("capability manifest map %q value type is required", mapSpec.Name)
 		}
 		maps[mapSpec.Name] = mapSpec
 	}
+	return maps, nil
+}
+
+func indexManifestTypes(typeSpecs []TypeSchema) (map[string]bool, error) {
 	types := map[string]bool{}
-	for _, typ := range m.Types {
+	for _, typ := range typeSpecs {
 		if typ.Name == "" {
-			return validationErrorf("capability manifest type name is required")
+			return nil, validationErrorf("capability manifest type name is required")
 		}
 		if typ.Kind == "" {
-			return validationErrorf("capability manifest type %q kind is required", typ.Name)
+			return nil, validationErrorf("capability manifest type %q kind is required", typ.Name)
 		}
 		if typ.Kind != "struct" {
-			return validationErrorf("capability manifest type %q kind %q is not supported", typ.Name, typ.Kind)
+			return nil, validationErrorf("capability manifest type %q kind %q is not supported", typ.Name, typ.Kind)
 		}
 		if typ.Size != nil && *typ.Size < 0 {
-			return validationErrorf("capability manifest type %q size must be non-negative", typ.Name)
+			return nil, validationErrorf("capability manifest type %q size must be non-negative", typ.Name)
 		}
 		if typ.Align != nil && *typ.Align <= 0 {
-			return validationErrorf("capability manifest type %q align must be positive", typ.Name)
+			return nil, validationErrorf("capability manifest type %q align must be positive", typ.Name)
 		}
 		types[typ.Name] = true
 	}
-	for _, typ := range m.Types {
+	return types, nil
+}
+
+func validateManifestTypeFields(typeSpecs []TypeSchema, types map[string]bool) error {
+	for _, typ := range typeSpecs {
 		for _, field := range typ.Fields {
-			if field.Name == "" {
-				return validationErrorf("capability manifest type %q field name is required", typ.Name)
-			}
-			if field.Type == "" {
-				return validationErrorf("capability manifest type %q field %q type is required", typ.Name, field.Name)
-			}
-			if field.Offset != nil {
-				if *field.Offset < 0 {
-					return validationErrorf("capability manifest type %q field %q offset must be non-negative", typ.Name, field.Name)
-				}
-				if typ.Size != nil && *field.Offset > *typ.Size {
-					return validationErrorf("capability manifest type %q field %q offset exceeds type size", typ.Name, field.Name)
-				}
-			}
-			if err := validateTypeRefs(field.Type, types); err != nil {
-				return validationErrorf("capability manifest type %q field %q: %v", typ.Name, field.Name, err)
+			if err := validateManifestTypeField(typ, field, types); err != nil {
+				return err
 			}
 		}
 	}
+	return nil
+}
+
+func validateManifestTypeField(typ TypeSchema, field FieldSchema, types map[string]bool) error {
+	if field.Name == "" {
+		return validationErrorf("capability manifest type %q field name is required", typ.Name)
+	}
+	if field.Type == "" {
+		return validationErrorf("capability manifest type %q field %q type is required", typ.Name, field.Name)
+	}
+	if field.Offset != nil {
+		if *field.Offset < 0 {
+			return validationErrorf("capability manifest type %q field %q offset must be non-negative", typ.Name, field.Name)
+		}
+		if typ.Size != nil && *field.Offset > *typ.Size {
+			return validationErrorf("capability manifest type %q field %q offset exceeds type size", typ.Name, field.Name)
+		}
+	}
+	if err := validateTypeRefs(field.Type, types); err != nil {
+		return validationErrorf("capability manifest type %q field %q: %v", typ.Name, field.Name, err)
+	}
+	return nil
+}
+
+func validateManifestMapTypeRefs(maps map[string]Map, types map[string]bool) error {
+	for _, mapSpec := range maps {
+		if err := validateTypeRefs(mapSpec.Key, types); err != nil {
+			return validationErrorf("map %q key: %v", mapSpec.Name, err)
+		}
+		if err := validateTypeRefs(mapSpec.Value, types); err != nil {
+			return validationErrorf("map %q value: %v", mapSpec.Name, err)
+		}
+	}
+	return nil
+}
+
+func validateManifestCapabilities(caps []Capability, programs map[string]bool, maps map[string]Map, types map[string]bool) error {
 	validateSchemaRefs := len(types) > 0
-	if validateSchemaRefs {
-		for _, mapSpec := range maps {
-			if err := validateTypeRefs(mapSpec.Key, types); err != nil {
-				return validationErrorf("map %q key: %v", mapSpec.Name, err)
-			}
-			if err := validateTypeRefs(mapSpec.Value, types); err != nil {
-				return validationErrorf("map %q value: %v", mapSpec.Name, err)
-			}
-		}
-	}
-	for _, cap := range m.Capabilities {
+	for _, cap := range caps {
 		if cap.Name == "" {
 			return validationErrorf("capability manifest capability name is required")
 		}
