@@ -292,6 +292,7 @@ hzn fmt ./examples -w
 hzn fmt ./examples -check
 hzn doctor
 make setup-vmlinux
+make ci-go
 hzn workbench ./examples/execwatch -o dist
 hzn workbench ./examples/execwatch -o dist -json
 hzn workbench ./examples/execwatch -o dist -compile
@@ -357,6 +358,8 @@ Ringbuf readers close themselves on context cancellation so blocking reads
 unwind through the supplied context.
 `LoadObjects` removes the memlock limit by default; use `LoadObjectsWithOptions`
 when callers need explicit cilium collection options or custom rlimit behavior.
+`make ci-go` typechecks generated bindings for every example so attach helpers,
+typed map helpers, and ringbuf readers stay valid against cilium/ebpf.
 
 Generated BPF C and generated Go bindings include scalar width, struct size, and
 field offset assertions, so clang or `go test` fails early if an emitted type no
