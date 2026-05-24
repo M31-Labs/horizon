@@ -80,6 +80,9 @@ func (g *generator) generate() (string, error) {
 	if err := g.validatePackage(); err != nil {
 		return "", err
 	}
+	if err := g.validateGeneratedNames(); err != nil {
+		return "", err
+	}
 	g.emitPackage()
 	g.emitTypes()
 	g.emitObjects()
@@ -99,6 +102,156 @@ func (g *generator) validatePackage() error {
 		Package: g.packageName,
 		Err:     fmt.Errorf("invalid Go package name %q", g.packageName),
 	}
+}
+
+func (g *generator) validateGeneratedNames() error {
+	if err := g.validateTopLevelNames(); err != nil {
+		return err
+	}
+	if err := g.validateObjectFieldNames(); err != nil {
+		return err
+	}
+	if err := g.validateObjectMethodNames(); err != nil {
+		return err
+	}
+	return g.validateStructFieldNames()
+}
+
+func (g *generator) validateTopLevelNames() error {
+	names := newGeneratedNameSet("top-level bindings")
+	for _, reserved := range []string{"Objects", "LoadOptions", "LoadObjects", "LoadObjectsWithOptions"} {
+		names.reserve("generated "+reserved, reserved)
+	}
+	for _, decl := range g.program.Structs {
+		if err := names.add(fmt.Sprintf("struct %q", decl.Name), exported(decl.Name)); err != nil {
+			return g.identifierError(err)
+		}
+	}
+	return nil
+}
+
+func (g *generator) validateObjectFieldNames() error {
+	names := newGeneratedNameSet("Objects fields")
+	for _, m := range g.program.Maps {
+		if err := names.add(fmt.Sprintf("map %q", m.Name), exported(m.Name)); err != nil {
+			return g.identifierError(err)
+		}
+	}
+	for _, fn := range g.program.Functions {
+		if err := names.add(fmt.Sprintf("program %q", fn.Name), exported(fn.Name)); err != nil {
+			return g.identifierError(err)
+		}
+	}
+	return nil
+}
+
+func (g *generator) validateObjectMethodNames() error {
+	names := newGeneratedNameSet("Objects methods")
+	names.reserve("generated Close method", "Close")
+	for _, m := range g.program.Maps {
+		if err := addMapMethodNames(names, m); err != nil {
+			return g.identifierError(err)
+		}
+	}
+	for _, fn := range g.program.Functions {
+		if err := addAttachMethodNames(names, fn); err != nil {
+			return g.identifierError(err)
+		}
+	}
+	return nil
+}
+
+func (g *generator) validateStructFieldNames() error {
+	for _, decl := range g.program.Structs {
+		names := newGeneratedNameSet(fmt.Sprintf("struct %s fields", exported(decl.Name)))
+		for _, field := range decl.Fields {
+			if err := names.add(fmt.Sprintf("field %q", field.Name), exported(field.Name)); err != nil {
+				return g.identifierError(err)
+			}
+		}
+	}
+	return nil
+}
+
+func (g *generator) identifierError(err error) error {
+	return Error{Stage: "identifiers", Package: g.packageName, Err: err}
+}
+
+func addMapMethodNames(names *generatedNameSet, m ir.Map) error {
+	field := exported(m.Name)
+	if m.Kind == ir.MapKindRingbuf && m.Val.Name != "" {
+		if err := names.add(fmt.Sprintf("ringbuf map %q reader", m.Name), "Read"+field); err != nil {
+			return err
+		}
+	}
+	if !isLookupMap(m) {
+		return nil
+	}
+	for _, prefix := range []string{"Lookup", "Update", "ForEach"} {
+		if err := names.add(fmt.Sprintf("map %q %s method", m.Name, prefix), prefix+field); err != nil {
+			return err
+		}
+	}
+	if m.Kind == ir.MapKindHash {
+		return names.add(fmt.Sprintf("map %q Delete method", m.Name), "Delete"+field)
+	}
+	return nil
+}
+
+func addAttachMethodNames(names *generatedNameSet, fn ir.Function) error {
+	if !emitsAttachMethod(fn) {
+		return nil
+	}
+	field := exported(fn.Name)
+	if err := names.add(fmt.Sprintf("program %q attach method", fn.Name), "Attach"+field); err != nil {
+		return err
+	}
+	if fn.Section.Kind == ir.ProgramXDP || fn.Section.Kind == ir.ProgramTC {
+		return names.add(fmt.Sprintf("program %q interface attach method", fn.Name), "Attach"+field+"Interface")
+	}
+	return nil
+}
+
+func emitsAttachMethod(fn ir.Function) bool {
+	switch fn.Section.Kind {
+	case ir.ProgramTracepoint:
+		_, _, ok := strings.Cut(fn.Section.Attach, ":")
+		return ok
+	case ir.ProgramXDP, ir.ProgramTC, ir.ProgramCgroup, ir.ProgramLSM:
+		return true
+	case ir.ProgramKprobe, ir.ProgramKretprobe:
+		return fn.Section.Attach != ""
+	default:
+		return false
+	}
+}
+
+type generatedNameSet struct {
+	scope string
+	seen  map[string]string
+}
+
+func newGeneratedNameSet(scope string) *generatedNameSet {
+	return &generatedNameSet{scope: scope, seen: map[string]string{}}
+}
+
+func (s *generatedNameSet) reserve(label string, generated string) {
+	s.seen[generated] = label
+}
+
+func (s *generatedNameSet) add(label string, generated string) error {
+	if !validGeneratedIdentifier(generated) {
+		return fmt.Errorf("%s %s generates invalid Go identifier %q", s.scope, label, generated)
+	}
+	if prev, ok := s.seen[generated]; ok {
+		return fmt.Errorf("%s %s and %s both generate Go identifier %q", s.scope, prev, label, generated)
+	}
+	s.seen[generated] = label
+	return nil
+}
+
+func validGeneratedIdentifier(name string) bool {
+	return token.IsIdentifier(name) && !token.Lookup(name).IsKeyword()
 }
 
 func (g *generator) emitPackage() {

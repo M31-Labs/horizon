@@ -66,6 +66,83 @@ func TestGenerateRejectsInvalidPackageName(t *testing.T) {
 	}
 }
 
+func TestGenerateRejectsObjectFieldNameCollision(t *testing.T) {
+	code, err := Generate(ir.Program{
+		Maps: []ir.Map{{
+			Name: "exec_events",
+			Kind: ir.MapKindRingbuf,
+			Val:  ir.Type{Name: "ExecEvent"},
+		}},
+		Functions: []ir.Function{{
+			Name:    "execEvents",
+			Section: ir.Section{Kind: ir.ProgramTracepoint, Attach: "sched:sched_process_exec"},
+		}},
+	}, "bindings")
+	assertBindgenNameError(t, code, err, `Objects fields map "exec_events" and program "execEvents" both generate Go identifier "ExecEvents"`)
+}
+
+func TestGenerateRejectsStructFieldNameCollision(t *testing.T) {
+	code, err := Generate(ir.Program{
+		Structs: []ir.Struct{{
+			Name: "Event",
+			Fields: []ir.Field{{
+				Name: "pidID",
+				Type: ir.Type{Name: "u32"},
+			}, {
+				Name: "PidID",
+				Type: ir.Type{Name: "u32"},
+			}},
+		}},
+	}, "bindings")
+	assertBindgenNameError(t, code, err, `struct Event fields field "pidID" and field "PidID" both generate Go identifier "PidID"`)
+}
+
+func TestGenerateRejectsTopLevelNameCollision(t *testing.T) {
+	code, err := Generate(ir.Program{
+		Structs: []ir.Struct{{
+			Name: "load_objects",
+			Fields: []ir.Field{{
+				Name: "pid",
+				Type: ir.Type{Name: "u32"},
+			}},
+		}},
+	}, "bindings")
+	assertBindgenNameError(t, code, err, `top-level bindings generated LoadObjects and struct "load_objects" both generate Go identifier "LoadObjects"`)
+}
+
+func TestGenerateRejectsAttachMethodNameCollision(t *testing.T) {
+	code, err := Generate(ir.Program{
+		Functions: []ir.Function{{
+			Name:    "drop",
+			Section: ir.Section{Kind: ir.ProgramXDP},
+		}, {
+			Name:    "drop_interface",
+			Section: ir.Section{Kind: ir.ProgramXDP},
+		}},
+	}, "bindings")
+	assertBindgenNameError(t, code, err, `Objects methods program "drop" interface attach method and program "drop_interface" attach method both generate Go identifier "AttachDropInterface"`)
+}
+
+func assertBindgenNameError(t *testing.T, code string, err error, want string) {
+	t.Helper()
+	if err == nil {
+		t.Fatalf("Generate succeeded, code:\n%s", code)
+	}
+	if code != "" {
+		t.Fatalf("Generate returned code for invalid binding names:\n%s", code)
+	}
+	if !strings.Contains(err.Error(), want) {
+		t.Fatalf("Generate error = %v, want %q", err, want)
+	}
+	d, ok := DiagnosticForError(err)
+	if !ok {
+		t.Fatalf("DiagnosticForError(%T) = false", err)
+	}
+	if d.Code != "HZN3200" || !strings.Contains(d.Message, want) {
+		t.Fatalf("diagnostic = %#v, want HZN3200 containing %q", d, want)
+	}
+}
+
 func TestGenerateKprobeAttachBindings(t *testing.T) {
 	code, err := Generate(ir.Program{
 		Package: "probes",
