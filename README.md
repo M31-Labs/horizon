@@ -164,7 +164,9 @@ maps get `Read<Name>(context.Context, func(Event) error)`, hash maps get
 `Lookup<Name>` and `Update<Name>`, and attachable programs get section-specific
 attach methods. The raw `*ebpf.Map` and `*ebpf.Program` fields remain available
 for advanced users, but ordinary consumers should not need to hand-roll cilium
-loader or map-access boilerplate.
+loader, memlock, or map-access boilerplate. `LoadObjects` removes the memlock
+limit by default; use `LoadObjectsWithOptions` when callers need explicit
+cilium collection options or custom rlimit behavior.
 
 Capability manifests include programs, map access, emitted event names, map key
 and value types, and struct field schemas for declared Horizon types. Continuum

@@ -24,6 +24,11 @@ func TestGenerateXDPAttachBindings(t *testing.T) {
 	for _, want := range []string{
 		`"net"`,
 		`"github.com/cilium/ebpf/link"`,
+		`"github.com/cilium/ebpf/rlimit"`,
+		"type LoadOptions struct",
+		"return LoadObjectsWithOptions(path, LoadOptions{RemoveMemlock: true})",
+		"if err := rlimit.RemoveMemlock(); err != nil",
+		"if err := spec.LoadAndAssign(&objects, opts.Collection); err != nil",
 		"func (o *Objects) AttachDropAll(interfaceIndex int) (link.Link, error)",
 		"func (o *Objects) AttachDropAllInterface(name string) (link.Link, error)",
 		"return link.AttachXDP(link.XDPOptions{Program: o.DropAll, Interface: interfaceIndex})",

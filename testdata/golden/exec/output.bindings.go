@@ -10,6 +10,7 @@ import (
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/ringbuf"
+	"github.com/cilium/ebpf/rlimit"
 )
 
 type ExecEvent struct {
@@ -24,14 +25,28 @@ type Objects struct {
 	OnExec     *ebpf.Program `ebpf:"OnExec"`
 }
 
+type LoadOptions struct {
+	Collection    *ebpf.CollectionOptions
+	RemoveMemlock bool
+}
+
 func LoadObjects(path string) (*Objects, error) {
+	return LoadObjectsWithOptions(path, LoadOptions{RemoveMemlock: true})
+}
+
+func LoadObjectsWithOptions(path string, opts LoadOptions) (*Objects, error) {
+	if opts.RemoveMemlock {
+		if err := rlimit.RemoveMemlock(); err != nil {
+			return nil, fmt.Errorf("remove memlock limit: %w", err)
+		}
+	}
 	spec, err := ebpf.LoadCollectionSpec(path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("load %s: %w", path, err)
 	}
 	var objects Objects
-	if err := spec.LoadAndAssign(&objects, nil); err != nil {
-		return nil, err
+	if err := spec.LoadAndAssign(&objects, opts.Collection); err != nil {
+		return nil, fmt.Errorf("load eBPF objects: %w", err)
 	}
 	return &objects, nil
 }

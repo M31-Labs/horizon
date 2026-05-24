@@ -28,14 +28,28 @@ func Generate(program ir.Program, packageName string) (string, error) {
 		fmt.Fprintf(&b, "\t%s *ebpf.Program `ebpf:%q`\n", exported(fn.Name), fn.Name)
 	}
 	b.WriteString("}\n\n")
-	b.WriteString(`func LoadObjects(path string) (*Objects, error) {
+	b.WriteString(`type LoadOptions struct {
+	Collection    *ebpf.CollectionOptions
+	RemoveMemlock bool
+}
+
+func LoadObjects(path string) (*Objects, error) {
+	return LoadObjectsWithOptions(path, LoadOptions{RemoveMemlock: true})
+}
+
+func LoadObjectsWithOptions(path string, opts LoadOptions) (*Objects, error) {
+	if opts.RemoveMemlock {
+		if err := rlimit.RemoveMemlock(); err != nil {
+			return nil, fmt.Errorf("remove memlock limit: %w", err)
+		}
+	}
 	spec, err := ebpf.LoadCollectionSpec(path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("load %s: %w", path, err)
 	}
 	var objects Objects
-	if err := spec.LoadAndAssign(&objects, nil); err != nil {
-		return nil, err
+	if err := spec.LoadAndAssign(&objects, opts.Collection); err != nil {
+		return nil, fmt.Errorf("load eBPF objects: %w", err)
 	}
 	return &objects, nil
 }
@@ -140,7 +154,6 @@ func emitKprobeAttach(b *bytes.Buffer, fn ir.Function, linkFunc string) {
 
 func emitImports(b *bytes.Buffer, program ir.Program) {
 	needsRingbuf := hasRingbuf(program)
-	needsMapMethods := hasLookupMaps(program)
 	needsAttach := hasAttach(program)
 	needsXDP := hasXDP(program)
 	var std []string
@@ -150,9 +163,7 @@ func emitImports(b *bytes.Buffer, program ir.Program) {
 	if len(program.Maps)+len(program.Functions) > 0 || needsRingbuf {
 		std = append(std, "errors")
 	}
-	if needsRingbuf || needsAttach || needsMapMethods {
-		std = append(std, "fmt")
-	}
+	std = append(std, "fmt")
 	if needsXDP {
 		std = append(std, "net")
 	}
@@ -163,6 +174,7 @@ func emitImports(b *bytes.Buffer, program ir.Program) {
 	if needsRingbuf {
 		thirdParty = append(thirdParty, "github.com/cilium/ebpf/ringbuf")
 	}
+	thirdParty = append(thirdParty, "github.com/cilium/ebpf/rlimit")
 	b.WriteString("import (\n")
 	for _, path := range std {
 		fmt.Fprintf(b, "\t%q\n", path)
@@ -174,15 +186,6 @@ func emitImports(b *bytes.Buffer, program ir.Program) {
 		fmt.Fprintf(b, "\t%q\n", path)
 	}
 	b.WriteString(")\n\n")
-}
-
-func hasLookupMaps(program ir.Program) bool {
-	for _, m := range program.Maps {
-		if isLookupMap(m) {
-			return true
-		}
-	}
-	return false
 }
 
 func isLookupMap(m ir.Map) bool {
