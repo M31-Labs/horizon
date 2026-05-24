@@ -273,11 +273,14 @@ func validateSelectorExpr(env *cEnv, expr *ir.Expr) error {
 		if _, ok := tcActionC(name); ok {
 			return nil
 		}
+		if _, ok := cgroupActionC(name); ok {
+			return nil
+		}
 		if _, ok := xdpConstantC(name); ok {
 			return nil
 		}
 		switch selectorRoot(expr) {
-		case "bpf", "xdp", "tc":
+		case "bpf", "xdp", "tc", "cgroup":
 			return unsupportedExpr(expr, name)
 		}
 	}
@@ -309,6 +312,12 @@ func validateCallExpr(env *cEnv, expr *ir.Expr) error {
 			}
 			return validateArgs(env, expr.Args)
 		}
+		if root == "cgroup" {
+			if err := validateCgroupCall(expr, method); err != nil {
+				return err
+			}
+			return validateArgs(env, expr.Args)
+		}
 		if m, ok := env.maps[root]; ok {
 			if err := validateMapCall(expr, m, method); err != nil {
 				return err
@@ -336,6 +345,15 @@ func validateXDPCall(expr *ir.Expr, method string) error {
 		return validateArgCount(expr, "xdp."+method, 1)
 	default:
 		return unsupportedExpr(expr, "xdp."+method)
+	}
+}
+
+func validateCgroupCall(expr *ir.Expr, method string) error {
+	switch method {
+	case "dst_port":
+		return validateArgCount(expr, "cgroup.dst_port", 1)
+	default:
+		return unsupportedExpr(expr, "cgroup."+method)
 	}
 }
 

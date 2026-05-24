@@ -6,6 +6,7 @@ const (
 	ProgramTracepoint ProgramKind = "tracepoint"
 	ProgramXDP        ProgramKind = "xdp"
 	ProgramTC         ProgramKind = "tc"
+	ProgramCgroup     ProgramKind = "cgroup"
 	ProgramKprobe     ProgramKind = "kprobe"
 	ProgramKretprobe  ProgramKind = "kretprobe"
 )

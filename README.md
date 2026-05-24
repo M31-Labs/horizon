@@ -11,6 +11,7 @@ It keeps the kernel-side language deliberately small:
 - kprobe and kretprobe programs
 - XDP programs
 - TC classifier programs
+- cgroup connect programs
 - typed structs and fixed arrays
 - boolean literals and typed boolean expressions
 - package-scoped declarations across multiple `.hzn` files
@@ -147,6 +148,23 @@ func PassIngress(ctx tc.Context) i32 {
 }
 ```
 
+Cgroup connect programs make policy decisions with named allow/deny actions.
+Compiler-known helpers expose small, typed pieces of the kernel context instead
+of making authors poke raw `struct bpf_sock_addr` fields.
+
+```go
+package probes
+
+@capability("kernel.network.connect.block")
+@cgroup("connect4")
+func BlockSMTP(ctx cgroup.Connect) i32 {
+    if cgroup.dst_port(ctx) == 25 {
+        return cgroup.Deny
+    }
+    return cgroup.Allow
+}
+```
+
 ## Commands
 
 ```sh
@@ -157,6 +175,8 @@ make setup-vmlinux
 hzn workbench ./examples/execwatch -o dist
 hzn workbench ./examples/execwatch -o dist -json
 hzn workbench ./examples/execwatch -o dist -compile
+hzn build ./examples/cgroupconnect -o dist
+sudo go run ./examples/cgroupconnect/cmd/cgroupconnect -obj dist/connect.bpf.o -cgroup /sys/fs/cgroup
 hzn build ./examples/execwatch -o dist
 go run ./examples/execwatch/cmd/execwatch -obj dist/exec.bpf.o
 hzn build ./examples/execcount -o dist
@@ -231,6 +251,7 @@ Horizon makes verifier-sensitive behavior explicit before clang runs:
 - packet headers returned by `xdp.eth(ctx)`, `xdp.ipv4(ctx)`, `xdp.tcp(ctx)`, and `xdp.udp(ctx)` must be nil-checked before field access
 - XDP programs must return named actions such as `xdp.Pass` and `xdp.Drop`, not raw integers
 - TC programs must declare `@tc("ingress")` or `@tc("egress")` and return named actions such as `tc.OK` and `tc.Shot`, not raw integers
+- cgroup connect programs must declare `@cgroup("connect4")` or `@cgroup("connect6")` and return named actions such as `cgroup.Allow` and `cgroup.Deny`, not raw integers
 - generated C emits only the helper and map wrappers the program actually uses
 - generated BPF C is compiled with clang warnings treated as errors
 - generated C stays readable so clang and verifier logs remain inspectable
@@ -239,6 +260,6 @@ Horizon makes verifier-sensitive behavior explicit before clang runs:
 ## Status
 
 Pre-alpha. The current implementation targets tracepoint, kprobe/kretprobe, TC,
-and XDP programs with typed ringbuf event output, typed hash/array map access,
-bounded loops, generated BPF C, clang builds, Go bindings, and Continuum
-capability manifests.
+cgroup connect, and XDP programs with typed ringbuf event output, typed
+hash/array map access, bounded loops, generated BPF C, clang builds, Go
+bindings, and Continuum capability manifests.

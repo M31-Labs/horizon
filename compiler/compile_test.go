@@ -951,6 +951,83 @@ func PassIngress(ctx xdp.Context) i32 {
 	requireDiagnosticCode(t, result, "HZN1308")
 }
 
+func TestAnalyzeCgroupConnectProgramPasses(t *testing.T) {
+	result := analyzeSource(t, "connect.hzn", `package probes
+
+@capability("kernel.network.connect.block")
+@cgroup("connect4")
+func BlockSMTP(ctx cgroup.Connect) i32 {
+    if cgroup.dst_port(ctx) == 25 {
+        return cgroup.Deny
+    }
+    return cgroup.Allow
+}
+`)
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+	if len(result.Program.Functions) != 1 || result.Program.Functions[0].Section.Kind != ir.ProgramCgroup {
+		t.Fatalf("functions = %#v, want one cgroup function", result.Program.Functions)
+	}
+	if result.Program.Functions[0].Section.Attach != "connect4" || result.Program.Functions[0].Section.Name != "cgroup/connect4" {
+		t.Fatalf("section = %#v, want cgroup connect4", result.Program.Functions[0].Section)
+	}
+	manifest := capability.FromIR(result.Program)
+	if len(manifest.Programs) != 1 || manifest.Programs[0].Section != "cgroup/connect4" || manifest.Programs[0].Kind != "cgroup" {
+		t.Fatalf("program manifest = %#v, want cgroup connect4 section", manifest.Programs)
+	}
+	if len(manifest.Capabilities) != 1 || manifest.Capabilities[0].Section != "cgroup/connect4" || manifest.Capabilities[0].Danger != "block" {
+		t.Fatalf("capability manifest = %#v, want cgroup block capability", manifest.Capabilities)
+	}
+}
+
+func TestAnalyzeRejectsRawIntegerCgroupReturn(t *testing.T) {
+	result := analyzeSource(t, "connect.hzn", `package probes
+
+@cgroup("connect4")
+func AllowConnect(ctx cgroup.Connect) i32 {
+    return 1
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1454")
+}
+
+func TestAnalyzeRejectsCgroupWrongAttach(t *testing.T) {
+	result := analyzeSource(t, "connect.hzn", `package probes
+
+@cgroup("bind4")
+func AllowConnect(ctx cgroup.Connect) i32 {
+    return cgroup.Allow
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1315")
+}
+
+func TestAnalyzeRejectsCgroupWrongContext(t *testing.T) {
+	result := analyzeSource(t, "connect.hzn", `package probes
+
+@cgroup("connect4")
+func AllowConnect(ctx xdp.Context) i32 {
+    return cgroup.Allow
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1308")
+}
+
+func TestAnalyzeRejectsCgroupHelperWrongContext(t *testing.T) {
+	result := analyzeSource(t, "connect.hzn", `package probes
+
+@cgroup("connect4")
+func AllowConnect(ctx cgroup.Connect) i32 {
+    if cgroup.dst_port(1) == 25 {
+        return cgroup.Deny
+    }
+    return cgroup.Allow
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1457")
+}
+
 func TestAnalyzeKprobeProgramPasses(t *testing.T) {
 	result := analyzeSource(t, "open.hzn", `package probes
 

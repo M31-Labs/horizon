@@ -1,0 +1,10 @@
+package probes
+
+@capability("kernel.network.connect.block")
+@cgroup("connect4")
+func BlockSMTP(ctx cgroup.Connect) i32 {
+    if cgroup.dst_port(ctx) == 25 {
+        return cgroup.Deny
+    }
+    return cgroup.Allow
+}

@@ -640,6 +640,44 @@ func PassEgress(ctx tc.Context) i32 {
 	}
 }
 
+func TestEmitCgroupConnectProgram(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "connect.hzn")
+	if err := os.WriteFile(path, []byte(`package probes
+
+@cgroup("connect4")
+func BlockSMTP(ctx cgroup.Connect) i32 {
+    if cgroup.dst_port(ctx) == 25 {
+        return cgroup.Deny
+    }
+    return cgroup.Allow
+}
+`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	result, err := compiler.AnalyzePath(dir)
+	if err != nil {
+		t.Fatalf("AnalyzePath: %v", err)
+	}
+	out, err := Emit(result.Program)
+	if err != nil {
+		t.Fatalf("Emit: %v", err)
+	}
+	for _, want := range []string{
+		"#include <bpf/bpf_endian.h>",
+		"#define HZN_CGROUP_ALLOW 1",
+		`SEC("cgroup/connect4")`,
+		"int BlockSMTP(struct bpf_sock_addr *ctx) {",
+		"if (bpf_ntohs((__u16)ctx->user_port) == 25) {",
+		"return HZN_CGROUP_DENY;",
+		"return HZN_CGROUP_ALLOW;",
+	} {
+		if !strings.Contains(out.Code, want) {
+			t.Fatalf("generated C missing %q:\n%s", want, out.Code)
+		}
+	}
+}
+
 func TestEmitRejectsUnsupportedStatementKind(t *testing.T) {
 	out, err := Emit(ir.Program{
 		Functions: []ir.Function{{

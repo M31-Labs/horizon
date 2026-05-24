@@ -121,6 +121,45 @@ func PassIngress(ctx tc.Context) i32 {
 	}
 }
 
+func TestCgroupConnectCompileSmoke(t *testing.T) {
+	if _, err := os.Stat("/usr/local/include/vmlinux.h"); err != nil {
+		t.Skipf("vmlinux.h not available: %v", err)
+	}
+	if err := run([]string{"doctor"}); err != nil {
+		t.Fatalf("doctor: %v", err)
+	}
+	srcDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(srcDir, "connect.hzn"), []byte(`package probes
+
+@cgroup("connect4")
+func BlockSMTP(ctx cgroup.Connect) i32 {
+    if cgroup.dst_port(ctx) == 25 {
+        return cgroup.Deny
+    }
+    return cgroup.Allow
+}
+`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	outDir := t.TempDir()
+	if err := run([]string{"workbench", srcDir, "-o", outDir, "-compile"}); err != nil {
+		t.Fatalf("workbench -compile: %v", err)
+	}
+	for _, name := range []string{
+		"connect.bpf.c",
+		"connect.bpf.o",
+		"connect.hznmap.json",
+		"connect.bindings.go",
+		"connect.cap.json",
+		"connect.diagnostics.json",
+		"connect.report.json",
+	} {
+		if _, err := os.Stat(filepath.Join(outDir, name)); err != nil {
+			t.Fatalf("missing compiled artifact %s: %v", name, err)
+		}
+	}
+}
+
 func TestConstantSymbolCollisionCompileSmoke(t *testing.T) {
 	if _, err := os.Stat("/usr/local/include/vmlinux.h"); err != nil {
 		t.Skipf("vmlinux.h not available: %v", err)

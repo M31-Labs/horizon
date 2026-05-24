@@ -25,7 +25,7 @@ func Emit(program ir.Program) (Output, error) {
 	}
 	b.WriteString("#include <bpf/bpf_helpers.h>\n\n")
 	b.WriteString("#include <bpf/bpf_tracing.h>\n\n")
-	if usage.hasXDPPacketHelpers() {
+	if usage.hasEndianHelpers() {
 		b.WriteString("#include <bpf/bpf_endian.h>\n\n")
 	}
 	if programHasXDP(program) {
@@ -33,6 +33,9 @@ func Emit(program ir.Program) (Output, error) {
 	}
 	if programHasTC(program) {
 		emitTCActionFallbacks(&b)
+	}
+	if programHasCgroup(program) {
+		emitCgroupActionFallbacks(&b)
 	}
 	b.WriteString("char LICENSE[] SEC(\"license\") = \"GPL\";\n")
 	emitScalarABIAssertions(&b)
@@ -251,19 +254,21 @@ func (e *cEnv) hasLocal(name string) bool {
 }
 
 type cUsage struct {
-	helpers    map[string]bool
-	mapMethods map[string]map[string]bool
-	xdpHelpers map[string]bool
-	maps       map[string]ir.Map
-	boolTypes  bool
+	helpers       map[string]bool
+	mapMethods    map[string]map[string]bool
+	xdpHelpers    map[string]bool
+	cgroupHelpers map[string]bool
+	maps          map[string]ir.Map
+	boolTypes     bool
 }
 
 func analyzeUsage(program ir.Program) cUsage {
 	usage := cUsage{
-		helpers:    map[string]bool{},
-		mapMethods: map[string]map[string]bool{},
-		xdpHelpers: map[string]bool{},
-		maps:       map[string]ir.Map{},
+		helpers:       map[string]bool{},
+		mapMethods:    map[string]map[string]bool{},
+		xdpHelpers:    map[string]bool{},
+		cgroupHelpers: map[string]bool{},
+		maps:          map[string]ir.Map{},
 	}
 	for _, m := range program.Maps {
 		usage.maps[m.Name] = m
@@ -351,6 +356,9 @@ func (u *cUsage) walkExpr(expr *ir.Expr) {
 	if helper, ok := xdpPacketCall(expr); ok {
 		u.xdpHelpers[helper] = true
 	}
+	if helper, ok := cgroupHelperCall(expr); ok {
+		u.cgroupHelpers[helper] = true
+	}
 	u.walkExpr(expr.Operand)
 	u.walkExpr(expr.Left)
 	u.walkExpr(expr.Right)
@@ -375,6 +383,10 @@ func (u *cUsage) addMapMethod(mapName string, method string) {
 
 func (u cUsage) hasXDPPacketHelpers() bool {
 	return len(u.xdpHelpers) > 0
+}
+
+func (u cUsage) hasEndianHelpers() bool {
+	return len(u.xdpHelpers) > 0 || u.cgroupHelpers["dst_port"]
 }
 
 func (u cUsage) hasBool() bool {
@@ -478,6 +490,24 @@ func emitTCActionFallbacks(b *strings.Builder) {
 func programHasTC(program ir.Program) bool {
 	for _, fn := range program.Functions {
 		if fn.Section.Kind == ir.ProgramTC {
+			return true
+		}
+	}
+	return false
+}
+
+func emitCgroupActionFallbacks(b *strings.Builder) {
+	b.WriteString(`#ifndef HZN_CGROUP_DENY
+#define HZN_CGROUP_DENY 0
+#define HZN_CGROUP_ALLOW 1
+#endif
+
+`)
+}
+
+func programHasCgroup(program ir.Program) bool {
+	for _, fn := range program.Functions {
+		if fn.Section.Kind == ir.ProgramCgroup {
 			return true
 		}
 	}
@@ -833,6 +863,8 @@ func cContext(fn ir.Function) string {
 		return "struct xdp_md *ctx"
 	case ir.ProgramTC:
 		return "struct __sk_buff *ctx"
+	case ir.ProgramCgroup:
+		return "struct bpf_sock_addr *ctx"
 	case ir.ProgramKprobe, ir.ProgramKretprobe:
 		return "struct pt_regs *ctx"
 	default:
@@ -1032,6 +1064,8 @@ func cExprType(expr *ir.Expr, env *cEnv) (ir.Type, bool) {
 				return ptrTo(ir.Type{Name: "xdp.UDP"}), true
 			case "xdp.ntohs":
 				return ir.Type{Name: "u16"}, true
+			case "cgroup.dst_port":
+				return ir.Type{Name: "u16"}, true
 			}
 		}
 		if mapName, ok := reserveCall(expr); ok {
@@ -1052,6 +1086,9 @@ func cExprType(expr *ir.Expr, env *cEnv) (ir.Type, bool) {
 				return ir.Type{Name: "i32"}, true
 			}
 			if _, ok := tcActionC(name); ok {
+				return ir.Type{Name: "i32"}, true
+			}
+			if _, ok := cgroupActionC(name); ok {
 				return ir.Type{Name: "i32"}, true
 			}
 			if typ, ok := xdpConstantType(name); ok {
@@ -1182,6 +1219,9 @@ func cExpr(expr *ir.Expr, env *cEnv) string {
 			if action, ok := tcActionC(name); ok {
 				return action
 			}
+			if action, ok := cgroupActionC(name); ok {
+				return action
+			}
 			if constant, ok := xdpConstantC(name); ok {
 				return constant
 			}
@@ -1247,6 +1287,17 @@ func tcActionC(name string) (string, bool) {
 		return "TC_ACT_STOLEN", true
 	case "tc.Redirect":
 		return "TC_ACT_REDIRECT", true
+	default:
+		return "", false
+	}
+}
+
+func cgroupActionC(name string) (string, bool) {
+	switch name {
+	case "cgroup.Allow":
+		return "HZN_CGROUP_ALLOW", true
+	case "cgroup.Deny":
+		return "HZN_CGROUP_DENY", true
 	default:
 		return "", false
 	}
@@ -1370,6 +1421,11 @@ func cCallExpr(expr *ir.Expr, env *cEnv) string {
 				arg := expr.Args[0]
 				return fmt.Sprintf("bpf_ntohs(%s)", cExpr(&arg, env))
 			}
+		case "cgroup.dst_port":
+			if len(expr.Args) == 1 {
+				arg := expr.Args[0]
+				return fmt.Sprintf("bpf_ntohs((__u16)%s->user_port)", cExpr(&arg, env))
+			}
 		}
 	}
 	args := make([]string, 0, len(expr.Args))
@@ -1468,6 +1524,21 @@ func xdpPacketCall(expr *ir.Expr) (string, bool) {
 	}
 	switch expr.Func.Field {
 	case "eth", "ipv4", "tcp", "udp":
+		return expr.Func.Field, true
+	default:
+		return "", false
+	}
+}
+
+func cgroupHelperCall(expr *ir.Expr) (string, bool) {
+	if expr == nil || expr.Kind != "call" || expr.Func == nil || expr.Func.Kind != "selector" {
+		return "", false
+	}
+	if expr.Func.Operand == nil || expr.Func.Operand.Kind != "ident" || expr.Func.Operand.Name != "cgroup" {
+		return "", false
+	}
+	switch expr.Func.Field {
+	case "dst_port":
 		return expr.Func.Field, true
 	default:
 		return "", false

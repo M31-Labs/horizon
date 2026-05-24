@@ -227,6 +227,9 @@ func nilGuardSuggestion(fn ir.Function, varName string) string {
 	if fn.Section.Kind == ir.ProgramTC {
 		return fmt.Sprintf("if %s == nil { return tc.OK }", varName)
 	}
+	if fn.Section.Kind == ir.ProgramCgroup {
+		return fmt.Sprintf("if %s == nil { return cgroup.Allow }", varName)
+	}
 	return fmt.Sprintf("if %s == nil { return 0 }", varName)
 }
 

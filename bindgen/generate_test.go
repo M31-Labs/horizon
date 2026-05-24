@@ -141,6 +141,44 @@ func TestGenerateTCAttachBindings(t *testing.T) {
 	}
 }
 
+func TestGenerateCgroupAttachBindings(t *testing.T) {
+	code, err := Generate(ir.Program{
+		Package: "probes",
+		Functions: []ir.Function{{
+			Name: "BlockConnect4",
+			Section: ir.Section{
+				Kind:   ir.ProgramCgroup,
+				Attach: "connect4",
+				Name:   "cgroup/connect4",
+			},
+		}, {
+			Name: "BlockConnect6",
+			Section: ir.Section{
+				Kind:   ir.ProgramCgroup,
+				Attach: "connect6",
+				Name:   "cgroup/connect6",
+			},
+		}},
+	}, "bindings")
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	for _, want := range []string{
+		`"github.com/cilium/ebpf/link"`,
+		"func (o *Objects) AttachBlockConnect4(cgroupPath string) (link.Link, error)",
+		"return link.AttachCgroup(link.CgroupOptions{Path: cgroupPath, Attach: ebpf.AttachCGroupInet4Connect, Program: o.BlockConnect4})",
+		"func (o *Objects) AttachBlockConnect6(cgroupPath string) (link.Link, error)",
+		"return link.AttachCgroup(link.CgroupOptions{Path: cgroupPath, Attach: ebpf.AttachCGroupInet6Connect, Program: o.BlockConnect6})",
+	} {
+		if !strings.Contains(code, want) {
+			t.Fatalf("generated bindings missing %q:\n%s", want, code)
+		}
+	}
+	if strings.Contains(code, `"net"`) {
+		t.Fatalf("generated cgroup bindings unexpectedly import net:\n%s", code)
+	}
+}
+
 func TestGenerateTypedMapBindings(t *testing.T) {
 	code, err := Generate(ir.Program{
 		Package: "probes",

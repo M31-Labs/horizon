@@ -106,6 +106,7 @@ func builtinTypes() map[string]bool {
 		"xdp.TCP":           true,
 		"xdp.UDP":           true,
 		"tc.Context":        true,
+		"cgroup.Connect":    true,
 		"kprobe.Context":    true,
 		"kretprobe.Context": true,
 	}
@@ -251,7 +252,7 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 			Severity: diag.SeverityError,
 			Message:  fmt.Sprintf("function %q is missing an eBPF program section", decl.Name),
 			Primary:  decl.Span,
-			Suggest:  `add @tracepoint("category:event"), @xdp, @tc("ingress"), @kprobe("symbol"), or @kretprobe("symbol") above the function`,
+			Suggest:  `add @tracepoint("category:event"), @xdp, @tc("ingress"), @cgroup("connect4"), @kprobe("symbol"), or @kretprobe("symbol") above the function`,
 		})
 	} else if len(sections) > 1 {
 		diags = append(diags, diag.Diagnostic{
@@ -259,7 +260,7 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 			Severity: diag.SeverityError,
 			Message:  fmt.Sprintf("function %q has multiple eBPF program sections", decl.Name),
 			Primary:  decl.Span,
-			Suggest:  `use exactly one section attribute such as @tracepoint(...), @xdp, @tc("ingress"), @kprobe(...), or @kretprobe(...)`,
+			Suggest:  `use exactly one section attribute such as @tracepoint(...), @xdp, @tc("ingress"), @cgroup("connect4"), @kprobe(...), or @kretprobe(...)`,
 		})
 	}
 	for _, attr := range decl.Attrs {
@@ -300,6 +301,26 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 					Message:  fmt.Sprintf("@tc direction %q is not supported", direction),
 					Primary:  attr.Span,
 					Suggest:  `use @tc("ingress") or @tc("egress")`,
+				})
+			}
+		case "cgroup":
+			if len(attr.Args) != 1 {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1314",
+					Severity: diag.SeverityError,
+					Message:  `@cgroup requires one attach string argument, "connect4" or "connect6"`,
+					Primary:  attr.Span,
+				})
+				break
+			}
+			attach := attrStringArg(attr)
+			if attach != "connect4" && attach != "connect6" {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1315",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("@cgroup attach %q is not supported in Horizon v0", attach),
+					Primary:  attr.Span,
+					Suggest:  `use @cgroup("connect4") or @cgroup("connect6")`,
 				})
 			}
 		case "kprobe":
@@ -403,6 +424,8 @@ func sectionAttrs(attrs []ast.Attr) []sectionSpec {
 			out = append(out, sectionSpec{Attr: attr, Context: "xdp.Context"})
 		case "tc":
 			out = append(out, sectionSpec{Attr: attr, Context: "tc.Context"})
+		case "cgroup":
+			out = append(out, sectionSpec{Attr: attr, Context: "cgroup.Connect"})
 		case "kprobe":
 			out = append(out, sectionSpec{Attr: attr, Context: "kprobe.Context"})
 		case "kretprobe":
@@ -435,15 +458,16 @@ func validateSectionSignature(decl ast.FuncDecl, section sectionSpec) []diag.Dia
 }
 
 type valueType struct {
-	Name      string
-	Ref       ast.TypeRef
-	Ptr       bool
-	Resource  bool
-	MaybeNil  bool
-	Fallible  string
-	Void      bool
-	XDPAction bool
-	TCAction  bool
+	Name         string
+	Ref          ast.TypeRef
+	Ptr          bool
+	Resource     bool
+	MaybeNil     bool
+	Fallible     string
+	Void         bool
+	XDPAction    bool
+	TCAction     bool
+	CgroupAction bool
 }
 
 func validateFuncBody(decl ast.FuncDecl, maps map[string]ast.MapDecl, structs map[string]ast.TypeDecl, consts map[string]ast.ConstDecl, sections []sectionSpec) []diag.Diagnostic {
@@ -531,6 +555,16 @@ func validateFuncBody(decl ast.FuncDecl, maps map[string]ast.MapDecl, structs ma
 				})
 				break
 			}
+			if target.CgroupAction && !value.CgroupAction {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1454",
+					Severity: diag.SeverityError,
+					Message:  "cgroup action locals can only be assigned named cgroup actions",
+					Primary:  s.Span,
+					Suggest:  "assign cgroup.Allow or cgroup.Deny",
+				})
+				break
+			}
 			if targetHadErrors {
 				break
 			}
@@ -592,6 +626,14 @@ func validateFuncBody(decl ast.FuncDecl, maps map[string]ast.MapDecl, structs ma
 					Primary:  s.Span,
 					Suggest:  "return tc.OK, tc.Shot, tc.Reclassify, tc.Pipe, tc.Stolen, or tc.Redirect",
 				})
+			} else if programSection == "cgroup" && !value.CgroupAction {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1454",
+					Severity: diag.SeverityError,
+					Message:  "cgroup programs must return a named cgroup action",
+					Primary:  s.Span,
+					Suggest:  "return cgroup.Allow or cgroup.Deny",
+				})
 			} else if programSection != "" && programSection != "xdp" && value.XDPAction {
 				diags = append(diags, diag.Diagnostic{
 					Code:     "HZN1449",
@@ -607,6 +649,14 @@ func validateFuncBody(decl ast.FuncDecl, maps map[string]ast.MapDecl, structs ma
 					Message:  fmt.Sprintf("@%s programs cannot return TC actions", programSection),
 					Primary:  s.Span,
 					Suggest:  `return 0 from tracing programs; TC actions are only valid in @tc programs`,
+				})
+			} else if programSection != "" && programSection != "cgroup" && value.CgroupAction {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1455",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("@%s programs cannot return cgroup actions", programSection),
+					Primary:  s.Span,
+					Suggest:  `return 0 from tracing programs; cgroup actions are only valid in @cgroup programs`,
 				})
 			} else if s.Value != nil && !assignable(valueType{Name: "i32"}, value) {
 				diags = append(diags, diag.Diagnostic{
@@ -766,6 +816,18 @@ func typeOfExpr(expr ast.Expr, locals map[string]valueType, maps map[string]ast.
 				Message:  fmt.Sprintf("unknown TC symbol tc.%s", field),
 				Primary:  e.Span,
 				Suggest:  "use TC actions such as tc.OK or tc.Shot",
+			}}
+		}
+		if root, field, ok := selectorParts(e); ok && root == "cgroup" {
+			if typ, ok := cgroupSelectorType(field); ok {
+				return typ, nil
+			}
+			return valueType{}, []diag.Diagnostic{{
+				Code:     "HZN1456",
+				Severity: diag.SeverityError,
+				Message:  fmt.Sprintf("unknown cgroup symbol cgroup.%s", field),
+				Primary:  e.Span,
+				Suggest:  "use cgroup actions such as cgroup.Allow or helpers such as cgroup.dst_port(ctx)",
 			}}
 		}
 		operand, diags := typeOfExpr(e.Operand, locals, maps, structs)
@@ -1087,6 +1149,9 @@ func typeOfCall(call ast.CallExpr, locals map[string]valueType, maps map[string]
 			Suggest:  "use named TC action constants such as tc.OK in return statements",
 		}}
 	}
+	if root == "cgroup" {
+		return typeOfCgroupCall(method, call, locals, maps, structs)
+	}
 	if m, ok := maps[root]; ok {
 		switch method {
 		case "lookup":
@@ -1260,6 +1325,33 @@ func typeOfXDPCall(name string, call ast.CallExpr, locals map[string]valueType, 
 			Message:  fmt.Sprintf("unknown XDP packet helper xdp.%s", name),
 			Primary:  call.Span,
 			Suggest:  "use xdp.eth(ctx), xdp.ipv4(ctx), xdp.tcp(ctx), or xdp.udp(ctx)",
+		}}
+	}
+}
+
+func typeOfCgroupCall(name string, call ast.CallExpr, locals map[string]valueType, maps map[string]ast.MapDecl, structs map[string]ast.TypeDecl) (valueType, []diag.Diagnostic) {
+	switch name {
+	case "dst_port":
+		if len(call.Args) != 1 {
+			return valueType{Name: "u16"}, []diag.Diagnostic{argCountDiagnostic(call.Span, "cgroup.dst_port", 1, len(call.Args))}
+		}
+		arg, diags := typeOfExpr(call.Args[0], locals, maps, structs)
+		if !assignable(valueType{Name: "cgroup.Connect"}, arg) {
+			diags = append(diags, diag.Diagnostic{
+				Code:     "HZN1457",
+				Severity: diag.SeverityError,
+				Message:  fmt.Sprintf("cgroup.dst_port expects cgroup.Connect, got %s", typeName(arg)),
+				Primary:  call.Span,
+			})
+		}
+		return valueType{Name: "u16"}, diags
+	default:
+		return valueType{}, []diag.Diagnostic{{
+			Code:     "HZN1458",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("unknown cgroup helper cgroup.%s", name),
+			Primary:  call.Span,
+			Suggest:  "use cgroup.dst_port(ctx) or named actions such as cgroup.Allow",
 		}}
 	}
 }
@@ -1460,6 +1552,15 @@ func tcSelectorType(name string) (valueType, bool) {
 	}
 }
 
+func cgroupSelectorType(name string) (valueType, bool) {
+	switch name {
+	case "Allow", "Deny":
+		return valueType{Name: "i32", CgroupAction: true}, true
+	default:
+		return valueType{}, false
+	}
+}
+
 func isScalar(name string) bool {
 	switch name {
 	case "u8", "u16", "u32", "u64", "i8", "i16", "i32", "i64", "bool":
@@ -1494,6 +1595,9 @@ func typeName(t valueType) string {
 	}
 	if t.TCAction {
 		return "tc action"
+	}
+	if t.CgroupAction {
+		return "cgroup action"
 	}
 	if t.Ref.Len != "" && t.Ref.Elem != nil {
 		name = "[" + t.Ref.Len + "]" + t.Ref.Elem.Name

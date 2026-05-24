@@ -149,6 +149,8 @@ func emitAttach(b *bytes.Buffer, fn ir.Function) {
 		emitXDPAttach(b, fn)
 	case ir.ProgramTC:
 		emitTCAttach(b, fn)
+	case ir.ProgramCgroup:
+		emitCgroupAttach(b, fn)
 	case ir.ProgramKprobe:
 		emitKprobeAttach(b, fn, "Kprobe")
 	case ir.ProgramKretprobe:
@@ -217,6 +219,22 @@ func (o *Objects) Attach%sInterface(name string) (link.Link, error) {
 }
 
 `, field, field, fn.Name, field, attach, field, field)
+}
+
+func emitCgroupAttach(b *bytes.Buffer, fn ir.Function) {
+	field := exported(fn.Name)
+	attach := "ebpf.AttachCGroupInet4Connect"
+	if fn.Section.Attach == "connect6" {
+		attach = "ebpf.AttachCGroupInet6Connect"
+	}
+	fmt.Fprintf(b, `func (o *Objects) Attach%s(cgroupPath string) (link.Link, error) {
+	if o == nil || o.%s == nil {
+		return nil, fmt.Errorf("%s program is not loaded")
+	}
+	return link.AttachCgroup(link.CgroupOptions{Path: cgroupPath, Attach: %s, Program: o.%s})
+}
+
+`, field, field, fn.Name, attach, field)
 }
 
 func emitKprobeAttach(b *bytes.Buffer, fn ir.Function, linkFunc string) {
@@ -289,7 +307,7 @@ func hasRingbuf(program ir.Program) bool {
 func hasAttach(program ir.Program) bool {
 	for _, fn := range program.Functions {
 		switch fn.Section.Kind {
-		case ir.ProgramTracepoint, ir.ProgramXDP, ir.ProgramTC, ir.ProgramKprobe, ir.ProgramKretprobe:
+		case ir.ProgramTracepoint, ir.ProgramXDP, ir.ProgramTC, ir.ProgramCgroup, ir.ProgramKprobe, ir.ProgramKretprobe:
 			return true
 		}
 	}

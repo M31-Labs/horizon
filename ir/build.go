@@ -297,6 +297,13 @@ func sectionFromAttrs(attrs []ast.Attr) Section {
 				Attach: attach,
 				Name:   "tc/" + attach,
 			}
+		case "cgroup":
+			attach := stringArg(attr)
+			return Section{
+				Kind:   ProgramCgroup,
+				Attach: attach,
+				Name:   "cgroup/" + attach,
+			}
 		case "kprobe":
 			attach := stringArg(attr)
 			return Section{
@@ -465,7 +472,7 @@ func addUnique(values *[]string, seen map[string]bool, value string) {
 }
 
 func inferDanger(fn Function) DangerLevel {
-	if fn.Section.Kind != ProgramXDP && fn.Section.Kind != ProgramTC {
+	if fn.Section.Kind != ProgramXDP && fn.Section.Kind != ProgramTC && fn.Section.Kind != ProgramCgroup {
 		return DangerObserve
 	}
 	danger := DangerObserve
@@ -483,6 +490,8 @@ func inferDanger(fn Function) DangerLevel {
 					danger = moreDangerous(danger, DangerDrop)
 				case "tc.Reclassify", "tc.Redirect":
 					danger = moreDangerous(danger, DangerMutate)
+				case "cgroup.Deny":
+					danger = moreDangerous(danger, DangerBlock)
 				}
 			case "if":
 				visit(stmt.Then)
@@ -501,6 +510,7 @@ func moreDangerous(current DangerLevel, next DangerLevel) DangerLevel {
 		DangerObserve: 0,
 		DangerMutate:  1,
 		DangerDrop:    2,
+		DangerBlock:   3,
 	}
 	if rank[next] > rank[current] {
 		return next
@@ -543,6 +553,9 @@ func manifestSection(section Section) string {
 	}
 	if section.Kind == ProgramTC {
 		return "tc/" + section.Attach
+	}
+	if section.Kind == ProgramCgroup {
+		return "cgroup/" + section.Attach
 	}
 	if (section.Kind == ProgramKprobe || section.Kind == ProgramKretprobe) && section.Attach != "" {
 		return string(section.Kind) + "/" + section.Attach
