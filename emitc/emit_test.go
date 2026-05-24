@@ -104,6 +104,17 @@ func TestEmitSourceMapIncludesGeneratedHelperWrappers(t *testing.T) {
 	}
 	assertSourceMapLine(t, out, "static __always_inline __u64 hzn_xdp_l4_offset", "xdp_helper_wrapper", 6)
 	assertSourceMapLine(t, out, "static __always_inline struct hzn_xdp_tcp *hzn_xdp_tcp", "xdp_helper_wrapper", 6)
+
+	result, err = compiler.AnalyzePath("../examples/cgroupconnect")
+	if err != nil {
+		t.Fatalf("AnalyzePath cgroupconnect: %v", err)
+	}
+	out, err = Emit(result.Program)
+	if err != nil {
+		t.Fatalf("Emit cgroupconnect: %v", err)
+	}
+	assertSourceMapLine(t, out, "static __always_inline __u32 hzn_cgroup_family", "cgroup_context_wrapper", 6)
+	assertSourceMapLine(t, out, "static __always_inline __u16 hzn_cgroup_dst_port", "cgroup_context_wrapper", 12)
 }
 
 func TestEmitBoundedForClause(t *testing.T) {
@@ -1075,14 +1086,20 @@ func BlockSMTP(ctx cgroup.Connect) i32 {
 		"#include <bpf/bpf_endian.h>",
 		"#define HZN_CGROUP_ALLOW 1",
 		"#define HZN_CGROUP_PROTOCOL_TCP 6",
+		"static __always_inline __u32 hzn_cgroup_family(struct bpf_sock_addr *ctx)",
+		"static __always_inline __u32 hzn_cgroup_sock_type(struct bpf_sock_addr *ctx)",
+		"static __always_inline __u32 hzn_cgroup_protocol(struct bpf_sock_addr *ctx)",
+		"static __always_inline __u16 hzn_cgroup_dst_port(struct bpf_sock_addr *ctx)",
+		"static __always_inline __u32 hzn_cgroup_dst_ip4(struct bpf_sock_addr *ctx)",
+		"static __always_inline __u32 hzn_cgroup_src_ip4(struct bpf_sock_addr *ctx)",
 		`SEC("cgroup/connect4")`,
 		"int BlockSMTP(struct bpf_sock_addr *ctx) {",
-		"if (ctx->family != HZN_CGROUP_FAMILY_IPV4) {",
-		"if (ctx->type != HZN_CGROUP_SOCK_STREAM) {",
-		"if (ctx->protocol != HZN_CGROUP_PROTOCOL_TCP) {",
-		"bpf_ntohl(ctx->msg_src_ip4) == (((__u32)(0) << 24) | ((__u32)(0) << 16) | ((__u32)(0) << 8) | (__u32)(0))",
-		"bpf_ntohs((__u16)ctx->user_port) == 25",
-		"bpf_ntohl(ctx->user_ip4) != (((__u32)(127) << 24) | ((__u32)(0) << 16) | ((__u32)(0) << 8) | (__u32)(1))",
+		"if (hzn_cgroup_family(ctx) != HZN_CGROUP_FAMILY_IPV4) {",
+		"if (hzn_cgroup_sock_type(ctx) != HZN_CGROUP_SOCK_STREAM) {",
+		"if (hzn_cgroup_protocol(ctx) != HZN_CGROUP_PROTOCOL_TCP) {",
+		"hzn_cgroup_src_ip4(ctx) == (((__u32)(0) << 24) | ((__u32)(0) << 16) | ((__u32)(0) << 8) | (__u32)(0))",
+		"hzn_cgroup_dst_port(ctx) == 25",
+		"hzn_cgroup_dst_ip4(ctx) != (((__u32)(127) << 24) | ((__u32)(0) << 16) | ((__u32)(0) << 8) | (__u32)(1))",
 		"return HZN_CGROUP_DENY;",
 		"return HZN_CGROUP_ALLOW;",
 	} {

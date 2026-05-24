@@ -83,6 +83,7 @@ func (e *cEmitter) emitPreamble() {
 	emitScalarABIAssertions(&e.b)
 	emitHelperWrappers(&e.b, &e.sourceMap, e.usage)
 	emitProbeContextHelpers(&e.b, &e.sourceMap, e.usage)
+	emitCgroupContextHelpers(&e.b, &e.sourceMap, e.usage)
 	if e.usage.hasXDPPacketHelpers() {
 		emitXDPPacketHelpers(&e.b, &e.sourceMap, e.usage)
 	}
@@ -711,6 +712,33 @@ static __always_inline __s64 hzn_kretprobe_ret(struct pt_regs *ctx) {
     return (__s64)PT_REGS_RC(ctx);
 }
 `)
+		})
+	}
+}
+
+func emitCgroupContextHelpers(b *strings.Builder, sourceMap *ir.SourceMap, usage cUsage) {
+	type cgroupHelper struct {
+		Name string
+		Type string
+		Body string
+	}
+	for _, helper := range []cgroupHelper{
+		{Name: "family", Type: "__u32", Body: "return ctx->family;"},
+		{Name: "sock_type", Type: "__u32", Body: "return ctx->type;"},
+		{Name: "protocol", Type: "__u32", Body: "return ctx->protocol;"},
+		{Name: "dst_port", Type: "__u16", Body: "return bpf_ntohs((__u16)ctx->user_port);"},
+		{Name: "dst_ip4", Type: "__u32", Body: "return bpf_ntohl(ctx->user_ip4);"},
+		{Name: "src_ip4", Type: "__u32", Body: "return bpf_ntohl(ctx->msg_src_ip4);"},
+	} {
+		if !usage.cgroupHelpers[helper.Name] {
+			continue
+		}
+		emitUsageMapped(b, sourceMap, usage.cgroupOrigins[helper.Name], "cgroup_context_wrapper", func() {
+			fmt.Fprintf(b, `
+static __always_inline %s hzn_cgroup_%s(struct bpf_sock_addr *ctx) {
+    %s
+}
+`, helper.Type, helper.Name, helper.Body)
 		})
 	}
 }
@@ -2018,23 +2046,17 @@ func (e cExprEmitter) knownCall(expr *ir.Expr, name string) (string, bool) {
 			return fmt.Sprintf("bpf_ntohs(%s)", e.emit(&arg))
 		})
 	case "cgroup.family":
-		return e.cgroupFieldCall(expr, "family")
+		return e.cgroupContextCall(expr, "family")
 	case "cgroup.sock_type":
-		return e.cgroupFieldCall(expr, "type")
+		return e.cgroupContextCall(expr, "sock_type")
 	case "cgroup.protocol":
-		return e.cgroupFieldCall(expr, "protocol")
+		return e.cgroupContextCall(expr, "protocol")
 	case "cgroup.dst_port":
-		return e.oneArgCall(expr, func(arg ir.Expr) string {
-			return fmt.Sprintf("bpf_ntohs((__u16)%s->user_port)", e.emit(&arg))
-		})
+		return e.cgroupContextCall(expr, "dst_port")
 	case "cgroup.dst_ip4":
-		return e.oneArgCall(expr, func(arg ir.Expr) string {
-			return fmt.Sprintf("bpf_ntohl(%s->user_ip4)", e.emit(&arg))
-		})
+		return e.cgroupContextCall(expr, "dst_ip4")
 	case "cgroup.src_ip4":
-		return e.oneArgCall(expr, func(arg ir.Expr) string {
-			return fmt.Sprintf("bpf_ntohl(%s->msg_src_ip4)", e.emit(&arg))
-		})
+		return e.cgroupContextCall(expr, "src_ip4")
 	case "cgroup.ip4":
 		return e.ip4Call(expr)
 	case "kprobe.arg1", "kprobe.arg2", "kprobe.arg3", "kprobe.arg4", "kprobe.arg5":
@@ -2050,9 +2072,9 @@ func (e cExprEmitter) knownCall(expr *ir.Expr, name string) (string, bool) {
 	}
 }
 
-func (e cExprEmitter) cgroupFieldCall(expr *ir.Expr, field string) (string, bool) {
+func (e cExprEmitter) cgroupContextCall(expr *ir.Expr, helper string) (string, bool) {
 	return e.oneArgCall(expr, func(arg ir.Expr) string {
-		return fmt.Sprintf("%s->%s", e.emit(&arg), field)
+		return fmt.Sprintf("hzn_cgroup_%s(%s)", helper, e.emit(&arg))
 	})
 }
 

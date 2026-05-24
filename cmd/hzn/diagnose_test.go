@@ -193,6 +193,55 @@ func TestDiagnoseMapsHelperWrapperDiagnosticToAuthoredCall(t *testing.T) {
 	}
 }
 
+func TestDiagnoseMapsCgroupContextWrapperDiagnosticToAuthoredCall(t *testing.T) {
+	dir := t.TempDir()
+	cPath := filepath.Join(dir, "connect.bpf.c")
+	mapPath := filepath.Join(dir, "connect.hznmap.json")
+	logPath := filepath.Join(dir, "clang.log")
+
+	result, err := compiler.AnalyzePath("../../examples/cgroupconnect")
+	if err != nil {
+		t.Fatalf("AnalyzePath: %v", err)
+	}
+	out, err := emitc.Emit(result.Program)
+	if err != nil {
+		t.Fatalf("Emit: %v", err)
+	}
+	out.SourceMap.Generated.Path = cPath
+	if err := os.WriteFile(cPath, []byte(out.Code), 0o644); err != nil {
+		t.Fatalf("write generated C: %v", err)
+	}
+	writeDiagnoseSourceMap(t, mapPath, out.SourceMap)
+	line := diagnoseLineContaining(t, out.Code, "return bpf_ntohs((__u16)ctx->user_port);")
+	if err := os.WriteFile(logPath, []byte(fmt.Sprintf("%s:%d:12: error: use of undeclared identifier 'bpf_ntohs'\n", cPath, line)), 0o644); err != nil {
+		t.Fatalf("write log: %v", err)
+	}
+
+	stdout, err := captureStdout(t, func() error {
+		return run([]string{"diagnose", logPath, "-map", mapPath, "-json"})
+	})
+	if err != nil {
+		t.Fatalf("run diagnose -json: %v", err)
+	}
+
+	var diagnostics []diag.Diagnostic
+	if err := json.Unmarshal([]byte(stdout), &diagnostics); err != nil {
+		t.Fatalf("unmarshal diagnostics: %v\n%s", err, stdout)
+	}
+	if len(diagnostics) != 1 {
+		t.Fatalf("diagnostics = %d, want 1", len(diagnostics))
+	}
+	if got, want := diagnostics[0].Primary.Start.Line, 12; got != want {
+		t.Fatalf("primary line = %d, want %d; diagnostic = %#v", got, want, diagnostics[0])
+	}
+	if diagnostics[0].Source == nil || !strings.Contains(diagnostics[0].Source.Text, "cgroup.dst_port") {
+		t.Fatalf("source context = %#v, want authored cgroup helper call", diagnostics[0].Source)
+	}
+	if !hasNoteContaining(diagnostics[0], "source map: function BlockSMTP, section cgroup/connect4, node cgroup_context_wrapper") {
+		t.Fatalf("notes = %#v, want cgroup wrapper source map metadata", diagnostics[0].Notes)
+	}
+}
+
 func TestDiagnoseFailOnErrorReturnsDiagnosticErrorAfterJSON(t *testing.T) {
 	dir := t.TempDir()
 	sourcePath := filepath.Join(dir, "input.hzn")

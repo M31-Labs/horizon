@@ -407,6 +407,7 @@ Horizon makes verifier-sensitive behavior explicit before clang runs:
 - XDP programs must return named actions such as `xdp.Pass` and `xdp.Drop`, not raw integers
 - TC programs must declare `@tc("ingress")` or `@tc("egress")` and return named actions such as `tc.OK` and `tc.Shot`, not raw integers
 - cgroup connect programs must declare `@cgroup("connect4")` or `@cgroup("connect6")`, use typed context helpers such as `cgroup.protocol(ctx)` and `cgroup.dst_ip4(ctx)`, and return named actions such as `cgroup.Allow` and `cgroup.Deny`, not raw integers
+- cgroup context reads lower through typed generated wrappers, so generated C diagnostics map back to the authored `cgroup.*` helper call
 - LSM programs must declare an explicit hook such as `@lsm("file_open")` and return named actions such as `lsm.Allow` and `lsm.Deny`, not raw integers
 - generated C emits only the helper and map wrappers the program actually uses
 - generated BPF C is compiled with clang warnings treated as errors
