@@ -329,6 +329,53 @@ func TestWorkbenchReportsEmitterDiagnostics(t *testing.T) {
 	}
 }
 
+func TestWorkbenchReportsBindgenDiagnostics(t *testing.T) {
+	outDir := t.TempDir()
+	input := filepath.Join("..", "..", "testdata", "golden", "exec", "input.hzn")
+	stdout, err := captureStdout(t, func() error {
+		return run([]string{"workbench", input, "-o", outDir, "-package", "bad-name", "-json"})
+	})
+	if err == nil {
+		t.Fatal("run workbench -package bad-name succeeded, want bindgen diagnostic error")
+	}
+
+	var report workbenchReport
+	if err := json.Unmarshal([]byte(stdout), &report); err != nil {
+		t.Fatalf("unmarshal stdout report: %v\n%s", err, stdout)
+	}
+	if report.Status != "bindgen_error" {
+		t.Fatalf("status = %q, want bindgen_error", report.Status)
+	}
+	if report.DiagnosticCount != 1 || !hasDiagnosticCode(report.Diagnostics, "HZN3200") {
+		t.Fatalf("diagnostics = %#v, want HZN3200", report.Diagnostics)
+	}
+	for _, name := range []string{
+		"input.bpf.c",
+		"input.hznmap.json",
+		"input.diagnostics.json",
+		"input.report.json",
+	} {
+		if _, err := os.Stat(filepath.Join(outDir, name)); err != nil {
+			t.Fatalf("missing bindgen failure artifact %s: %v", name, err)
+		}
+	}
+	for _, name := range []string{
+		"input.bindings.go",
+		"input.cap.json",
+		"input.bpf.o",
+	} {
+		if _, err := os.Stat(filepath.Join(outDir, name)); !os.IsNotExist(err) {
+			t.Fatalf("downstream artifact %s should not exist for bindgen error: %v", name, err)
+		}
+	}
+	for _, kind := range []string{"bpf_c", "source_map", "diagnostics"} {
+		assertArtifactDetail(t, report, kind)
+	}
+	if _, ok := artifactDetailByKind(report.ArtifactDetails, "bindings"); ok {
+		t.Fatalf("artifact details include bindings on bindgen error: %#v", report.ArtifactDetails)
+	}
+}
+
 func TestWorkbenchReportsClangDiagnostics(t *testing.T) {
 	outDir := t.TempDir()
 	fakeBin := t.TempDir()

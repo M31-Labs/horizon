@@ -4,6 +4,7 @@ import (
 	"flag"
 
 	"m31labs.dev/horizon/bindgen"
+	"m31labs.dev/horizon/compiler/diag"
 )
 
 func runBindgen(args []string) error {
@@ -19,6 +20,10 @@ func runBindgen(args []string) error {
 	}
 	code, err := bindgen.Generate(result.Program, *packageName)
 	if err != nil {
+		if d, ok := bindgen.DiagnosticForError(err); ok {
+			printDiagnostics([]diag.Diagnostic{d})
+			return errDiagnostics(1)
+		}
 		return err
 	}
 	return writeFile(*outPath, []byte(code))

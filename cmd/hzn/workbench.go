@@ -179,6 +179,21 @@ func writeWorkbenchArtifacts(result *compiler.Result, opts workbenchOptions) (wo
 	}
 	bindings, err := bindgen.Generate(result.Program, opts.PackageName)
 	if err != nil {
+		if d, ok := bindgen.DiagnosticForError(err); ok {
+			report.Status = "bindgen_error"
+			report.Diagnostics = append(report.Diagnostics, d)
+			report.DiagnosticCount = len(report.Diagnostics)
+			report.Artifacts = []string{paths.C, paths.SourceMap, paths.Diagnostics, paths.Report}
+			if writeErr := writeJSON(paths.Diagnostics, report.Diagnostics); writeErr != nil {
+				return report, writeErr
+			}
+			if writeErr := addArtifactDetails(&report, paths); writeErr != nil {
+				return report, writeErr
+			}
+			if writeErr := writeJSON(paths.Report, report); writeErr != nil {
+				return report, writeErr
+			}
+		}
 		return report, err
 	}
 	if err := writeFile(paths.Bindings, []byte(bindings)); err != nil {

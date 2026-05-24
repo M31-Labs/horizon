@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"m31labs.dev/horizon/compiler/diag"
 	"m31labs.dev/horizon/ir"
 )
 
@@ -45,6 +46,23 @@ func TestGenerateXDPAttachBindings(t *testing.T) {
 		if strings.Contains(code, unwanted) {
 			t.Fatalf("generated bindings unexpectedly contain %q:\n%s", unwanted, code)
 		}
+	}
+}
+
+func TestGenerateRejectsInvalidPackageName(t *testing.T) {
+	code, err := Generate(ir.Program{}, "bad-name")
+	if err == nil {
+		t.Fatalf("Generate succeeded, code:\n%s", code)
+	}
+	if code != "" {
+		t.Fatalf("Generate returned code for invalid package:\n%s", code)
+	}
+	d, ok := DiagnosticForError(err)
+	if !ok {
+		t.Fatalf("DiagnosticForError(%T) = false", err)
+	}
+	if d.Code != "HZN3200" || d.Severity != diag.SeverityError {
+		t.Fatalf("diagnostic = %#v, want HZN3200 error", d)
 	}
 }
 

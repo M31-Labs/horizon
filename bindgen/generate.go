@@ -2,17 +2,67 @@ package bindgen
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"go/format"
+	"go/token"
 	"strings"
 	"unicode"
 
+	"m31labs.dev/horizon/compiler/diag"
 	"m31labs.dev/horizon/ir"
 )
+
+type Error struct {
+	Stage   string
+	Package string
+	Err     error
+}
+
+func (e Error) Error() string {
+	if e.Err == nil {
+		return "generate Go bindings"
+	}
+	if e.Stage != "" {
+		return fmt.Sprintf("generate Go bindings %s: %v", e.Stage, e.Err)
+	}
+	return fmt.Sprintf("generate Go bindings: %v", e.Err)
+}
+
+func (e Error) Unwrap() error {
+	return e.Err
+}
+
+func DiagnosticForError(err error) (diag.Diagnostic, bool) {
+	var bindErr Error
+	if !errors.As(err, &bindErr) {
+		return diag.Diagnostic{}, false
+	}
+	message := "cannot generate typed Go bindings"
+	if bindErr.Err != nil {
+		message += ": " + bindErr.Err.Error()
+	}
+	return diag.Diagnostic{
+		Code:     "HZN3200",
+		Severity: diag.SeverityError,
+		Message:  message,
+		Notes: []string{
+			"Horizon generated bindings must be valid Go source.",
+		},
+		Suggest: "choose a valid generated Go package name and keep Horizon identifiers Go-bindable",
+	}, true
+}
 
 func Generate(program ir.Program, packageName string) (string, error) {
 	if packageName == "" {
 		packageName = "bindings"
+	}
+	if !validPackageName(packageName) {
+		return "", Error{
+			Stage:   "package",
+			Package: packageName,
+			Err:     fmt.Errorf("invalid Go package name %q", packageName),
+		}
 	}
 	var b bytes.Buffer
 	fmt.Fprintf(&b, "package %s\n\n", packageName)
@@ -82,9 +132,13 @@ func (o *Objects) Close() error {
 	}
 	formatted, err := format.Source(b.Bytes())
 	if err != nil {
-		return b.String(), nil
+		return "", Error{Stage: "format", Package: packageName, Err: err}
 	}
 	return string(formatted), nil
+}
+
+func validPackageName(name string) bool {
+	return token.IsIdentifier(name) && !token.Lookup(name).IsKeyword()
 }
 
 func emitAttach(b *bytes.Buffer, fn ir.Function) {
