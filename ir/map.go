@@ -1,5 +1,7 @@
 package ir
 
+import "m31labs.dev/horizon/compiler/span"
+
 type MapKind string
 
 const (
@@ -13,4 +15,5 @@ type Map struct {
 	Kind MapKind
 	Key  Type
 	Val  Type
+	Span span.Span
 }

@@ -106,6 +106,7 @@ func buildMap(decl ast.MapDecl) Map {
 		Kind: MapKind(decl.Kind),
 		Key:  buildType(decl.Key),
 		Val:  buildType(decl.Val),
+		Span: decl.Span,
 	}
 }
 

@@ -15,6 +15,10 @@ func Emit(program ir.Program) (Output, error) {
 
 	var b strings.Builder
 	usage := analyzeUsage(program)
+	sourceMap := ir.SourceMap{
+		Schema:    "m31labs.dev/horizon/sourcemap/v0",
+		Generated: ir.GeneratedSource{Language: "c"},
+	}
 	b.WriteString("#include \"vmlinux.h\"\n")
 	if usage.hasBool() {
 		b.WriteString("#include <stdbool.h>\n")
@@ -34,28 +38,32 @@ func Emit(program ir.Program) (Output, error) {
 		emitXDPPacketHelpers(&b, usage)
 	}
 	for _, c := range program.Constants {
-		emitConst(&b, c)
+		emitMapped(&b, &sourceMap, c.Span, "const", "", "", func() {
+			emitConst(&b, c)
+		})
 	}
 	structs := ir.StructsByName(program.Structs)
 	for _, decl := range program.Structs {
-		emitStruct(&b, decl, structs)
+		emitMapped(&b, &sourceMap, decl.Span, "struct", "", "", func() {
+			emitStruct(&b, decl, structs)
+		})
 	}
 	for _, m := range program.Maps {
-		emitMap(&b, m)
+		emitMapped(&b, &sourceMap, m.Span, "map", "", "", func() {
+			emitMap(&b, m)
+		})
 	}
 	for _, m := range program.Maps {
-		emitMapWrappers(&b, m, usage.mapMethods[m.Name])
-	}
-	sourceMap := ir.SourceMap{
-		Schema:    "m31labs.dev/horizon/sourcemap/v0",
-		Generated: ir.GeneratedSource{Language: "c"},
+		emitMapped(&b, &sourceMap, m.Span, "map_wrapper", "", "", func() {
+			emitMapWrappers(&b, m, usage.mapMethods[m.Name])
+		})
 	}
 	for _, fn := range program.Functions {
 		env := newCEnv(program)
 		for _, param := range fn.Params {
 			env.setLocal(param.Name, param.Type)
 		}
-		startLine := strings.Count(b.String(), "\n") + 1
+		startLine := generatedLine(&b)
 		fmt.Fprintf(&b, "\nSEC(%q)\nint %s(%s) {\n", fn.Section.Name, fn.Name, cContext(fn))
 		b.WriteString("    (void)ctx;\n")
 		for _, stmt := range functionStatements(fn) {
@@ -64,19 +72,39 @@ func Emit(program ir.Program) (Output, error) {
 			}
 		}
 		b.WriteString("}\n")
-		sourceMap.Mappings = append(sourceMap.Mappings, ir.SourceMapping{
-			Source:   fn.Span,
-			Function: fn.Name,
-			Section:  fn.Section.Name,
-			Node:     "function",
-			Generated: span.Span{
-				Start: span.Point{Line: startLine, Column: 1},
-				End:   span.Point{Line: strings.Count(b.String(), "\n") + 1, Column: 1},
-			},
-		})
+		addSourceMapping(&sourceMap, fn.Span, "function", fn.Name, fn.Section.Name, startLine, generatedLine(&b))
 	}
 	sourceMap.Sources = sourceMapSources(sourceMap.Mappings)
 	return Output{Code: b.String(), SourceMap: sourceMap}, nil
+}
+
+func emitMapped(b *strings.Builder, sourceMap *ir.SourceMap, source span.Span, node string, function string, section string, emit func()) {
+	startLine := generatedLine(b)
+	emit()
+	addSourceMapping(sourceMap, source, node, function, section, startLine, generatedLine(b))
+}
+
+func addSourceMapping(sourceMap *ir.SourceMap, source span.Span, node string, function string, section string, startLine int, endLine int) {
+	if sourceMap == nil || source.IsZero() || startLine == endLine {
+		return
+	}
+	sourceMap.Mappings = append(sourceMap.Mappings, ir.SourceMapping{
+		Source:   source,
+		Function: function,
+		Section:  section,
+		Node:     node,
+		Generated: span.Span{
+			Start: span.Point{Line: startLine, Column: 1},
+			End:   span.Point{Line: endLine, Column: 1},
+		},
+	})
+}
+
+func generatedLine(b *strings.Builder) int {
+	if b == nil {
+		return 1
+	}
+	return strings.Count(b.String(), "\n") + 1
 }
 
 type cEnv struct {

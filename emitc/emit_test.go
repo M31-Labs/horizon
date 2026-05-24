@@ -45,6 +45,32 @@ func TestEmitExecwatchUsesTypedCWrappers(t *testing.T) {
 	}
 }
 
+func TestEmitSourceMapIncludesDeclarations(t *testing.T) {
+	result, err := compiler.AnalyzePath("../testdata/golden/exec/input.hzn")
+	if err != nil {
+		t.Fatalf("AnalyzePath: %v", err)
+	}
+	out, err := Emit(result.Program)
+	if err != nil {
+		t.Fatalf("Emit: %v", err)
+	}
+
+	assertSourceMapLine(t, out, "struct hzn_type_ExecEvent {", "struct", 5)
+	assertSourceMapLine(t, out, `} ExecEvents SEC(".maps");`, "map", 12)
+	assertSourceMapLine(t, out, "static __always_inline struct hzn_type_ExecEvent *ExecEvents_reserve(void)", "map_wrapper", 12)
+	assertSourceMapLine(t, out, "int OnExec(struct trace_event_raw_sched_process_exec *ctx)", "function", 14)
+
+	result, err = compiler.AnalyzePath("../examples/execcount")
+	if err != nil {
+		t.Fatalf("AnalyzePath execcount: %v", err)
+	}
+	out, err = Emit(result.Program)
+	if err != nil {
+		t.Fatalf("Emit execcount: %v", err)
+	}
+	assertSourceMapLine(t, out, "static const __u64 hzn_const_FirstSeen = 1;", "const", 5)
+}
+
 func TestEmitBoundedForClause(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "loop.hzn")
@@ -71,6 +97,51 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	if !strings.Contains(out.Code, "for (__s64 i = 0; i < 4; i++) {") {
 		t.Fatalf("generated C missing bounded for clause:\n%s", out.Code)
 	}
+}
+
+func assertSourceMapLine(t *testing.T, out Output, generatedNeedle string, wantNode string, wantSourceLine int) {
+	t.Helper()
+	line := generatedLineContaining(t, out.Code, generatedNeedle)
+	mapping, ok := sourceMapMappingForLine(out.SourceMap.Mappings, line)
+	if !ok {
+		t.Fatalf("source map missing generated line %d for %q; mappings = %#v", line, generatedNeedle, out.SourceMap.Mappings)
+	}
+	if mapping.Node != wantNode {
+		t.Fatalf("mapping node for %q = %q, want %q; mapping = %#v", generatedNeedle, mapping.Node, wantNode, mapping)
+	}
+	if mapping.Source.Start.Line != wantSourceLine {
+		t.Fatalf("mapping source line for %q = %d, want %d; mapping = %#v", generatedNeedle, mapping.Source.Start.Line, wantSourceLine, mapping)
+	}
+}
+
+func generatedLineContaining(t *testing.T, code string, needle string) int {
+	t.Helper()
+	for i, line := range strings.Split(code, "\n") {
+		if strings.Contains(line, needle) {
+			return i + 1
+		}
+	}
+	t.Fatalf("generated C missing %q:\n%s", needle, code)
+	return 0
+}
+
+func sourceMapMappingForLine(mappings []ir.SourceMapping, line int) (ir.SourceMapping, bool) {
+	var best ir.SourceMapping
+	bestSet := false
+	for _, mapping := range mappings {
+		if mapping.Generated.Start.Line == 0 || line < mapping.Generated.Start.Line || line >= mapping.Generated.End.Line {
+			continue
+		}
+		if !bestSet || mappingSize(mapping) < mappingSize(best) {
+			best = mapping
+			bestSet = true
+		}
+	}
+	return best, bestSet
+}
+
+func mappingSize(mapping ir.SourceMapping) int {
+	return mapping.Generated.End.Line - mapping.Generated.Start.Line
 }
 
 func TestEmitIfElse(t *testing.T) {

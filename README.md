@@ -20,7 +20,7 @@ It keeps the kernel-side language deliberately small:
 - bounded counted loops
 - compiler-known kernel helpers
 - readable generated BPF C
-- source maps with function/section context for diagnostics
+- source maps with declaration and function/section context for diagnostics
 - typed Go bindings and Continuum capability manifests
 
 ## Pipeline
