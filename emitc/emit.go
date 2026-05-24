@@ -1192,20 +1192,20 @@ func inferredExprType(expr *ir.Expr, env *cEnv) ir.Type {
 }
 
 func cExprType(expr *ir.Expr, env *cEnv) (ir.Type, bool) {
+	return cExprTyper{env: env}.typeOf(expr)
+}
+
+type cExprTyper struct {
+	env *cEnv
+}
+
+func (t cExprTyper) typeOf(expr *ir.Expr) (ir.Type, bool) {
 	if expr == nil {
 		return ir.Type{}, false
 	}
 	switch expr.Kind {
 	case "ident":
-		if env != nil {
-			if typ, ok := env.constants[expr.Name]; ok {
-				return typ, true
-			}
-		}
-		if env == nil {
-			return ir.Type{}, false
-		}
-		return env.local(expr.Name)
+		return t.ident(expr)
 	case "int":
 		return ir.Type{Name: "i64"}, true
 	case "bool":
@@ -1213,97 +1213,147 @@ func cExprType(expr *ir.Expr, env *cEnv) (ir.Type, bool) {
 	case "nil":
 		return ptrTo(ir.Type{}), true
 	case "binary":
-		return cBinaryExprType(expr, env)
+		return t.binary(expr)
 	case "struct_lit":
-		if expr.Name == "" {
-			return ir.Type{}, false
-		}
-		return ir.Type{Name: expr.Name}, true
+		return t.structLiteral(expr)
 	case "call":
-		if name := qualifiedName(expr.Func); name != "" {
-			if isScalarConversionCall(expr) {
-				return ir.Type{Name: name}, true
-			}
-			switch name {
-			case "bpf.current_pid", "bpf.current_ppid", "bpf.current_uid":
-				return ir.Type{Name: "u32"}, true
-			case "bpf.current_comm":
-				return ir.Type{Name: "i64"}, true
-			case "xdp.eth":
-				return ptrTo(ir.Type{Name: "xdp.Eth"}), true
-			case "xdp.ipv4":
-				return ptrTo(ir.Type{Name: "xdp.IPv4"}), true
-			case "xdp.tcp":
-				return ptrTo(ir.Type{Name: "xdp.TCP"}), true
-			case "xdp.udp":
-				return ptrTo(ir.Type{Name: "xdp.UDP"}), true
-			case "xdp.ntohs":
-				return ir.Type{Name: "u16"}, true
-			case "cgroup.dst_port":
-				return ir.Type{Name: "u16"}, true
-			}
-		}
-		if mapName, ok := reserveCall(expr); ok {
-			return ptrToMapValue(mapName, env), true
-		}
-		if mapName, ok := lookupCall(expr); ok {
-			return ptrToMapValue(mapName, env), true
-		}
-		if _, method, ok := mapMethodCall(expr); ok {
-			switch method {
-			case "update", "delete":
-				return ir.Type{Name: "i64"}, true
-			}
-		}
+		return t.call(expr)
 	case "selector":
-		if name := qualifiedName(expr); name != "" {
-			if _, ok := xdpActionC(name); ok {
-				return ir.Type{Name: "i32"}, true
-			}
-			if _, ok := tcActionC(name); ok {
-				return ir.Type{Name: "i32"}, true
-			}
-			if _, ok := cgroupActionC(name); ok {
-				return ir.Type{Name: "i32"}, true
-			}
-			if _, ok := lsmActionC(name); ok {
-				return ir.Type{Name: "i32"}, true
-			}
-			if typ, ok := xdpConstantType(name); ok {
-				return typ, true
-			}
-		}
-		return selectorExprType(expr, env)
+		return t.selector(expr)
 	case "unary":
-		switch expr.Op {
-		case "&":
-			operand, ok := cExprType(expr.Operand, env)
-			if !ok {
-				return ir.Type{}, false
-			}
-			return ptrTo(operand), true
-		case "!":
-			return ir.Type{Name: "bool"}, true
-		case "*":
-			operand, ok := cExprType(expr.Operand, env)
-			if !ok || !operand.Ptr || operand.Elem == nil {
-				return ir.Type{}, false
-			}
-			return *operand.Elem, true
+		return t.unary(expr)
+	}
+	return ir.Type{}, false
+}
+
+func (t cExprTyper) ident(expr *ir.Expr) (ir.Type, bool) {
+	if t.env != nil {
+		if typ, ok := t.env.constants[expr.Name]; ok {
+			return typ, true
+		}
+	}
+	if t.env == nil {
+		return ir.Type{}, false
+	}
+	return t.env.local(expr.Name)
+}
+
+func (t cExprTyper) structLiteral(expr *ir.Expr) (ir.Type, bool) {
+	if expr.Name == "" {
+		return ir.Type{}, false
+	}
+	return ir.Type{Name: expr.Name}, true
+}
+
+func (t cExprTyper) call(expr *ir.Expr) (ir.Type, bool) {
+	if name := qualifiedName(expr.Func); name != "" {
+		if isScalarConversionCall(expr) {
+			return ir.Type{Name: name}, true
+		}
+		if typ, ok := knownCallType(name); ok {
+			return typ, true
+		}
+	}
+	if mapName, ok := reserveCall(expr); ok {
+		return ptrToMapValue(mapName, t.env), true
+	}
+	if mapName, ok := lookupCall(expr); ok {
+		return ptrToMapValue(mapName, t.env), true
+	}
+	if _, method, ok := mapMethodCall(expr); ok {
+		switch method {
+		case "update", "delete":
+			return ir.Type{Name: "i64"}, true
 		}
 	}
 	return ir.Type{}, false
 }
 
+func knownCallType(name string) (ir.Type, bool) {
+	switch name {
+	case "bpf.current_pid", "bpf.current_ppid", "bpf.current_uid":
+		return ir.Type{Name: "u32"}, true
+	case "bpf.current_comm":
+		return ir.Type{Name: "i64"}, true
+	case "xdp.eth":
+		return ptrTo(ir.Type{Name: "xdp.Eth"}), true
+	case "xdp.ipv4":
+		return ptrTo(ir.Type{Name: "xdp.IPv4"}), true
+	case "xdp.tcp":
+		return ptrTo(ir.Type{Name: "xdp.TCP"}), true
+	case "xdp.udp":
+		return ptrTo(ir.Type{Name: "xdp.UDP"}), true
+	case "xdp.ntohs":
+		return ir.Type{Name: "u16"}, true
+	case "cgroup.dst_port":
+		return ir.Type{Name: "u16"}, true
+	default:
+		return ir.Type{}, false
+	}
+}
+
+func (t cExprTyper) selector(expr *ir.Expr) (ir.Type, bool) {
+	if name := qualifiedName(expr); name != "" {
+		if typ, ok := knownSelectorType(name); ok {
+			return typ, true
+		}
+	}
+	return t.fieldSelector(expr)
+}
+
+func knownSelectorType(name string) (ir.Type, bool) {
+	if _, ok := xdpActionC(name); ok {
+		return ir.Type{Name: "i32"}, true
+	}
+	if _, ok := tcActionC(name); ok {
+		return ir.Type{Name: "i32"}, true
+	}
+	if _, ok := cgroupActionC(name); ok {
+		return ir.Type{Name: "i32"}, true
+	}
+	if _, ok := lsmActionC(name); ok {
+		return ir.Type{Name: "i32"}, true
+	}
+	if typ, ok := xdpConstantType(name); ok {
+		return typ, true
+	}
+	return ir.Type{}, false
+}
+
+func (t cExprTyper) unary(expr *ir.Expr) (ir.Type, bool) {
+	switch expr.Op {
+	case "&":
+		operand, ok := t.typeOf(expr.Operand)
+		if !ok {
+			return ir.Type{}, false
+		}
+		return ptrTo(operand), true
+	case "!":
+		return ir.Type{Name: "bool"}, true
+	case "*":
+		operand, ok := t.typeOf(expr.Operand)
+		if !ok || !operand.Ptr || operand.Elem == nil {
+			return ir.Type{}, false
+		}
+		return *operand.Elem, true
+	default:
+		return ir.Type{}, false
+	}
+}
+
 func cBinaryExprType(expr *ir.Expr, env *cEnv) (ir.Type, bool) {
+	return cExprTyper{env: env}.binary(expr)
+}
+
+func (t cExprTyper) binary(expr *ir.Expr) (ir.Type, bool) {
 	if expr == nil {
 		return ir.Type{}, false
 	}
 	if isCBoolOp(expr.Op) {
 		return ir.Type{Name: "bool"}, true
 	}
-	left, leftOK := cExprType(expr.Left, env)
-	right, rightOK := cExprType(expr.Right, env)
+	left, leftOK := t.typeOf(expr.Left)
+	right, rightOK := t.typeOf(expr.Right)
 	if !leftOK || !rightOK || !isCIntegerLike(left) || !isCIntegerLike(right) {
 		return ir.Type{}, false
 	}
@@ -1335,17 +1385,24 @@ func isCIntegerLike(typ ir.Type) bool {
 }
 
 func selectorExprType(expr *ir.Expr, env *cEnv) (ir.Type, bool) {
+	return cExprTyper{env: env}.fieldSelector(expr)
+}
+
+func (t cExprTyper) fieldSelector(expr *ir.Expr) (ir.Type, bool) {
 	if expr == nil || expr.Operand == nil {
 		return ir.Type{}, false
 	}
-	operand, ok := cExprType(expr.Operand, env)
+	operand, ok := t.typeOf(expr.Operand)
 	if !ok {
 		return ir.Type{}, false
 	}
 	if operand.Ptr && operand.Elem != nil {
 		operand = *operand.Elem
 	}
-	structDecl, ok := env.structs[operand.Name]
+	if t.env == nil {
+		return ir.Type{}, false
+	}
+	structDecl, ok := t.env.structs[operand.Name]
 	if !ok {
 		return ir.Type{}, false
 	}
@@ -1372,17 +1429,20 @@ func ptrTo(typ ir.Type) ir.Type {
 }
 
 func cExpr(expr *ir.Expr, env *cEnv) string {
+	return cExprEmitter{env: env}.emit(expr)
+}
+
+type cExprEmitter struct {
+	env *cEnv
+}
+
+func (e cExprEmitter) emit(expr *ir.Expr) string {
 	if expr == nil {
 		return "0"
 	}
 	switch expr.Kind {
 	case "ident":
-		if env != nil {
-			if _, ok := env.constants[expr.Name]; ok {
-				return cConstName(expr.Name)
-			}
-		}
-		return expr.Name
+		return e.ident(expr)
 	case "int":
 		return expr.Value
 	case "bool":
@@ -1390,39 +1450,15 @@ func cExpr(expr *ir.Expr, env *cEnv) string {
 	case "nil":
 		return "0"
 	case "selector":
-		if name := qualifiedName(expr); name != "" {
-			if action, ok := xdpActionC(name); ok {
-				return action
-			}
-			if action, ok := tcActionC(name); ok {
-				return action
-			}
-			if action, ok := cgroupActionC(name); ok {
-				return action
-			}
-			if action, ok := lsmActionC(name); ok {
-				return action
-			}
-			if constant, ok := xdpConstantC(name); ok {
-				return constant
-			}
-		}
-		if expr.Operand == nil {
-			return expr.Field
-		}
-		access := "."
-		if cExprIsPointer(expr.Operand, env) {
-			access = "->"
-		}
-		return cExpr(expr.Operand, env) + access + expr.Field
+		return e.selector(expr)
 	case "unary":
-		return expr.Op + cExpr(expr.Operand, env)
+		return expr.Op + e.emit(expr.Operand)
 	case "binary":
-		return cBinaryOperand(expr.Left, env) + " " + expr.Op + " " + cBinaryOperand(expr.Right, env)
+		return e.binary(expr)
 	case "call":
-		return cCallExpr(expr, env)
+		return e.call(expr)
 	case "struct_lit":
-		return cStructLiteral(expr, env)
+		return e.structLiteral(expr)
 	case "raw":
 		return expr.Value
 	default:
@@ -1430,11 +1466,63 @@ func cExpr(expr *ir.Expr, env *cEnv) string {
 	}
 }
 
-func cBinaryOperand(expr *ir.Expr, env *cEnv) string {
-	if expr != nil && expr.Kind == "binary" {
-		return "(" + cExpr(expr, env) + ")"
+func (e cExprEmitter) ident(expr *ir.Expr) string {
+	if e.env != nil {
+		if _, ok := e.env.constants[expr.Name]; ok {
+			return cConstName(expr.Name)
+		}
 	}
-	return cExpr(expr, env)
+	return expr.Name
+}
+
+func (e cExprEmitter) selector(expr *ir.Expr) string {
+	if name := qualifiedName(expr); name != "" {
+		if symbol, ok := knownSelectorC(name); ok {
+			return symbol
+		}
+	}
+	if expr.Operand == nil {
+		return expr.Field
+	}
+	access := "."
+	if e.isPointer(expr.Operand) {
+		access = "->"
+	}
+	return e.emit(expr.Operand) + access + expr.Field
+}
+
+func knownSelectorC(name string) (string, bool) {
+	if action, ok := xdpActionC(name); ok {
+		return action, true
+	}
+	if action, ok := tcActionC(name); ok {
+		return action, true
+	}
+	if action, ok := cgroupActionC(name); ok {
+		return action, true
+	}
+	if action, ok := lsmActionC(name); ok {
+		return action, true
+	}
+	if constant, ok := xdpConstantC(name); ok {
+		return constant, true
+	}
+	return "", false
+}
+
+func (e cExprEmitter) binary(expr *ir.Expr) string {
+	return e.binaryOperand(expr.Left) + " " + expr.Op + " " + e.binaryOperand(expr.Right)
+}
+
+func cBinaryOperand(expr *ir.Expr, env *cEnv) string {
+	return cExprEmitter{env: env}.binaryOperand(expr)
+}
+
+func (e cExprEmitter) binaryOperand(expr *ir.Expr) string {
+	if expr != nil && expr.Kind == "binary" {
+		return "(" + e.emit(expr) + ")"
+	}
+	return e.emit(expr)
 }
 
 func xdpActionC(name string) (string, bool) {
@@ -1522,12 +1610,16 @@ func xdpConstantType(name string) (ir.Type, bool) {
 }
 
 func cExprIsPointer(expr *ir.Expr, env *cEnv) bool {
+	return cExprEmitter{env: env}.isPointer(expr)
+}
+
+func (e cExprEmitter) isPointer(expr *ir.Expr) bool {
 	if expr == nil {
 		return false
 	}
 	switch expr.Kind {
 	case "ident":
-		return env.isPtr(expr.Name)
+		return e.env.isPtr(expr.Name)
 	case "nil":
 		return true
 	case "unary":
@@ -1549,6 +1641,10 @@ func cExprIsPointer(expr *ir.Expr, env *cEnv) bool {
 }
 
 func cStructLiteral(expr *ir.Expr, env *cEnv) string {
+	return cExprEmitter{env: env}.structLiteral(expr)
+}
+
+func (e cExprEmitter) structLiteral(expr *ir.Expr) string {
 	if expr == nil || expr.Name == "" {
 		return "(void){0}"
 	}
@@ -1558,78 +1654,89 @@ func cStructLiteral(expr *ir.Expr, env *cEnv) string {
 	fields := make([]string, 0, len(expr.Fields))
 	for _, field := range expr.Fields {
 		value := field.Value
-		fields = append(fields, fmt.Sprintf(".%s = %s", field.Name, cExpr(&value, env)))
+		fields = append(fields, fmt.Sprintf(".%s = %s", field.Name, e.emit(&value)))
 	}
 	return fmt.Sprintf("(%s){ %s }", cType(ir.Type{Name: expr.Name}), strings.Join(fields, ", "))
 }
 
 func cCallExpr(expr *ir.Expr, env *cEnv) string {
+	return cExprEmitter{env: env}.call(expr)
+}
+
+func (e cExprEmitter) call(expr *ir.Expr) string {
 	if expr == nil || expr.Kind != "call" {
 		return "0"
 	}
 	if isScalarConversionCall(expr) && len(expr.Args) == 1 {
 		arg := expr.Args[0]
-		return fmt.Sprintf("(%s)(%s)", cType(ir.Type{Name: qualifiedName(expr.Func)}), cExpr(&arg, env))
+		return fmt.Sprintf("(%s)(%s)", cType(ir.Type{Name: qualifiedName(expr.Func)}), e.emit(&arg))
 	}
 	if mapName, method, ok := mapMethodCall(expr); ok {
-		args := make([]string, 0, len(expr.Args))
-		for _, arg := range expr.Args {
-			arg := arg
-			args = append(args, cExpr(&arg, env))
-		}
-		return fmt.Sprintf("%s_%s(%s)", mapName, method, strings.Join(args, ", "))
+		return fmt.Sprintf("%s_%s(%s)", mapName, method, e.args(expr.Args))
 	}
 	if name := qualifiedName(expr.Func); name != "" {
-		switch name {
-		case "bpf.current_pid":
-			return "hzn_current_pid()"
-		case "bpf.current_ppid":
-			return "hzn_current_ppid()"
-		case "bpf.current_uid":
-			return "hzn_current_uid()"
-		case "bpf.current_comm":
-			if len(expr.Args) == 1 {
-				arg := expr.Args[0]
-				return fmt.Sprintf("hzn_current_comm(%s, sizeof(%s))", cExpr(&arg, env), sizeofExpr(&arg, env))
-			}
-		case "xdp.eth":
-			if len(expr.Args) == 1 {
-				arg := expr.Args[0]
-				return fmt.Sprintf("hzn_xdp_eth(%s)", cExpr(&arg, env))
-			}
-		case "xdp.ipv4":
-			if len(expr.Args) == 1 {
-				arg := expr.Args[0]
-				return fmt.Sprintf("hzn_xdp_ipv4(%s)", cExpr(&arg, env))
-			}
-		case "xdp.tcp":
-			if len(expr.Args) == 1 {
-				arg := expr.Args[0]
-				return fmt.Sprintf("hzn_xdp_tcp(%s)", cExpr(&arg, env))
-			}
-		case "xdp.udp":
-			if len(expr.Args) == 1 {
-				arg := expr.Args[0]
-				return fmt.Sprintf("hzn_xdp_udp(%s)", cExpr(&arg, env))
-			}
-		case "xdp.ntohs":
-			if len(expr.Args) == 1 {
-				arg := expr.Args[0]
-				return fmt.Sprintf("bpf_ntohs(%s)", cExpr(&arg, env))
-			}
-		case "cgroup.dst_port":
-			if len(expr.Args) == 1 {
-				arg := expr.Args[0]
-				return fmt.Sprintf("bpf_ntohs((__u16)%s->user_port)", cExpr(&arg, env))
-			}
+		if rendered, ok := e.knownCall(expr, name); ok {
+			return rendered
 		}
 	}
-	args := make([]string, 0, len(expr.Args))
-	for _, arg := range expr.Args {
-		arg := arg
-		args = append(args, cExpr(&arg, env))
+	return e.emit(expr.Func) + "(" + e.args(expr.Args) + ")"
+}
+
+func (e cExprEmitter) knownCall(expr *ir.Expr, name string) (string, bool) {
+	switch name {
+	case "bpf.current_pid":
+		return "hzn_current_pid()", true
+	case "bpf.current_ppid":
+		return "hzn_current_ppid()", true
+	case "bpf.current_uid":
+		return "hzn_current_uid()", true
+	case "bpf.current_comm":
+		return e.oneArgCall(expr, func(arg ir.Expr) string {
+			return fmt.Sprintf("hzn_current_comm(%s, sizeof(%s))", e.emit(&arg), sizeofExpr(&arg, e.env))
+		})
+	case "xdp.eth":
+		return e.oneArgCall(expr, func(arg ir.Expr) string {
+			return fmt.Sprintf("hzn_xdp_eth(%s)", e.emit(&arg))
+		})
+	case "xdp.ipv4":
+		return e.oneArgCall(expr, func(arg ir.Expr) string {
+			return fmt.Sprintf("hzn_xdp_ipv4(%s)", e.emit(&arg))
+		})
+	case "xdp.tcp":
+		return e.oneArgCall(expr, func(arg ir.Expr) string {
+			return fmt.Sprintf("hzn_xdp_tcp(%s)", e.emit(&arg))
+		})
+	case "xdp.udp":
+		return e.oneArgCall(expr, func(arg ir.Expr) string {
+			return fmt.Sprintf("hzn_xdp_udp(%s)", e.emit(&arg))
+		})
+	case "xdp.ntohs":
+		return e.oneArgCall(expr, func(arg ir.Expr) string {
+			return fmt.Sprintf("bpf_ntohs(%s)", e.emit(&arg))
+		})
+	case "cgroup.dst_port":
+		return e.oneArgCall(expr, func(arg ir.Expr) string {
+			return fmt.Sprintf("bpf_ntohs((__u16)%s->user_port)", e.emit(&arg))
+		})
+	default:
+		return "", false
 	}
-	return cExpr(expr.Func, env) + "(" + strings.Join(args, ", ") + ")"
+}
+
+func (e cExprEmitter) oneArgCall(expr *ir.Expr, render func(ir.Expr) string) (string, bool) {
+	if len(expr.Args) != 1 {
+		return "", false
+	}
+	return render(expr.Args[0]), true
+}
+
+func (e cExprEmitter) args(in []ir.Expr) string {
+	args := make([]string, 0, len(in))
+	for _, arg := range in {
+		arg := arg
+		args = append(args, e.emit(&arg))
+	}
+	return strings.Join(args, ", ")
 }
 
 func isScalarConversionCall(expr *ir.Expr) bool {
