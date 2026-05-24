@@ -326,46 +326,68 @@ type cUsage struct {
 }
 
 func analyzeUsage(program ir.Program) cUsage {
-	usage := cUsage{
+	usage := newCUsage()
+	usage.walkProgram(program)
+	usage.expandXDPPacketDependencies()
+	return usage
+}
+
+func newCUsage() cUsage {
+	return cUsage{
 		helpers:       map[string]bool{},
 		mapMethods:    map[string]map[string]bool{},
 		xdpHelpers:    map[string]bool{},
 		cgroupHelpers: map[string]bool{},
 		maps:          map[string]ir.Map{},
 	}
+}
+
+func (u *cUsage) walkProgram(program ir.Program) {
 	for _, m := range program.Maps {
-		usage.maps[m.Name] = m
-		if typeUsesBool(m.Key) || typeUsesBool(m.Val) {
-			usage.boolTypes = true
-		}
+		u.walkMap(m)
 	}
 	for _, c := range program.Constants {
-		if c.Value.Kind == "bool" {
-			usage.boolTypes = true
-		}
+		u.walkConst(c)
 	}
 	for _, typ := range program.Structs {
-		for _, field := range typ.Fields {
-			if typeUsesBool(field.Type) {
-				usage.boolTypes = true
-			}
-		}
+		u.walkStruct(typ)
 	}
 	for _, fn := range program.Functions {
-		if typeUsesBool(fn.Return) {
-			usage.boolTypes = true
-		}
-		for _, param := range fn.Params {
-			if typeUsesBool(param.Type) {
-				usage.boolTypes = true
-			}
-		}
-		for _, stmt := range functionStatements(fn) {
-			usage.walkStatement(stmt)
+		u.walkFunction(fn)
+	}
+}
+
+func (u *cUsage) walkMap(m ir.Map) {
+	u.maps[m.Name] = m
+	if typeUsesBool(m.Key) || typeUsesBool(m.Val) {
+		u.boolTypes = true
+	}
+}
+
+func (u *cUsage) walkConst(c ir.Const) {
+	if c.Value.Kind == "bool" {
+		u.boolTypes = true
+	}
+}
+
+func (u *cUsage) walkStruct(typ ir.Struct) {
+	for _, field := range typ.Fields {
+		if typeUsesBool(field.Type) {
+			u.boolTypes = true
 		}
 	}
-	usage.expandXDPPacketDependencies()
-	return usage
+}
+
+func (u *cUsage) walkFunction(fn ir.Function) {
+	if typeUsesBool(fn.Return) {
+		u.boolTypes = true
+	}
+	for _, param := range fn.Params {
+		if typeUsesBool(param.Type) {
+			u.boolTypes = true
+		}
+	}
+	u.walkStatements(functionStatements(fn))
 }
 
 func (u *cUsage) walkStatement(stmt ir.Statement) {
@@ -380,21 +402,29 @@ func (u *cUsage) walkStatement(stmt ir.Statement) {
 	case "return":
 		u.walkExpr(stmt.Value)
 	case "if":
-		u.walkExpr(stmt.Cond)
-		u.walkStatements(stmt.Then)
-		u.walkStatements(stmt.Else)
+		u.walkBranch(stmt)
 	case "for":
-		if stmt.Init != nil {
-			u.walkStatement(*stmt.Init)
-		}
-		u.walkExpr(stmt.Cond)
-		if stmt.Post != nil {
-			u.walkStatement(*stmt.Post)
-		}
-		u.walkStatements(stmt.Body)
+		u.walkFor(stmt)
 	case "raw":
 		u.walkExpr(stmt.Value)
 	}
+}
+
+func (u *cUsage) walkBranch(stmt ir.Statement) {
+	u.walkExpr(stmt.Cond)
+	u.walkStatements(stmt.Then)
+	u.walkStatements(stmt.Else)
+}
+
+func (u *cUsage) walkFor(stmt ir.Statement) {
+	if stmt.Init != nil {
+		u.walkStatement(*stmt.Init)
+	}
+	u.walkExpr(stmt.Cond)
+	if stmt.Post != nil {
+		u.walkStatement(*stmt.Post)
+	}
+	u.walkStatements(stmt.Body)
 }
 
 func (u *cUsage) walkStatements(stmts []ir.Statement) {
@@ -407,6 +437,11 @@ func (u *cUsage) walkExpr(expr *ir.Expr) {
 	if expr == nil {
 		return
 	}
+	u.observeExpr(expr)
+	u.walkExprChildren(expr)
+}
+
+func (u *cUsage) observeExpr(expr *ir.Expr) {
 	if expr.Kind == "bool" {
 		u.boolTypes = true
 	}
@@ -422,6 +457,9 @@ func (u *cUsage) walkExpr(expr *ir.Expr) {
 	if helper, ok := cgroupHelperCall(expr); ok {
 		u.cgroupHelpers[helper] = true
 	}
+}
+
+func (u *cUsage) walkExprChildren(expr *ir.Expr) {
 	u.walkExpr(expr.Operand)
 	u.walkExpr(expr.Left)
 	u.walkExpr(expr.Right)
