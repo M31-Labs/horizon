@@ -10,10 +10,12 @@ const (
 )
 
 const (
-	FamilyIPv4 uint32 = 2
-	FamilyIPv6 uint32 = 10
-	SockStream uint32 = 1
-	SockDgram  uint32 = 2
+	FamilyIPv4  uint32 = 2
+	FamilyIPv6  uint32 = 10
+	SockStream  uint32 = 1
+	SockDgram   uint32 = 2
+	ProtocolTCP uint32 = 6
+	ProtocolUDP uint32 = 17
 )
 
 func family(ctx Connect) uint32 {

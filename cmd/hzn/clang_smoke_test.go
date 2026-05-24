@@ -152,7 +152,7 @@ func BlockSMTP(ctx cgroup.Connect) i32 {
     if cgroup.sock_type(ctx) != cgroup.SockStream {
         return cgroup.Allow
     }
-    if cgroup.protocol(ctx) != cgroup.IPProtoTCP {
+    if cgroup.protocol(ctx) != cgroup.ProtocolTCP {
         return cgroup.Allow
     }
     if cgroup.src_ip4(ctx) == cgroup.ip4(0, 0, 0, 0) {

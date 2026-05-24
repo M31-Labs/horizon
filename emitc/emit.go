@@ -659,8 +659,8 @@ func emitCgroupActionFallbacks(b *strings.Builder) {
 #define HZN_CGROUP_FAMILY_IPV6 10
 #define HZN_CGROUP_SOCK_STREAM 1
 #define HZN_CGROUP_SOCK_DGRAM 2
-#define HZN_CGROUP_IPPROTO_TCP 6
-#define HZN_CGROUP_IPPROTO_UDP 17
+#define HZN_CGROUP_PROTOCOL_TCP 6
+#define HZN_CGROUP_PROTOCOL_UDP 17
 #endif
 
 `)
@@ -1708,10 +1708,10 @@ func cgroupConstantC(name string) (string, bool) {
 		return "HZN_CGROUP_SOCK_STREAM", true
 	case "cgroup.SockDgram":
 		return "HZN_CGROUP_SOCK_DGRAM", true
-	case "cgroup.IPProtoTCP":
-		return "HZN_CGROUP_IPPROTO_TCP", true
-	case "cgroup.IPProtoUDP":
-		return "HZN_CGROUP_IPPROTO_UDP", true
+	case "cgroup.ProtocolTCP":
+		return "HZN_CGROUP_PROTOCOL_TCP", true
+	case "cgroup.ProtocolUDP":
+		return "HZN_CGROUP_PROTOCOL_UDP", true
 	default:
 		return "", false
 	}

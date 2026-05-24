@@ -1894,7 +1894,7 @@ func cgroupSelectorType(name string) (valueType, bool) {
 	switch name {
 	case "Allow", "Deny":
 		return valueType{Name: "i32", CgroupAction: true}, true
-	case "FamilyIPv4", "FamilyIPv6", "SockStream", "SockDgram", "IPProtoTCP", "IPProtoUDP":
+	case "FamilyIPv4", "FamilyIPv6", "SockStream", "SockDgram", "ProtocolTCP", "ProtocolUDP":
 		return valueType{Name: "u32"}, true
 	default:
 		return valueType{}, false

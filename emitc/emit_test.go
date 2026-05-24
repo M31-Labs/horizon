@@ -940,7 +940,7 @@ func BlockSMTP(ctx cgroup.Connect) i32 {
     if cgroup.sock_type(ctx) != cgroup.SockStream {
         return cgroup.Allow
     }
-    if cgroup.protocol(ctx) != cgroup.IPProtoTCP {
+    if cgroup.protocol(ctx) != cgroup.ProtocolTCP {
         return cgroup.Allow
     }
     if cgroup.src_ip4(ctx) == cgroup.ip4(0, 0, 0, 0) {
@@ -965,12 +965,12 @@ func BlockSMTP(ctx cgroup.Connect) i32 {
 	for _, want := range []string{
 		"#include <bpf/bpf_endian.h>",
 		"#define HZN_CGROUP_ALLOW 1",
-		"#define HZN_CGROUP_IPPROTO_TCP 6",
+		"#define HZN_CGROUP_PROTOCOL_TCP 6",
 		`SEC("cgroup/connect4")`,
 		"int BlockSMTP(struct bpf_sock_addr *ctx) {",
 		"if (ctx->family != HZN_CGROUP_FAMILY_IPV4) {",
 		"if (ctx->type != HZN_CGROUP_SOCK_STREAM) {",
-		"if (ctx->protocol != HZN_CGROUP_IPPROTO_TCP) {",
+		"if (ctx->protocol != HZN_CGROUP_PROTOCOL_TCP) {",
 		"bpf_ntohl(ctx->msg_src_ip4) == (((__u32)(0) << 24) | ((__u32)(0) << 16) | ((__u32)(0) << 8) | (__u32)(0))",
 		"bpf_ntohs((__u16)ctx->user_port) == 25",
 		"bpf_ntohl(ctx->user_ip4) != (((__u32)(127) << 24) | ((__u32)(0) << 16) | ((__u32)(0) << 8) | (__u32)(1))",
