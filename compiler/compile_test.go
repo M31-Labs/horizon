@@ -208,6 +208,62 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	}
 }
 
+func TestAnalyzeRejectsHashLookupGuardInOnlyOneBranch(t *testing.T) {
+	result := analyzeSource(t, "counts.hzn", `package probes
+
+type Count struct {
+    seen u32
+}
+
+map Counts hash[u32, Count]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    pid := bpf.current_pid()
+    count := Counts.lookup(pid)
+    if pid == 0 {
+        if count == nil {
+            return 0
+        }
+    }
+    count.seen = pid
+    return 0
+}
+`)
+	requireDiagnosticCode(t, result, "HZN2500")
+}
+
+func TestAnalyzeHashLookupGuardedInBothBranchesPasses(t *testing.T) {
+	result := analyzeSource(t, "counts.hzn", `package probes
+
+type Count struct {
+    seen u32
+}
+
+map Counts hash[u32, Count]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    pid := bpf.current_pid()
+    count := Counts.lookup(pid)
+    if pid == 0 {
+        if count == nil {
+            return 0
+        }
+    } else {
+        if count == nil {
+            return 0
+        }
+    }
+    count.seen = pid
+    return 0
+}
+`)
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+}
+
 func TestAnalyzeAllowsStructLiteralMapUpdate(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "counts.hzn")
@@ -530,6 +586,52 @@ func DropTCP(ctx xdp.Context) i32 {
         }
     } else {
         return xdp.Pass
+    }
+    return xdp.Pass
+}
+`)
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+}
+
+func TestAnalyzeRejectsPacketHeaderGuardInOnlyOneBranch(t *testing.T) {
+	result := analyzeSource(t, "xdp.hzn", `package probes
+
+@xdp
+func DropTCP(ctx xdp.Context) i32 {
+    tcp := xdp.tcp(ctx)
+    if 1 == 1 {
+        if tcp == nil {
+            return xdp.Pass
+        }
+    }
+    if xdp.ntohs(tcp.dst_port) == 443 {
+        return xdp.Drop
+    }
+    return xdp.Pass
+}
+`)
+	requireDiagnosticCode(t, result, "HZN2600")
+}
+
+func TestAnalyzePacketHeaderGuardedInBothBranchesPasses(t *testing.T) {
+	result := analyzeSource(t, "xdp.hzn", `package probes
+
+@xdp
+func DropTCP(ctx xdp.Context) i32 {
+    tcp := xdp.tcp(ctx)
+    if 1 == 1 {
+        if tcp == nil {
+            return xdp.Pass
+        }
+    } else {
+        if tcp == nil {
+            return xdp.Pass
+        }
+    }
+    if xdp.ntohs(tcp.dst_port) == 443 {
+        return xdp.Drop
     }
     return xdp.Pass
 }

@@ -113,12 +113,7 @@ func validateXDPPacketHeaders(fn ir.Function) []diag.Diagnostic {
 						states = elseStates
 						walk(stmt.Else)
 						elseStates = states
-						states = oldStates
-						if branchAlwaysReturns(stmt.Then) {
-							states = elseStates
-						} else if branchAlwaysReturns(stmt.Else) {
-							states = thenStates
-						}
+						states = mergePacketBranchStates(thenStates, elseStates, branchAlwaysReturns(stmt.Then), branchAlwaysReturns(stmt.Else))
 						break
 					}
 					if branchAlwaysReturns(stmt.Then) {
@@ -149,18 +144,22 @@ func validateXDPPacketHeaders(fn ir.Function) []diag.Diagnostic {
 						states = elseStates
 						walk(stmt.Else)
 						elseStates = states
-						states = oldStates
-						if branchAlwaysReturns(stmt.Then) {
-							states = elseStates
-						} else if branchAlwaysReturns(stmt.Else) {
-							states = thenStates
-						}
+						states = mergePacketBranchStates(thenStates, elseStates, branchAlwaysReturns(stmt.Then), branchAlwaysReturns(stmt.Else))
 						break
 					}
 					break
 				}
+				oldStates := states
+				states = clonePacketHeaderStates(oldStates)
 				walk(stmt.Then)
-				walk(stmt.Else)
+				thenStates := states
+				elseStates := oldStates
+				if len(stmt.Else) > 0 {
+					states = clonePacketHeaderStates(oldStates)
+					walk(stmt.Else)
+					elseStates = states
+				}
+				states = mergePacketBranchStates(thenStates, elseStates, branchAlwaysReturns(stmt.Then), branchAlwaysReturns(stmt.Else))
 			case "for":
 				if stmt.Init != nil {
 					walk([]ir.Statement{*stmt.Init})
@@ -199,4 +198,39 @@ func clonePacketHeaderStates(in map[string]packetHeaderState) map[string]packetH
 		out[k] = v
 	}
 	return out
+}
+
+func mergePacketBranchStates(thenStates map[string]packetHeaderState, elseStates map[string]packetHeaderState, thenReturns bool, elseReturns bool) map[string]packetHeaderState {
+	switch {
+	case thenReturns && elseReturns:
+		return map[string]packetHeaderState{}
+	case thenReturns:
+		return clonePacketHeaderStates(elseStates)
+	case elseReturns:
+		return clonePacketHeaderStates(thenStates)
+	}
+
+	out := clonePacketHeaderStates(thenStates)
+	for name, elseState := range elseStates {
+		thenState, ok := out[name]
+		if !ok {
+			out[name] = elseState
+			continue
+		}
+		out[name] = mergePacketHeaderState(thenState, elseState)
+	}
+	return out
+}
+
+func mergePacketHeaderState(a packetHeaderState, b packetHeaderState) packetHeaderState {
+	if a.Helper == "" {
+		return b
+	}
+	if b.Helper == "" {
+		return a
+	}
+	return packetHeaderState{
+		Helper: a.Helper,
+		State:  mergeNilPromotionState(a.State, b.State),
+	}
 }
