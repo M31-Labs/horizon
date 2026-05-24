@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -72,6 +73,62 @@ func TestWorkbenchWritesAuthoringArtifactsWithoutObject(t *testing.T) {
 	}
 	if len(diagnostics) != 0 {
 		t.Fatalf("diagnostics artifact = %#v, want empty", diagnostics)
+	}
+}
+
+func TestWorkbenchJSONOutput(t *testing.T) {
+	outDir := t.TempDir()
+	input := filepath.Join("..", "..", "testdata", "golden", "exec", "input.hzn")
+	stdout, err := captureStdout(t, func() error {
+		return run([]string{"workbench", input, "-o", outDir, "-json"})
+	})
+	if err != nil {
+		t.Fatalf("run workbench -json: %v", err)
+	}
+
+	var report workbenchReport
+	if err := json.Unmarshal([]byte(stdout), &report); err != nil {
+		t.Fatalf("unmarshal stdout report: %v\n%s", err, stdout)
+	}
+	if report.Schema != "m31labs.dev/horizon/report/v0" {
+		t.Fatalf("schema = %q, want report schema", report.Schema)
+	}
+	if report.Status != "generated" {
+		t.Fatalf("status = %q, want generated", report.Status)
+	}
+	if report.DiagnosticCount != 0 {
+		t.Fatalf("diagnostic count = %d, want 0", report.DiagnosticCount)
+	}
+	if len(report.Artifacts) != 6 {
+		t.Fatalf("artifacts = %d, want 6", len(report.Artifacts))
+	}
+}
+
+func TestWorkbenchJSONOutputForInvalidInput(t *testing.T) {
+	outDir := t.TempDir()
+	input := filepath.Join("..", "..", "testdata", "invalid", "packet_unproven_read.hzn")
+	stdout, err := captureStdout(t, func() error {
+		return run([]string{"workbench", input, "-o", outDir, "-json"})
+	})
+	if err == nil {
+		t.Fatal("run workbench -json succeeded, want diagnostics error")
+	}
+
+	var report workbenchReport
+	if err := json.Unmarshal([]byte(stdout), &report); err != nil {
+		t.Fatalf("unmarshal stdout report: %v\n%s", err, stdout)
+	}
+	if report.Status != "diagnostic_error" {
+		t.Fatalf("status = %q, want diagnostic_error", report.Status)
+	}
+	if report.DiagnosticCount == 0 {
+		t.Fatal("diagnostic count = 0, want at least one")
+	}
+	if !hasDiagnosticCode(report.Diagnostics, "HZN2600") {
+		t.Fatalf("report diagnostics = %#v, want HZN2600", report.Diagnostics)
+	}
+	if len(report.Artifacts) != 2 {
+		t.Fatalf("artifacts = %d, want 2", len(report.Artifacts))
 	}
 }
 
@@ -222,4 +279,28 @@ func hasDiagnosticCodeLite(diags []struct {
 		}
 	}
 	return false
+}
+
+func captureStdout(t *testing.T, fn func() error) (string, error) {
+	t.Helper()
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe stdout: %v", err)
+	}
+	os.Stdout = w
+	runErr := fn()
+	closeErr := w.Close()
+	os.Stdout = old
+	data, readErr := io.ReadAll(r)
+	if err := r.Close(); readErr == nil {
+		readErr = err
+	}
+	if readErr != nil {
+		t.Fatalf("read stdout: %v", readErr)
+	}
+	if runErr == nil {
+		runErr = closeErr
+	}
+	return string(data), runErr
 }

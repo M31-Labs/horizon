@@ -23,6 +23,7 @@ func runWorkbench(args []string) error {
 	outDir := fs.String("o", "dist", "output directory")
 	packageName := fs.String("package", "bindings", "generated Go package name")
 	compile := fs.Bool("compile", false, "also compile generated C to .bpf.o with clang")
+	jsonOut := fs.Bool("json", false, "emit JSON report")
 	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
@@ -35,12 +36,21 @@ func runWorkbench(args []string) error {
 		PackageName: *packageName,
 		Compile:     *compile,
 	})
+	if *jsonOut && report.Schema != "" {
+		if writeErr := writeJSON("", report); writeErr != nil {
+			return writeErr
+		}
+	}
 	if err != nil {
 		return err
 	}
-	fmt.Printf("workbench %s: %d artifact(s)\n", report.Status, len(report.Artifacts))
+	if !*jsonOut {
+		fmt.Printf("workbench %s: %d artifact(s)\n", report.Status, len(report.Artifacts))
+	}
 	if diag.HasErrors(result.Diagnostics) {
-		printDiagnostics(result.Diagnostics)
+		if !*jsonOut {
+			printDiagnostics(result.Diagnostics)
+		}
 		return errDiagnostics(len(result.Diagnostics))
 	}
 	return nil

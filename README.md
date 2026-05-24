@@ -137,6 +137,7 @@ hzn check ./examples/execwatch -json
 hzn doctor
 make setup-vmlinux
 hzn workbench ./examples/execwatch -o dist
+hzn workbench ./examples/execwatch -o dist -json
 hzn workbench ./examples/execwatch -o dist -compile
 hzn build ./examples/execwatch -o dist
 go run ./examples/execwatch/cmd/execwatch -obj dist/exec.bpf.o
