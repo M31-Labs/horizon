@@ -35,7 +35,15 @@ type Statement struct {
 	Then   []Statement
 	Else   []Statement
 	Body   []Statement
+	Cases  []SwitchCase
 	Span   span.Span
+}
+
+type SwitchCase struct {
+	Values  []Expr
+	Body    []Statement
+	Default bool
+	Span    span.Span
 }
 
 type Expr struct {

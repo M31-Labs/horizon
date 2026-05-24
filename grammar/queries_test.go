@@ -40,6 +40,12 @@ func DropTCP(ctx xdp.Context) i32 {
     if true && (xdp.ntohs(tcp.dst_port) == port) {
         return xdp.Drop
     }
+    switch xdp.ntohs(tcp.dst_port) {
+    case 80, 443:
+        return xdp.Drop
+    default:
+        return xdp.Pass
+    }
     return xdp.Pass
 }
 `
@@ -60,11 +66,11 @@ func TestQueriesCompile(t *testing.T) {
 func TestHighlightsQueryCoversCurrentLanguageSurface(t *testing.T) {
 	captures := queryCaptures(t, HighlightsQuery, []byte(queryFixture))
 
-	assertCaptureContains(t, captures, "keyword", "package", "import", "const", "enum", "capability", "type", "struct", "map", "func", "var", "if", "return")
+	assertCaptureContains(t, captures, "keyword", "package", "import", "const", "enum", "capability", "type", "struct", "map", "func", "var", "if", "switch", "case", "default", "return")
 	assertCaptureContains(t, captures, "attribute", "max_entries", "capability", "xdp")
 	assertCaptureContains(t, captures, "comment", "// keep packet access typed and nil-checked")
 	assertCaptureContains(t, captures, "string", `"m31labs.dev/horizon/runtime/kernel"`, `"kernel.network.xdp.drop"`)
-	assertCaptureContains(t, captures, "number", "262144", "2", "1", "443")
+	assertCaptureContains(t, captures, "number", "262144", "2", "1", "443", "80")
 	assertCaptureContains(t, captures, "constant.builtin", "nil", "true")
 	assertCaptureContains(t, captures, "function", "DropTCP")
 	assertCaptureContains(t, captures, "function.method", "tcp", "ntohs")
@@ -87,8 +93,8 @@ func TestLocalsQueryCapturesScopesDefinitionsAndReferences(t *testing.T) {
 	assertCaptureContains(t, captures, "local.definition.var", "tcp", "port")
 	assertCaptureContains(t, captures, "local.definition.namespace", "bpf")
 	assertCaptureContains(t, captures, "local.reference", "tcp", "ctx", "xdp", "DropCapability", "port")
-	if len(captures["local.scope"]) < 2 {
-		t.Fatalf("local.scope captures = %d, want at least source and block scopes", len(captures["local.scope"]))
+	if len(captures["local.scope"]) < 4 {
+		t.Fatalf("local.scope captures = %d, want at least source, block, and switch case scopes", len(captures["local.scope"]))
 	}
 }
 

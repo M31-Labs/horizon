@@ -271,6 +271,12 @@ func buildStmt(parsed *parser.File, n *gotreesitter.Node) Stmt {
 			Body: buildBlockStatements(parsed, n.ChildByFieldName("body", parsed.Lang)),
 			Span: spanForNode(parsed.Source.FileID, n),
 		}
+	case "switch_statement":
+		return SwitchStmt{
+			Value: buildExpr(parsed, n.ChildByFieldName("value", parsed.Lang)),
+			Cases: buildSwitchCases(parsed, n),
+			Span:  spanForNode(parsed.Source.FileID, n),
+		}
 	case "expression_statement":
 		return ExprStmt{
 			Expr: buildExpr(parsed, n.ChildByFieldName("expression", parsed.Lang)),
@@ -289,6 +295,40 @@ func buildStmt(parsed *parser.File, n *gotreesitter.Node) Stmt {
 		}
 		return RawStmt{Text: raw, Span: spanForNode(parsed.Source.FileID, n)}
 	}
+}
+
+func buildSwitchCases(parsed *parser.File, n *gotreesitter.Node) []SwitchCase {
+	var out []SwitchCase
+	for i := 0; i < int(n.NamedChildCount()); i++ {
+		child := n.NamedChild(i)
+		if child.Type(parsed.Lang) != "switch_case" {
+			continue
+		}
+		out = append(out, SwitchCase{
+			Values:  buildSwitchCaseValues(parsed, child.ChildByFieldName("values", parsed.Lang)),
+			Body:    buildBlockStatements(parsed, child),
+			Default: child.ChildByFieldName("values", parsed.Lang) == nil,
+			Span:    spanForNode(parsed.Source.FileID, child),
+		})
+	}
+	return out
+}
+
+func buildSwitchCaseValues(parsed *parser.File, n *gotreesitter.Node) []Expr {
+	if n == nil {
+		return nil
+	}
+	var out []Expr
+	for i := 0; i < int(n.NamedChildCount()); i++ {
+		child := n.NamedChild(i)
+		if child.Type(parsed.Lang) != "expression" && child.Type(parsed.Lang) != "condition_expression" {
+			continue
+		}
+		if expr := buildExpr(parsed, child); expr != nil {
+			out = append(out, expr)
+		}
+	}
+	return out
 }
 
 func buildElseStatements(parsed *parser.File, n *gotreesitter.Node) []Stmt {

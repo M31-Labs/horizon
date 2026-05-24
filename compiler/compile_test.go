@@ -1489,6 +1489,110 @@ func DropTCP(ctx xdp.Context) i32 {
 	requireDiagnosticCode(t, result, "HZN1483")
 }
 
+func TestAnalyzeAllowsSwitchStatements(t *testing.T) {
+	result := analyzeSource(t, "switch.hzn", `package probes
+
+@xdp
+func DropWeb(ctx xdp.Context) i32 {
+    tcp := xdp.tcp(ctx)
+    if tcp == nil {
+        return xdp.Pass
+    }
+    switch xdp.ntohs(tcp.dst_port) {
+    case 80, 443:
+        return xdp.Drop
+    default:
+        return xdp.Pass
+    }
+}
+`)
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+}
+
+func TestAnalyzeAllowsEnumSwitchStatements(t *testing.T) {
+	result := analyzeSource(t, "switch.hzn", `package probes
+
+enum Verdict i32 {
+    VerdictPass = 2
+    VerdictDrop = 1
+}
+
+func Normalize(verdict i32) i32 {
+    switch verdict {
+    case VerdictDrop:
+        return VerdictDrop
+    default:
+        return VerdictPass
+    }
+}
+`)
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+}
+
+func TestAnalyzeRejectsSwitchResourceValue(t *testing.T) {
+	result := analyzeSource(t, "switch.hzn", `package probes
+
+type Count struct {
+    seen u64
+}
+
+map Counts hash[u32, Count]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    count := Counts.lookup(1)
+    switch count {
+    case nil:
+        return 0
+    default:
+        return 0
+    }
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1490")
+}
+
+func TestAnalyzeRejectsDynamicSwitchCase(t *testing.T) {
+	result := analyzeSource(t, "switch.hzn", `package probes
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    var pid u32 = bpf.current_pid()
+    switch pid {
+    case pid:
+        return 0
+    default:
+        return 0
+    }
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1493")
+}
+
+func TestAnalyzeRejectsSwitchCaseTypeMismatch(t *testing.T) {
+	result := analyzeSource(t, "switch.hzn", `package probes
+
+@xdp
+func DropWeb(ctx xdp.Context) i32 {
+    tcp := xdp.tcp(ctx)
+    if tcp == nil {
+        return xdp.Pass
+    }
+    switch xdp.ntohs(tcp.dst_port) {
+    case xdp.IPProtoTCP:
+        return xdp.Drop
+    default:
+        return xdp.Pass
+    }
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1492")
+}
+
 func TestAnalyzeUsesTypedConstWidth(t *testing.T) {
 	result := analyzeSource(t, "counts.hzn", `package probes
 

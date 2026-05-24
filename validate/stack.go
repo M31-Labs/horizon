@@ -135,6 +135,16 @@ func (e *stackEstimator) walkStatement(stmt ir.Statement) {
 			e.mergePeak(elseEstimator.usage)
 		}
 		e.mergePeak(ifEstimator.usage)
+	case "switch":
+		e.walkExpr(stmt.Value)
+		for _, c := range stmt.Cases {
+			for i := range c.Values {
+				e.walkExpr(&c.Values[i])
+			}
+			caseEstimator := e.child()
+			caseEstimator.walkStatements(c.Body)
+			e.mergePeak(caseEstimator.usage)
+		}
 	case "for":
 		loopEstimator := e.child()
 		if stmt.Init != nil {

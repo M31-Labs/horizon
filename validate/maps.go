@@ -243,6 +243,38 @@ func validateTypedMapLookups(fn ir.Function, lookupMaps map[string]ir.Map) []dia
 				if scoped {
 					states = pruneNewLookupStates(states, outerStates)
 				}
+			case "switch":
+				checkExpr(stmt.Value)
+				oldStates := states
+				mergedStates := map[string]lookupState{}
+				mergedReturns := false
+				haveBranch := false
+				hasDefault := false
+				mergeBranch := func(branchStates map[string]lookupState, returns bool) {
+					if !haveBranch {
+						mergedStates = cloneLookupStates(branchStates)
+						mergedReturns = returns
+						haveBranch = true
+						return
+					}
+					mergedStates = mergeLookupBranchStates(mergedStates, branchStates, mergedReturns, returns)
+					mergedReturns = mergedReturns && returns
+				}
+				for _, c := range stmt.Cases {
+					for i := range c.Values {
+						checkExpr(&c.Values[i])
+					}
+					if c.Default {
+						hasDefault = true
+					}
+					states = cloneLookupStates(oldStates)
+					walk(c.Body)
+					mergeBranch(states, branchAlwaysReturns(c.Body))
+				}
+				if !hasDefault {
+					mergeBranch(oldStates, false)
+				}
+				states = mergedStates
 			case "for":
 				if stmt.Init != nil {
 					walk([]ir.Statement{*stmt.Init})

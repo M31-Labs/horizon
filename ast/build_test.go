@@ -231,6 +231,46 @@ func F(ctx tracepoint.Exec) i32 {
 	}
 }
 
+func TestBuildSwitchStatement(t *testing.T) {
+	parsed, err := parser.ParseSource(parser.SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
+
+@xdp
+func F(ctx xdp.Context) i32 {
+    verdict := xdp.Pass
+    switch verdict {
+    case xdp.Drop, xdp.Aborted:
+        return xdp.Drop
+    default:
+        return xdp.Pass
+    }
+}
+`)})
+	if err != nil {
+		t.Fatalf("ParseSource: %v", err)
+	}
+	file, err := Build(parsed)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	fn := file.Decls[0].(FuncDecl)
+	stmt, ok := fn.Body[1].(SwitchStmt)
+	if !ok {
+		t.Fatalf("body[1] = %T, want SwitchStmt", fn.Body[1])
+	}
+	if _, ok := stmt.Value.(IdentExpr); !ok {
+		t.Fatalf("switch value = %T, want IdentExpr", stmt.Value)
+	}
+	if len(stmt.Cases) != 2 {
+		t.Fatalf("cases = %d, want 2", len(stmt.Cases))
+	}
+	if stmt.Cases[0].Default || len(stmt.Cases[0].Values) != 2 {
+		t.Fatalf("case[0] = %#v, want two explicit values", stmt.Cases[0])
+	}
+	if !stmt.Cases[1].Default || len(stmt.Cases[1].Body) != 1 {
+		t.Fatalf("case[1] = %#v, want default with return", stmt.Cases[1])
+	}
+}
+
 func TestBuildMapAttribute(t *testing.T) {
 	parsed, err := parser.ParseSource(parser.SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
 

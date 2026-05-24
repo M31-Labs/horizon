@@ -175,6 +175,9 @@ func buildStatement(stmt ast.Stmt) Statement {
 		cond := buildExpr(s.Cond)
 		post := buildStatementPtr(s.Post)
 		return Statement{Kind: "for", Init: init, Cond: &cond, Post: post, Body: buildStatements(s.Body), Span: s.Span}
+	case ast.SwitchStmt:
+		value := buildExpr(s.Value)
+		return Statement{Kind: "switch", Value: &value, Cases: buildSwitchCases(s.Cases), Span: s.Span}
 	case ast.ExprStmt:
 		expr := buildExpr(s.Expr)
 		return Statement{Kind: "expr", Expr: &expr, Span: s.Span}
@@ -199,6 +202,19 @@ func buildStatements(stmts []ast.Stmt) []Statement {
 	out := make([]Statement, 0, len(stmts))
 	for _, stmt := range stmts {
 		out = append(out, buildStatement(stmt))
+	}
+	return out
+}
+
+func buildSwitchCases(cases []ast.SwitchCase) []SwitchCase {
+	out := make([]SwitchCase, 0, len(cases))
+	for _, c := range cases {
+		out = append(out, SwitchCase{
+			Values:  buildExprs(c.Values),
+			Body:    buildStatements(c.Body),
+			Default: c.Default,
+			Span:    c.Span,
+		})
 	}
 	return out
 }
@@ -466,6 +482,14 @@ func mapAccesses(fn Function, maps []Map) capabilityAccess {
 				visitExpr(stmt.Cond)
 				walk(stmt.Then)
 				walk(stmt.Else)
+			case "switch":
+				visitExpr(stmt.Value)
+				for _, c := range stmt.Cases {
+					for i := range c.Values {
+						visitExpr(&c.Values[i])
+					}
+					walk(c.Body)
+				}
 			case "for":
 				if stmt.Init != nil {
 					walk([]Statement{*stmt.Init})
@@ -549,6 +573,10 @@ func inferDanger(fn Function) DangerLevel {
 				}
 				visit(stmt.Then)
 				visit(stmt.Else)
+			case "switch":
+				for _, c := range stmt.Cases {
+					visit(c.Body)
+				}
 			case "for":
 				visit(stmt.Body)
 			}

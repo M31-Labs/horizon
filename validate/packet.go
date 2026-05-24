@@ -173,6 +173,38 @@ func validateXDPPacketHeaders(fn ir.Function) []diag.Diagnostic {
 				if scoped {
 					states = pruneNewPacketHeaderStates(states, outerStates)
 				}
+			case "switch":
+				checkExpr(stmt.Value)
+				oldStates := states
+				mergedStates := map[string]packetHeaderState{}
+				mergedReturns := false
+				haveBranch := false
+				hasDefault := false
+				mergeBranch := func(branchStates map[string]packetHeaderState, returns bool) {
+					if !haveBranch {
+						mergedStates = clonePacketHeaderStates(branchStates)
+						mergedReturns = returns
+						haveBranch = true
+						return
+					}
+					mergedStates = mergePacketBranchStates(mergedStates, branchStates, mergedReturns, returns)
+					mergedReturns = mergedReturns && returns
+				}
+				for _, c := range stmt.Cases {
+					for i := range c.Values {
+						checkExpr(&c.Values[i])
+					}
+					if c.Default {
+						hasDefault = true
+					}
+					states = clonePacketHeaderStates(oldStates)
+					walk(c.Body)
+					mergeBranch(states, branchAlwaysReturns(c.Body))
+				}
+				if !hasDefault {
+					mergeBranch(oldStates, false)
+				}
+				states = mergedStates
 			case "for":
 				if stmt.Init != nil {
 					walk([]ir.Statement{*stmt.Init})

@@ -2,6 +2,8 @@
 
 (block) @local.scope
 
+(switch_case) @local.scope
+
 (function_declaration
   name: (identifier) @local.definition.function)
 

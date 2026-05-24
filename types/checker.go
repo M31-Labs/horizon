@@ -949,6 +949,8 @@ func calledFunctionNames(stmts []ast.Stmt, funcs map[string]ast.FuncDecl) []stri
 			return
 		case ast.ShortVarStmt:
 			walkExpr(s.Value)
+		case ast.VarDeclStmt:
+			walkExpr(s.Value)
 		case ast.AssignStmt:
 			walkExpr(s.Target)
 			walkExpr(s.Value)
@@ -971,6 +973,16 @@ func calledFunctionNames(stmts []ast.Stmt, funcs map[string]ast.FuncDecl) []stri
 			walkStmt(s.Post)
 			for _, child := range s.Body {
 				walkStmt(child)
+			}
+		case ast.SwitchStmt:
+			walkExpr(s.Value)
+			for _, c := range s.Cases {
+				for _, value := range c.Values {
+					walkExpr(value)
+				}
+				for _, child := range c.Body {
+					walkStmt(child)
+				}
 			}
 		}
 	}
@@ -1203,6 +1215,8 @@ func (c *funcBodyChecker) checkStmt(stmt ast.Stmt, locals map[string]valueType) 
 		c.checkIf(s, locals)
 	case ast.ForStmt:
 		c.checkFor(s, locals)
+	case ast.SwitchStmt:
+		c.checkSwitch(s, locals)
 	case ast.IncStmt:
 		c.checkInc(s, locals)
 	case ast.RawStmt:
@@ -1517,6 +1531,139 @@ func (c *funcBodyChecker) checkReturn(s ast.ReturnStmt, locals map[string]valueT
 	}
 	if d, ok := returnDiagnostic(c.programSection, value, s.Value != nil, primary); ok {
 		c.add(d)
+	}
+}
+
+func (c *funcBodyChecker) checkSwitch(s ast.SwitchStmt, locals map[string]valueType) {
+	value, valueDiags := c.typeOf(s.Value, locals)
+	c.add(valueDiags...)
+	valuePrimary := s.Span
+	if s.Value != nil {
+		valuePrimary = s.Value.GetSpan()
+	}
+	if value.Fallible != "" {
+		c.add(fallibleResultDiagnostic(valuePrimary, value.Fallible))
+	}
+	if len(valueDiags) == 0 && !switchableValue(value) {
+		c.add(diag.Diagnostic{
+			Code:     "HZN1490",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("switch value must be a scalar or bool, got %s", typeName(value)),
+			Primary:  valuePrimary,
+			Suggest:  "switch over explicit scalar values, named action values, or bool; keep resources behind nil-checked if statements",
+		})
+	}
+	defaults := 0
+	for _, swcase := range s.Cases {
+		if swcase.Default {
+			defaults++
+			if defaults > 1 {
+				c.add(diag.Diagnostic{
+					Code:     "HZN1491",
+					Severity: diag.SeverityError,
+					Message:  "switch has more than one default case",
+					Primary:  swcase.Span,
+				})
+			}
+		} else if len(swcase.Values) == 0 {
+			c.add(diag.Diagnostic{
+				Code:     "HZN1491",
+				Severity: diag.SeverityError,
+				Message:  "case requires at least one value",
+				Primary:  swcase.Span,
+			})
+		}
+		for _, caseExpr := range swcase.Values {
+			caseType, caseDiags := c.typeOf(caseExpr, locals)
+			c.add(caseDiags...)
+			casePrimary := swcase.Span
+			if caseExpr != nil {
+				casePrimary = caseExpr.GetSpan()
+			}
+			if caseType.Fallible != "" {
+				c.add(fallibleResultDiagnostic(casePrimary, caseType.Fallible))
+				continue
+			}
+			if !switchCaseConstant(caseExpr, locals) {
+				c.add(diag.Diagnostic{
+					Code:     "HZN1493",
+					Severity: diag.SeverityError,
+					Message:  "case values must be compile-time constants",
+					Primary:  casePrimary,
+					Suggest:  "use integer or bool literals, package constants, enum values, or compiler-known action/protocol constants",
+				})
+			}
+			if len(valueDiags) == 0 && len(caseDiags) == 0 && !switchCaseCompatible(value, caseType) {
+				c.add(diag.Diagnostic{
+					Code:     "HZN1492",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("case value %s is not compatible with switch value %s", typeName(caseType), typeName(value)),
+					Primary:  casePrimary,
+					Suggest:  "case values must have the same scalar width, a fitting integer literal, or the same named action family",
+				})
+			}
+		}
+		c.checkStatements(swcase.Body, cloneValueTypes(locals))
+	}
+}
+
+func switchCaseConstant(expr ast.Expr, locals map[string]valueType) bool {
+	switch e := expr.(type) {
+	case ast.IntExpr, ast.BoolExpr:
+		return true
+	case ast.IdentExpr:
+		local, ok := locals[e.Name]
+		return ok && local.Const
+	case ast.SelectorExpr:
+		root, _, ok := selectorParts(e)
+		return ok && compilerNamespace(root)
+	case ast.UnaryExpr:
+		return e.Op == "-" && switchCaseConstant(e.Expr, locals)
+	case ast.BinaryExpr:
+		return switchCaseConstant(e.Left, locals) && switchCaseConstant(e.Right, locals)
+	default:
+		return false
+	}
+}
+
+func switchableValue(typ valueType) bool {
+	if typ.Ptr || typ.MaybeNil || typ.Resource || typ.Void || isFixedArray(typ) {
+		return false
+	}
+	return typ.Name == "bool" || integerOperand(typ)
+}
+
+func switchCaseCompatible(value valueType, caseType valueType) bool {
+	if actionFamily(value) != "" || actionFamily(caseType) != "" {
+		return actionFamily(value) != "" && actionFamily(value) == actionFamily(caseType)
+	}
+	if value.Name == "bool" || caseType.Name == "bool" {
+		return value.Name == "bool" && caseType.Name == "bool" && !value.Ptr && !caseType.Ptr
+	}
+	if !integerOperand(value) || !integerOperand(caseType) {
+		return false
+	}
+	if caseType.Name == "untyped_int" {
+		return assignable(value, caseType)
+	}
+	if value.Name == "untyped_int" {
+		return true
+	}
+	return value.Name == caseType.Name
+}
+
+func actionFamily(typ valueType) string {
+	switch {
+	case typ.XDPAction:
+		return "xdp"
+	case typ.TCAction:
+		return "tc"
+	case typ.CgroupAction:
+		return "cgroup"
+	case typ.LSMAction:
+		return "lsm"
+	default:
+		return ""
 	}
 }
 
@@ -1897,6 +2044,17 @@ func stmtAlwaysReturns(stmt ast.Stmt) bool {
 		return true
 	case ast.IfStmt:
 		return blockAlwaysReturns(s.Then) && blockAlwaysReturns(s.Else)
+	case ast.SwitchStmt:
+		hasDefault := false
+		for _, c := range s.Cases {
+			if c.Default {
+				hasDefault = true
+			}
+			if !blockAlwaysReturns(c.Body) {
+				return false
+			}
+		}
+		return hasDefault && len(s.Cases) > 0
 	default:
 		return false
 	}

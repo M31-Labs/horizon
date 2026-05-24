@@ -215,6 +215,7 @@ func defineStatements(g *grammargen.Grammar) {
 		grammargen.Sym("return_statement"),
 		grammargen.Sym("if_statement"),
 		grammargen.Sym("for_statement"),
+		grammargen.Sym("switch_statement"),
 		grammargen.Sym("expression_statement"),
 	))
 
@@ -293,6 +294,35 @@ func defineStatements(g *grammargen.Grammar) {
 			grammargen.Str("++"),
 			grammargen.Str("--"),
 		)),
+	))
+
+	g.Define("switch_statement", grammargen.Seq(
+		grammargen.Str("switch"),
+		grammargen.Field("value", grammargen.Sym("condition_expression")),
+		grammargen.Str("{"),
+		grammargen.Repeat(grammargen.Sym("_terminator")),
+		grammargen.Repeat(grammargen.Sym("switch_case")),
+		grammargen.Str("}"),
+	))
+
+	g.Define("switch_case", grammargen.Choice(
+		grammargen.Seq(
+			grammargen.Str("case"),
+			grammargen.Field("values", grammargen.Sym("switch_case_values")),
+			grammargen.Str(":"),
+			grammargen.Sym("statement_list"),
+		),
+		grammargen.Seq(
+			grammargen.Str("default"),
+			grammargen.Str(":"),
+			grammargen.Sym("statement_list"),
+		),
+	))
+
+	g.Define("switch_case_values", grammargen.Seq(
+		grammargen.Sym("condition_expression"),
+		grammargen.Repeat(grammargen.Seq(grammargen.Str(","), grammargen.Sym("condition_expression"))),
+		grammargen.Optional(grammargen.Str(",")),
 	))
 
 	g.Define("expression_statement", grammargen.Field("expression", grammargen.Sym("expression")))

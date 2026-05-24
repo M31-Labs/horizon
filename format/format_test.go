@@ -283,6 +283,41 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	}
 }
 
+func TestSourceFormatsSwitchStatements(t *testing.T) {
+	got, err := Source(parser.SourceFile{Path: "switch.hzn", Bytes: []byte(`package probes
+@xdp
+func DropTCP(ctx xdp.Context)i32{
+tcp:=xdp.tcp(ctx)
+if tcp==nil{return xdp.Pass}
+switch xdp.ntohs(tcp.dst_port){
+case 80,443:return xdp.Drop
+default:return xdp.Pass
+}
+}`)})
+	if err != nil {
+		t.Fatalf("Source: %v", err)
+	}
+	want := `package probes
+
+@xdp
+func DropTCP(ctx xdp.Context) i32 {
+    tcp := xdp.tcp(ctx)
+    if tcp == nil {
+        return xdp.Pass
+    }
+    switch xdp.ntohs(tcp.dst_port) {
+        case 80, 443:
+            return xdp.Drop
+        default:
+            return xdp.Pass
+    }
+}
+`
+	if string(got) != want {
+		t.Fatalf("formatted source mismatch\nwant:\n%s\ngot:\n%s", want, got)
+	}
+}
+
 func TestSourceFormatsPerCPUAndLRUMaps(t *testing.T) {
 	got, err := Source(parser.SourceFile{Path: "maps.hzn", Bytes: []byte(`package probes
 map Counts percpu_hash[u32,u64]

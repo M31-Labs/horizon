@@ -99,6 +99,35 @@ func F(ctx xdp.Context) i32 {
 	}
 }
 
+func TestParseSwitchStatement(t *testing.T) {
+	src := SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
+
+@xdp
+func F(ctx xdp.Context) i32 {
+    tcp := xdp.tcp(ctx)
+    if tcp == nil {
+        return xdp.Pass
+    }
+    switch xdp.ntohs(tcp.dst_port) {
+    case 80, 443:
+        return xdp.Drop
+    default:
+        return xdp.Pass
+    }
+}
+`)}
+	file, err := ParseSource(src)
+	if err != nil {
+		t.Fatalf("ParseSource: %v", err)
+	}
+	if countNamedDescendants(file.Tree.RootNode(), file.Lang, "switch_statement") != 1 {
+		t.Fatalf("switch statement count = %d, want 1; tree: %s", countNamedDescendants(file.Tree.RootNode(), file.Lang, "switch_statement"), file.Tree.RootNode().SExpr(file.Lang))
+	}
+	if countNamedDescendants(file.Tree.RootNode(), file.Lang, "switch_case") != 2 {
+		t.Fatalf("switch case count = %d, want 2; tree: %s", countNamedDescendants(file.Tree.RootNode(), file.Lang, "switch_case"), file.Tree.RootNode().SExpr(file.Lang))
+	}
+}
+
 func TestParseSingleLineBlockStatement(t *testing.T) {
 	src := SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
 

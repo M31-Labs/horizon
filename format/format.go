@@ -260,6 +260,8 @@ func (b *builder) stmt(stmt ast.Stmt) {
 		b.ifStmt(s)
 	case ast.ForStmt:
 		b.forStmt(s)
+	case ast.SwitchStmt:
+		b.switchStmt(s)
 	case ast.RawStmt:
 		b.lineWithComment(s.Text, s.Span.Start.Line)
 	}
@@ -295,6 +297,29 @@ func (b *builder) ifStmt(stmt ast.IfStmt) {
 		b.lineWithComment("}", stmt.Span.End.Line)
 		return
 	}
+	b.lineWithComment("}", stmt.Span.End.Line)
+}
+
+func (b *builder) switchStmt(stmt ast.SwitchStmt) {
+	b.lineWithComment("switch "+expr(stmt.Value)+" {", stmt.Span.Start.Line)
+	b.indent++
+	for _, c := range stmt.Cases {
+		b.flushCommentsBefore(c.Span.Start.Line)
+		if c.Default {
+			b.lineWithComment("default:", c.Span.Start.Line)
+		} else {
+			values := make([]string, 0, len(c.Values))
+			for _, value := range c.Values {
+				values = append(values, expr(value))
+			}
+			b.lineWithComment("case "+strings.Join(values, ", ")+":", c.Span.Start.Line)
+		}
+		b.indent++
+		b.stmts(c.Body)
+		b.indent--
+	}
+	b.flushCommentsBefore(stmt.Span.End.Line)
+	b.indent--
 	b.lineWithComment("}", stmt.Span.End.Line)
 }
 

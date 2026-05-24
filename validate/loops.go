@@ -82,6 +82,10 @@ func validateTypedLoops(fn ir.Function, loopBounds map[string]bool) []diag.Diagn
 				}
 				walk(stmt.Then)
 				walk(stmt.Else)
+			case "switch":
+				for _, c := range stmt.Cases {
+					walk(c.Body)
+				}
 			}
 		}
 	}

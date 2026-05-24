@@ -164,6 +164,24 @@ func validateEmittableStatement(env *cEnv, program ir.Program, stmt ir.Statement
 			}
 		}
 		return nil
+	case "switch":
+		if err := validateRequiredExpr(env, stmt.Value, "switch value", stmt.Span); err != nil {
+			return err
+		}
+		for _, c := range stmt.Cases {
+			for i := range c.Values {
+				if err := validateRequiredExpr(env, &c.Values[i], "case value", c.Span); err != nil {
+					return err
+				}
+			}
+			caseEnv := env.child()
+			for _, child := range c.Body {
+				if err := validateEmittableStatement(caseEnv, program, child); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
 	case "for":
 		loopEnv := env.child()
 		if err := validateForInit(loopEnv, program, stmt.Init, stmt.Span); err != nil {

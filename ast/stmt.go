@@ -87,6 +87,24 @@ func (s ForStmt) GetSpan() span.Span {
 	return s.Span
 }
 
+type SwitchStmt struct {
+	Value Expr
+	Cases []SwitchCase
+	Span  span.Span
+}
+
+func (SwitchStmt) stmtNode() {}
+func (s SwitchStmt) GetSpan() span.Span {
+	return s.Span
+}
+
+type SwitchCase struct {
+	Values  []Expr
+	Body    []Stmt
+	Default bool
+	Span    span.Span
+}
+
 type ExprStmt struct {
 	Expr Expr
 	Span span.Span

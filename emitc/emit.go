@@ -296,26 +296,29 @@ func generatedLine(b *strings.Builder) int {
 }
 
 type cEnv struct {
-	parent    *cEnv
-	ptrLocals map[string]bool
-	locals    map[string]ir.Type
-	constants map[string]ir.Type
-	structs   map[string]ir.Struct
-	maps      map[string]ir.Map
-	functions map[string]ir.Function
+	parent         *cEnv
+	ptrLocals      map[string]bool
+	locals         map[string]ir.Type
+	constants      map[string]ir.Type
+	constantValues map[string]ir.Expr
+	structs        map[string]ir.Struct
+	maps           map[string]ir.Map
+	functions      map[string]ir.Function
 }
 
 func newCEnv(program ir.Program) *cEnv {
 	env := &cEnv{
-		ptrLocals: map[string]bool{},
-		locals:    map[string]ir.Type{},
-		constants: map[string]ir.Type{},
-		structs:   map[string]ir.Struct{},
-		maps:      map[string]ir.Map{},
-		functions: map[string]ir.Function{},
+		ptrLocals:      map[string]bool{},
+		locals:         map[string]ir.Type{},
+		constants:      map[string]ir.Type{},
+		constantValues: map[string]ir.Expr{},
+		structs:        map[string]ir.Struct{},
+		maps:           map[string]ir.Map{},
+		functions:      map[string]ir.Function{},
 	}
 	for _, decl := range program.Constants {
 		env.constants[decl.Name] = constType(decl)
+		env.constantValues[decl.Name] = decl.Value
 	}
 	for _, decl := range program.Structs {
 		env.structs[decl.Name] = decl
@@ -337,13 +340,14 @@ func (e *cEnv) child() *cEnv {
 		return nil
 	}
 	return &cEnv{
-		parent:    e,
-		ptrLocals: map[string]bool{},
-		locals:    map[string]ir.Type{},
-		constants: e.constants,
-		structs:   e.structs,
-		maps:      e.maps,
-		functions: e.functions,
+		parent:         e,
+		ptrLocals:      map[string]bool{},
+		locals:         map[string]ir.Type{},
+		constants:      e.constants,
+		constantValues: e.constantValues,
+		structs:        e.structs,
+		maps:           e.maps,
+		functions:      e.functions,
 	}
 }
 
@@ -551,6 +555,8 @@ func (u *cUsage) walkStatement(stmt ir.Statement, origin cUsageOrigin) {
 		u.walkExpr(stmt.Value, origin)
 	case "if":
 		u.walkBranch(stmt, origin)
+	case "switch":
+		u.walkSwitch(stmt, origin)
 	case "for":
 		u.walkFor(stmt, origin)
 	case "raw":
@@ -576,6 +582,16 @@ func (u *cUsage) walkFor(stmt ir.Statement, origin cUsageOrigin) {
 		u.walkStatement(*stmt.Post, origin)
 	}
 	u.walkStatements(stmt.Body, origin)
+}
+
+func (u *cUsage) walkSwitch(stmt ir.Statement, origin cUsageOrigin) {
+	u.walkExpr(stmt.Value, origin)
+	for _, c := range stmt.Cases {
+		for i := range c.Values {
+			u.walkExpr(&c.Values[i], origin)
+		}
+		u.walkStatements(c.Body, origin)
+	}
 }
 
 func (u *cUsage) walkStatements(stmts []ir.Statement, origin cUsageOrigin) {
@@ -1452,6 +1468,8 @@ func (e cStatementEmitter) emitKind(stmt ir.Statement, depth int, env *cEnv) err
 		e.emitReturn(stmt, depth, env)
 	case "if":
 		return e.emitIf(stmt, depth, env)
+	case "switch":
+		return e.emitSwitch(stmt, depth, env)
 	case "for":
 		return e.emitFor(stmt, depth, env)
 	case "inc":
@@ -1559,6 +1577,28 @@ func (e cStatementEmitter) emitFor(stmt ir.Statement, depth int, env *cEnv) erro
 		return err
 	}
 	fmt.Fprintf(e.b, "%s}\n", indent)
+	return nil
+}
+
+func (e cStatementEmitter) emitSwitch(stmt ir.Statement, depth int, env *cEnv) error {
+	pad := indent(depth)
+	fmt.Fprintf(e.b, "%sswitch (%s) {\n", pad, cExpr(stmt.Value, env))
+	for _, c := range stmt.Cases {
+		if c.Default {
+			fmt.Fprintf(e.b, "%sdefault: {\n", indent(depth+1))
+		} else {
+			for i := range c.Values {
+				fmt.Fprintf(e.b, "%scase %s:\n", indent(depth+1), cCaseExpr(&c.Values[i], env))
+			}
+			fmt.Fprintf(e.b, "%s{\n", indent(depth+1))
+		}
+		if err := e.emitChildren(c.Body, depth+2, env.child()); err != nil {
+			return err
+		}
+		fmt.Fprintf(e.b, "%sbreak;\n", indent(depth+2))
+		fmt.Fprintf(e.b, "%s}\n", indent(depth+1))
+	}
+	fmt.Fprintf(e.b, "%s}\n", pad)
 	return nil
 }
 
@@ -1932,6 +1972,38 @@ func ptrTo(typ ir.Type) ir.Type {
 
 func cExpr(expr *ir.Expr, env *cEnv) string {
 	return cExprEmitter{env: env}.emit(expr)
+}
+
+func cCaseExpr(expr *ir.Expr, env *cEnv) string {
+	if expr == nil {
+		return "0"
+	}
+	switch expr.Kind {
+	case "ident":
+		if env != nil {
+			if value, ok := env.constantValues[expr.Name]; ok {
+				return cCaseExpr(&value, env)
+			}
+		}
+		return cExpr(expr, env)
+	case "unary":
+		op := expr.Op
+		if op == "^" {
+			op = "~"
+		}
+		return op + cCaseOperand(expr.Operand, env)
+	case "binary":
+		return cCaseOperand(expr.Left, env) + " " + expr.Op + " " + cCaseOperand(expr.Right, env)
+	default:
+		return cExpr(expr, env)
+	}
+}
+
+func cCaseOperand(expr *ir.Expr, env *cEnv) string {
+	if expr != nil && (expr.Kind == "binary" || expr.Kind == "unary") {
+		return "(" + cCaseExpr(expr, env) + ")"
+	}
+	return cCaseExpr(expr, env)
 }
 
 type cExprEmitter struct {

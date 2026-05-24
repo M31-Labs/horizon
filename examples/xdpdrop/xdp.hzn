@@ -7,8 +7,10 @@ func DropTCP(ctx xdp.Context) i32 {
     if tcp == nil {
         return xdp.Pass
     }
-    if xdp.ntohs(tcp.dst_port) == 443 {
-        return xdp.Drop
+    switch xdp.ntohs(tcp.dst_port) {
+        case 443:
+            return xdp.Drop
+        default:
+            return xdp.Pass
     }
-    return xdp.Pass
 }

@@ -895,6 +895,69 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	}
 }
 
+func TestEmitSwitchStatements(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "switch.hzn")
+	if err := os.WriteFile(path, []byte(`package probes
+
+enum Verdict i32 {
+    VerdictPass = 2
+    VerdictDrop = 1
+}
+
+func Normalize(verdict i32) i32 {
+    switch verdict {
+    case VerdictDrop:
+        return VerdictDrop
+    default:
+        return VerdictPass
+    }
+}
+
+@xdp
+func DropWeb(ctx xdp.Context) i32 {
+    tcp := xdp.tcp(ctx)
+    if tcp == nil {
+        return xdp.Pass
+    }
+    switch xdp.ntohs(tcp.dst_port) {
+    case 80, 443:
+        return xdp.Drop
+    default:
+        return xdp.Pass
+    }
+}
+`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	result, err := compiler.AnalyzePath(dir)
+	if err != nil {
+		t.Fatalf("AnalyzePath: %v", err)
+	}
+	out, err := Emit(result.Program)
+	if err != nil {
+		t.Fatalf("Emit: %v", err)
+	}
+	for _, want := range []string{
+		"switch (verdict) {",
+		"case 1:",
+		"return hzn_const_VerdictDrop;",
+		"switch (bpf_ntohs(tcp->dst_port)) {",
+		"case 80:",
+		"case 443:",
+		"return XDP_DROP;",
+		"default: {",
+		"break;",
+	} {
+		if !strings.Contains(out.Code, want) {
+			t.Fatalf("generated C missing %q:\n%s", want, out.Code)
+		}
+	}
+	if strings.Contains(out.Code, "case hzn_const_VerdictDrop:") {
+		t.Fatalf("generated C used static const as case label:\n%s", out.Code)
+	}
+}
+
 func TestEmitNegativeSignedIntegerLiterals(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "signed.hzn")

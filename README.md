@@ -24,6 +24,7 @@ It keeps the kernel-side language deliberately small:
 - explicit `@max_entries(...)` map sizing
 - nil-checked map lookups
 - bounded counted loops
+- expression `switch` statements with explicit non-fallthrough cases
 - explicit integer scalar conversions such as `u64(pid)`
 - explicit local variable declarations such as `var pid u32 = bpf.current_pid()`
 - explicitly typed constants such as `const Port u16 = 443`
@@ -126,6 +127,28 @@ func OnExec(ctx tracepoint.Exec) i32 {
     var pid u32 = bpf.current_pid()
     var bucket u32 = pid & 0x0f
     return i32(bucket)
+}
+```
+
+Use `switch` for scalar dispatch that should become readable C `switch`.
+Cases do not fall through, and case values must be compile-time constants:
+integer or bool literals, package constants, enum values, or compiler-known
+action/protocol constants.
+
+```go
+@xdp
+func DropWeb(ctx xdp.Context) i32 {
+    tcp := xdp.tcp(ctx)
+    if tcp == nil {
+        return xdp.Pass
+    }
+
+    switch xdp.ntohs(tcp.dst_port) {
+    case 80, 443:
+        return xdp.Drop
+    default:
+        return xdp.Pass
+    }
 }
 ```
 
@@ -510,6 +533,7 @@ Horizon makes verifier-sensitive behavior explicit before clang runs:
 - constants are immutable; use locals for values that change inside a program
 - enum values are explicit typed integer constants; there is no implicit iota or untyped C enum widening
 - `var` declarations require an explicit scalar, bool, or declared struct type and cannot store nullable resources or compiler-owned packet/context types
+- `switch` values must be scalar or bool, case values must be constant and type-compatible, and Horizon emits explicit C `break` statements so cases never fall through
 - sectionless functions are user helpers, not eBPF programs; they are emitted as `static __always_inline` C, must be non-recursive, and currently accept and return only scalar or bool values
 - eBPF entrypoint functions cannot be called like helpers; share logic through sectionless helpers so attachable programs remain explicit
 - short variable declarations introduce fresh local names only; use `=` to update existing locals, and do not shadow maps or compiler namespaces

@@ -109,6 +109,14 @@ func walkStatements(stmts []ir.Statement, visit func(*ir.Expr)) {
 			walkExpr(stmt.Cond, visit)
 			walkStatements(stmt.Then, visit)
 			walkStatements(stmt.Else, visit)
+		case "switch":
+			walkExpr(stmt.Value, visit)
+			for _, c := range stmt.Cases {
+				for i := range c.Values {
+					walkExpr(&c.Values[i], visit)
+				}
+				walkStatements(c.Body, visit)
+			}
 		case "for":
 			if stmt.Init != nil {
 				walkStatements([]ir.Statement{*stmt.Init}, visit)

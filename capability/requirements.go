@@ -83,6 +83,16 @@ func calledUserFunctions(fn ir.Function) []string {
 			for _, child := range stmt.Else {
 				walkStmt(child)
 			}
+		case "switch":
+			walkExpr(stmt.Value)
+			for _, c := range stmt.Cases {
+				for i := range c.Values {
+					walkExpr(&c.Values[i])
+				}
+				for _, child := range c.Body {
+					walkStmt(child)
+				}
+			}
 		case "for":
 			if stmt.Init != nil {
 				walkStmt(*stmt.Init)

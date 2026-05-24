@@ -11,6 +11,9 @@
 (if_statement "if" @keyword)
 (if_statement "else" @keyword)
 (for_statement "for" @keyword)
+(switch_statement "switch" @keyword)
+(switch_case "case" @keyword)
+(switch_case "default" @keyword)
 (var_declaration "var" @keyword)
 
 (attribute

@@ -303,6 +303,8 @@ func validateTypedRingbuf(fn ir.Function, ringMaps map[string]ir.Map) []diag.Dia
 					reportScopedLiveReservations(states, outerStates, reportLive, stmt.Span)
 					states = pruneNewReserveStates(states, outerStates)
 				}
+			case "switch":
+				walkReserveSwitch(stmt, &states, checkWrite, walk)
 			case "for":
 				walk(stmt.Body)
 			case "return":
@@ -430,6 +432,40 @@ func trackReserveStatement(stmt ir.Statement, ringMaps map[string]ir.Map, states
 		return
 	}
 	states[stmt.Name] = reserveState{Map: mapName, State: "maybe_nil"}
+}
+
+func walkReserveSwitch(stmt ir.Statement, states *map[string]reserveState, checkWrite func(string, span.Span), walk func([]ir.Statement)) {
+	checkExprHelperWrites(stmt.Value, checkWrite)
+	oldStates := *states
+	mergedStates := map[string]reserveState{}
+	mergedReturns := false
+	haveBranch := false
+	hasDefault := false
+	mergeBranch := func(branchStates map[string]reserveState, returns bool) {
+		if !haveBranch {
+			mergedStates = cloneReserveStates(branchStates)
+			mergedReturns = returns
+			haveBranch = true
+			return
+		}
+		mergedStates = mergeReserveBranchStates(mergedStates, branchStates, mergedReturns, returns)
+		mergedReturns = mergedReturns && returns
+	}
+	for _, c := range stmt.Cases {
+		for i := range c.Values {
+			checkExprHelperWrites(&c.Values[i], checkWrite)
+		}
+		if c.Default {
+			hasDefault = true
+		}
+		*states = cloneReserveStates(oldStates)
+		walk(c.Body)
+		mergeBranch(*states, branchAlwaysReturns(c.Body))
+	}
+	if !hasDefault {
+		mergeBranch(oldStates, false)
+	}
+	*states = mergedStates
 }
 
 func mergeReserveBranchStates(thenStates map[string]reserveState, elseStates map[string]reserveState, thenReturns bool, elseReturns bool) map[string]reserveState {
@@ -605,6 +641,18 @@ func branchAlwaysReturns(stmts []ir.Statement) bool {
 	}
 	if last.Kind == "if" && branchAlwaysReturns(last.Then) && branchAlwaysReturns(last.Else) {
 		return true
+	}
+	if last.Kind == "switch" {
+		hasDefault := false
+		for _, c := range last.Cases {
+			if c.Default {
+				hasDefault = true
+			}
+			if !branchAlwaysReturns(c.Body) {
+				return false
+			}
+		}
+		return hasDefault && len(last.Cases) > 0
 	}
 	return false
 }
