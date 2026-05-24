@@ -12,11 +12,17 @@ HZN_EXAMPLES := \
 .PHONY: test check ci ci-go ci-clang fmt-check doctor setup-vmlinux workbench build-example build-examples bindings-smoke clang-smoke
 
 test:
-	go test ./...
+	@log="$$(mktemp)"; \
+	if go test ./... >"$$log" 2>&1; then \
+		echo "ok go test ./..."; \
+		rm -f "$$log"; \
+	else \
+		cat "$$log"; \
+		rm -f "$$log"; \
+		exit 1; \
+	fi
 
-check:
-	go test ./...
-	go run ./cmd/hzn fmt ./examples -check
+check: test fmt-check
 
 ci: ci-go ci-clang
 
@@ -25,7 +31,15 @@ ci-go: check bindings-smoke
 ci-clang: build-examples clang-smoke
 
 fmt-check:
-	go run ./cmd/hzn fmt ./examples -check
+	@log="$$(mktemp)"; \
+	if go run ./cmd/hzn fmt ./examples -check >"$$log" 2>&1; then \
+		echo "ok hzn fmt ./examples -check"; \
+		rm -f "$$log"; \
+	else \
+		cat "$$log"; \
+		rm -f "$$log"; \
+		exit 1; \
+	fi
 
 doctor:
 	go run ./cmd/hzn doctor
@@ -37,13 +51,30 @@ workbench:
 	go run ./cmd/hzn workbench ./examples/execwatch -o $(OUT)
 
 build-example:
-	go run ./cmd/hzn build ./examples/execwatch -o $(OUT)
+	@log="$$(mktemp)"; \
+	if go run ./cmd/hzn build ./examples/execwatch -o "$(OUT)" >"$$log" 2>&1; then \
+		echo "ok hzn build ./examples/execwatch"; \
+		rm -f "$$log"; \
+	else \
+		cat "$$log"; \
+		rm -f "$$log"; \
+		exit 1; \
+	fi
 
 build-examples:
 	@for example in $(HZN_EXAMPLES); do \
+		log="$$(mktemp)"; \
 		if [ "$${GITHUB_ACTIONS:-}" = "true" ]; then echo "::group::hzn build $$example"; fi; \
-		echo "hzn build $$example"; \
-		go run ./cmd/hzn build "$$example" -o "$(OUT)"; status=$$?; \
+		if go run ./cmd/hzn build "$$example" -o "$(OUT)" >"$$log" 2>&1; then \
+			echo "ok hzn build $$example"; \
+			rm -f "$$log"; \
+			status=0; \
+		else \
+			status=$$?; \
+			echo "failed hzn build $$example"; \
+			cat "$$log"; \
+			rm -f "$$log"; \
+		fi; \
 		if [ "$${GITHUB_ACTIONS:-}" = "true" ]; then echo "::endgroup::"; fi; \
 		if [ $$status -ne 0 ]; then exit $$status; fi; \
 	done
@@ -54,15 +85,29 @@ bindings-smoke:
 	mkdir -p "$$tmp"; \
 	trap 'rm -rf "$$tmp"' EXIT INT TERM; \
 	for example in $(HZN_EXAMPLES); do \
+		log="$$tmp/$$(basename "$$example").log"; \
 		if [ "$${GITHUB_ACTIONS:-}" = "true" ]; then echo "::group::hzn bindgen $$example"; fi; \
 		rm -f "$$tmp"/*.go; \
-		rm -f "$$tmp/test.log"; \
-		echo "hzn bindgen $$example"; \
-		go run ./cmd/hzn bindgen "$$example" -o "$$tmp/bindings.go" && go test "./$$tmp" >"$$tmp/test.log" 2>&1; status=$$?; \
-		if [ $$status -ne 0 ] && [ -s "$$tmp/test.log" ]; then cat "$$tmp/test.log"; fi; \
+		rm -f "$$log"; \
+		if go run ./cmd/hzn bindgen "$$example" -o "$$tmp/bindings.go" >"$$log" 2>&1 && go test "./$$tmp" >>"$$log" 2>&1; then \
+			echo "ok hzn bindgen $$example"; \
+			status=0; \
+		else \
+			status=$$?; \
+			echo "failed hzn bindgen $$example"; \
+			cat "$$log"; \
+		fi; \
 		if [ "$${GITHUB_ACTIONS:-}" = "true" ]; then echo "::endgroup::"; fi; \
 		if [ $$status -ne 0 ]; then exit $$status; fi; \
 	done
 
 clang-smoke:
-	go test ./cmd/hzn -tags clang_smoke
+	@log="$$(mktemp)"; \
+	if go test ./cmd/hzn -tags clang_smoke >"$$log" 2>&1; then \
+		echo "ok go test ./cmd/hzn -tags clang_smoke"; \
+		rm -f "$$log"; \
+	else \
+		cat "$$log"; \
+		rm -f "$$log"; \
+		exit 1; \
+	fi

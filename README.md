@@ -366,6 +366,8 @@ unwind through the supplied context.
 when callers need explicit cilium collection options or custom rlimit behavior.
 `make ci-go` typechecks generated bindings for every example so attach helpers,
 typed map helpers, and ringbuf readers stay valid against cilium/ebpf.
+CI-oriented Make targets keep green logs compact and print captured command
+output only when a gate fails.
 
 Generated BPF C and generated Go bindings include scalar width, struct size, and
 field offset assertions, so clang or `go test` fails early if an emitted type no
