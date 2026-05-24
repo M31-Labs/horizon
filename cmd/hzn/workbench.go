@@ -67,6 +67,7 @@ type workbenchOptions struct {
 type workbenchReport struct {
 	Schema          string            `json:"schema"`
 	Package         string            `json:"package"`
+	Sources         []sourceDetail    `json:"sources,omitempty"`
 	Status          string            `json:"status"`
 	Compile         bool              `json:"compile"`
 	Artifacts       []string          `json:"artifacts"`
@@ -75,6 +76,13 @@ type workbenchReport struct {
 	Diagnostics     []diag.Diagnostic `json:"diagnostics"`
 	DiagnosticCount int               `json:"diagnostic_count"`
 	Clang           string            `json:"clang,omitempty"`
+}
+
+type sourceDetail struct {
+	Path    string `json:"path"`
+	Package string `json:"package,omitempty"`
+	Size    int64  `json:"size"`
+	SHA256  string `json:"sha256"`
 }
 
 type artifactDetail struct {
@@ -102,9 +110,14 @@ func writeWorkbenchArtifacts(result *compiler.Result, opts workbenchOptions) (wo
 		opts.PackageName = "bindings"
 	}
 	paths := artifactPathsFor(opts.OutDir, outputBase(result))
+	sources, err := collectSourceDetails(result.Files)
+	if err != nil {
+		return workbenchReport{}, err
+	}
 	report := workbenchReport{
 		Schema:          "m31labs.dev/horizon/report/v0",
 		Package:         result.Program.Package,
+		Sources:         sources,
 		Status:          "generated",
 		Compile:         opts.Compile,
 		Paths:           paths,
@@ -196,6 +209,24 @@ func writeWorkbenchArtifacts(result *compiler.Result, opts workbenchOptions) (wo
 		return report, err
 	}
 	return report, nil
+}
+
+func collectSourceDetails(files []compiler.FileResult) ([]sourceDetail, error) {
+	details := make([]sourceDetail, 0, len(files))
+	for _, file := range files {
+		data, err := os.ReadFile(file.Path)
+		if err != nil {
+			return nil, err
+		}
+		sum := sha256.Sum256(data)
+		details = append(details, sourceDetail{
+			Path:    file.Path,
+			Package: file.Package,
+			Size:    int64(len(data)),
+			SHA256:  hex.EncodeToString(sum[:]),
+		})
+	}
+	return details, nil
 }
 
 func artifactPathsFor(outDir string, base string) artifactPaths {

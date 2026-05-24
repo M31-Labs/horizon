@@ -55,6 +55,7 @@ func TestWorkbenchWritesAuthoringArtifactsWithoutObject(t *testing.T) {
 	if report.Paths.Object != "" {
 		t.Fatalf("object path = %q, want empty without -compile", report.Paths.Object)
 	}
+	assertSourceDetail(t, report, input)
 	if report.DiagnosticCount != 0 {
 		t.Fatalf("diagnostic count = %d, want 0", report.DiagnosticCount)
 	}
@@ -112,6 +113,7 @@ func TestWorkbenchJSONOutput(t *testing.T) {
 	if report.DiagnosticCount != 0 {
 		t.Fatalf("diagnostic count = %d, want 0", report.DiagnosticCount)
 	}
+	assertSourceDetail(t, report, input)
 	if len(report.Artifacts) != 6 {
 		t.Fatalf("artifacts = %d, want 6", len(report.Artifacts))
 	}
@@ -142,6 +144,7 @@ func TestWorkbenchJSONOutputForInvalidInput(t *testing.T) {
 	if !hasDiagnosticCode(report.Diagnostics, "HZN2600") {
 		t.Fatalf("report diagnostics = %#v, want HZN2600", report.Diagnostics)
 	}
+	assertSourceDetail(t, report, input)
 	if len(report.Artifacts) != 2 {
 		t.Fatalf("artifacts = %d, want 2", len(report.Artifacts))
 	}
@@ -237,6 +240,7 @@ func TestWorkbenchWritesDiagnosticReportForInvalidInput(t *testing.T) {
 	if !hasDiagnosticCode(report.Diagnostics, "HZN2600") {
 		t.Fatalf("report diagnostics = %#v, want HZN2600", report.Diagnostics)
 	}
+	assertSourceDetail(t, report, input)
 	if len(report.Artifacts) != 2 {
 		t.Fatalf("artifacts = %d, want 2", len(report.Artifacts))
 	}
@@ -303,6 +307,7 @@ func TestWorkbenchReportsClangDiagnostics(t *testing.T) {
 	if report.Diagnostics[0].Primary.File != "../../testdata/golden/exec/input.hzn" {
 		t.Fatalf("primary file = %q, want authored input", report.Diagnostics[0].Primary.File)
 	}
+	assertSourceDetail(t, report, input)
 	if artifactsContain(report.Artifacts, filepath.Join(outDir, "input.bpf.o")) {
 		t.Fatalf("artifacts include missing object: %#v", report.Artifacts)
 	}
@@ -342,6 +347,37 @@ func artifactsContain(artifacts []string, path string) bool {
 		}
 	}
 	return false
+}
+
+func sourceDetailByPath(details []sourceDetail, path string) (sourceDetail, bool) {
+	for _, detail := range details {
+		if detail.Path == path {
+			return detail, true
+		}
+	}
+	return sourceDetail{}, false
+}
+
+func assertSourceDetail(t *testing.T, report workbenchReport, path string) {
+	t.Helper()
+	detail, ok := sourceDetailByPath(report.Sources, path)
+	if !ok {
+		t.Fatalf("sources missing %q: %#v", path, report.Sources)
+	}
+	if detail.Package == "" {
+		t.Fatalf("source %s package is empty", path)
+	}
+	if detail.Size <= 0 {
+		t.Fatalf("source %s size = %d, want positive", path, detail.Size)
+	}
+	if len(detail.SHA256) != 64 {
+		t.Fatalf("source %s sha256 = %q, want 64 hex chars", path, detail.SHA256)
+	}
+	for _, ch := range detail.SHA256 {
+		if (ch < '0' || ch > '9') && (ch < 'a' || ch > 'f') {
+			t.Fatalf("source %s sha256 = %q, want lowercase hex", path, detail.SHA256)
+		}
+	}
 }
 
 func artifactDetailByKind(details []artifactDetail, kind string) (artifactDetail, bool) {
