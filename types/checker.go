@@ -493,6 +493,7 @@ func constValueType(expr ast.Expr) (valueType, bool) {
 		}
 		operand.IntLiteral = negateIntegerLiteral(operand.IntLiteral)
 		operand.NonZero = literalNonZero(operand.IntLiteral)
+		operand.NonNegative = literalNonNegative(operand.IntLiteral)
 		return operand, true
 	default:
 		return valueType{}, false
@@ -505,12 +506,14 @@ func constDeclType(decl ast.ConstDecl) (valueType, bool) {
 		if value, ok := constValueType(decl.Value); ok && value.IntLiteral != "" && isIntegerScalar(decl.Type.Name) {
 			typ.IntLiteral = value.IntLiteral
 			typ.NonZero = literalNonZero(value.IntLiteral)
+			typ.NonNegative = literalNonNegative(value.IntLiteral)
 		}
 		return typ, true
 	}
 	typ, ok := constValueType(decl.Value)
 	if ok && typ.IntLiteral != "" {
 		typ.NonZero = literalNonZero(typ.IntLiteral)
+		typ.NonNegative = literalNonNegative(typ.IntLiteral)
 	}
 	return typ, ok
 }
@@ -772,6 +775,8 @@ type valueType struct {
 	Fallible     string
 	IntLiteral   string
 	NonZero      bool
+	NonNegative  bool
+	MaxExclusive int
 	Const        bool
 	Void         bool
 	XDPAction    bool
@@ -1053,12 +1058,18 @@ func (c *funcBodyChecker) updateAssignedLocal(s ast.AssignStmt, target valueType
 	updated := target
 	updated.IntLiteral = ""
 	updated.NonZero = false
+	updated.NonNegative = false
+	updated.MaxExclusive = 0
 	if value.IntLiteral != "" {
 		updated.IntLiteral = value.IntLiteral
 	}
 	if valueKnownNonZero(value) {
 		updated.NonZero = true
 	}
+	if valueKnownNonNegative(value) {
+		updated.NonNegative = true
+	}
+	updated.MaxExclusive = value.MaxExclusive
 	locals[ident.Name] = updated
 }
 
@@ -1156,24 +1167,67 @@ func (c *funcBodyChecker) checkIf(s ast.IfStmt, locals map[string]valueType) {
 	c.add(validateCondition(cond, s.Cond.GetSpan())...)
 	thenLocals := cloneValueTypes(ifLocals)
 	elseLocals := cloneValueTypes(ifLocals)
-	thenFacts, elseFacts := nonZeroFacts(s.Cond, ifLocals)
-	applyNonZeroFacts(thenLocals, thenFacts)
-	applyNonZeroFacts(elseLocals, elseFacts)
+	thenFacts, elseFacts := conditionFacts(s.Cond, ifLocals)
+	applyFacts(thenLocals, thenFacts)
+	applyFacts(elseLocals, elseFacts)
 	c.checkStatements(s.Then, thenLocals)
 	c.checkStatements(s.Else, elseLocals)
 	if blockAlwaysReturns(s.Then) {
-		applyNonZeroFacts(locals, elseFacts)
+		applyFacts(locals, elseFacts)
 	}
 	if blockAlwaysReturns(s.Else) {
-		applyNonZeroFacts(locals, thenFacts)
+		applyFacts(locals, thenFacts)
 	}
 }
 
-func nonZeroFacts(cond ast.Expr, locals map[string]valueType) (map[string]bool, map[string]bool) {
+type valueFacts struct {
+	NonZero      map[string]bool
+	NonNegative  map[string]bool
+	MaxExclusive map[string]int
+}
+
+func conditionFacts(cond ast.Expr, locals map[string]valueType) (valueFacts, valueFacts) {
 	binary, ok := cond.(ast.BinaryExpr)
 	if !ok {
-		return nil, nil
+		return valueFacts{}, valueFacts{}
 	}
+	if binary.Op == "&&" {
+		leftThen, _ := conditionFacts(binary.Left, locals)
+		rightThen, _ := conditionFacts(binary.Right, locals)
+		return mergeFacts(leftThen, rightThen), valueFacts{}
+	}
+	thenFacts, elseFacts := nonZeroFacts(binary, locals)
+	addRangeFacts(binary, locals, &thenFacts, &elseFacts)
+	return thenFacts, elseFacts
+}
+
+func mergeFacts(left valueFacts, right valueFacts) valueFacts {
+	out := valueFacts{}
+	mergeBoolFacts(&out.NonZero, left.NonZero)
+	mergeBoolFacts(&out.NonZero, right.NonZero)
+	mergeBoolFacts(&out.NonNegative, left.NonNegative)
+	mergeBoolFacts(&out.NonNegative, right.NonNegative)
+	mergeMaxFacts(&out.MaxExclusive, left.MaxExclusive)
+	mergeMaxFacts(&out.MaxExclusive, right.MaxExclusive)
+	return out
+}
+
+func mergeBoolFacts(dst *map[string]bool, src map[string]bool) {
+	for name := range src {
+		if *dst == nil {
+			*dst = map[string]bool{}
+		}
+		(*dst)[name] = true
+	}
+}
+
+func mergeMaxFacts(dst *map[string]int, src map[string]int) {
+	for name, value := range src {
+		addMaxExclusiveFact(dst, name, value)
+	}
+}
+
+func nonZeroFacts(binary ast.BinaryExpr, locals map[string]valueType) (valueFacts, valueFacts) {
 	leftName, leftIdent := identName(binary.Left)
 	rightName, rightIdent := identName(binary.Right)
 	leftZero := integerZeroExpr(binary.Left, locals)
@@ -1181,27 +1235,94 @@ func nonZeroFacts(cond ast.Expr, locals map[string]valueType) (map[string]bool, 
 	switch binary.Op {
 	case "!=":
 		if leftIdent && rightZero {
-			return map[string]bool{leftName: true}, nil
+			return valueFacts{NonZero: map[string]bool{leftName: true}}, valueFacts{}
 		}
 		if rightIdent && leftZero {
-			return map[string]bool{rightName: true}, nil
+			return valueFacts{NonZero: map[string]bool{rightName: true}}, valueFacts{}
 		}
 	case "==":
 		if leftIdent && rightZero {
-			return nil, map[string]bool{leftName: true}
+			return valueFacts{}, valueFacts{NonZero: map[string]bool{leftName: true}}
 		}
 		if rightIdent && leftZero {
-			return nil, map[string]bool{rightName: true}
+			return valueFacts{}, valueFacts{NonZero: map[string]bool{rightName: true}}
 		}
 	case ">", "<":
 		if leftIdent && rightZero {
-			return map[string]bool{leftName: true}, nil
+			return valueFacts{NonZero: map[string]bool{leftName: true}}, valueFacts{}
 		}
 		if rightIdent && leftZero {
-			return map[string]bool{rightName: true}, nil
+			return valueFacts{NonZero: map[string]bool{rightName: true}}, valueFacts{}
 		}
 	}
-	return nil, nil
+	return valueFacts{}, valueFacts{}
+}
+
+func addRangeFacts(binary ast.BinaryExpr, locals map[string]valueType, thenFacts *valueFacts, elseFacts *valueFacts) {
+	leftName, leftIdent := identName(binary.Left)
+	rightName, rightIdent := identName(binary.Right)
+	leftValue, leftValueOK := integerExprValue(binary.Left, locals)
+	rightValue, rightValueOK := integerExprValue(binary.Right, locals)
+	switch binary.Op {
+	case "<":
+		if leftIdent && rightValueOK {
+			addMaxExclusiveFact(&thenFacts.MaxExclusive, leftName, rightValue)
+			addMinInclusiveFact(&elseFacts.NonNegative, leftName, rightValue)
+		}
+		if rightIdent && leftValueOK {
+			addMinInclusiveFact(&thenFacts.NonNegative, rightName, leftValue+1)
+			addMaxExclusiveFact(&elseFacts.MaxExclusive, rightName, leftValue+1)
+		}
+	case "<=":
+		if leftIdent && rightValueOK {
+			addMaxExclusiveFact(&thenFacts.MaxExclusive, leftName, rightValue+1)
+			addMinInclusiveFact(&elseFacts.NonNegative, leftName, rightValue+1)
+		}
+		if rightIdent && leftValueOK {
+			addMinInclusiveFact(&thenFacts.NonNegative, rightName, leftValue)
+			addMaxExclusiveFact(&elseFacts.MaxExclusive, rightName, leftValue)
+		}
+	case ">":
+		if leftIdent && rightValueOK {
+			addMinInclusiveFact(&thenFacts.NonNegative, leftName, rightValue+1)
+			addMaxExclusiveFact(&elseFacts.MaxExclusive, leftName, rightValue+1)
+		}
+		if rightIdent && leftValueOK {
+			addMaxExclusiveFact(&thenFacts.MaxExclusive, rightName, leftValue)
+			addMinInclusiveFact(&elseFacts.NonNegative, rightName, leftValue)
+		}
+	case ">=":
+		if leftIdent && rightValueOK {
+			addMinInclusiveFact(&thenFacts.NonNegative, leftName, rightValue)
+			addMaxExclusiveFact(&elseFacts.MaxExclusive, leftName, rightValue)
+		}
+		if rightIdent && leftValueOK {
+			addMaxExclusiveFact(&thenFacts.MaxExclusive, rightName, leftValue+1)
+			addMinInclusiveFact(&elseFacts.NonNegative, rightName, leftValue+1)
+		}
+	}
+}
+
+func addMaxExclusiveFact(facts *map[string]int, name string, value int) {
+	if value <= 0 {
+		return
+	}
+	if *facts == nil {
+		*facts = map[string]int{}
+	}
+	if current, ok := (*facts)[name]; !ok || value < current {
+		(*facts)[name] = value
+	}
+}
+
+func addMinInclusiveFact(facts *map[string]bool, name string, value int) {
+	if value > 0 {
+		return
+	}
+	if *facts == nil {
+		*facts = map[string]bool{}
+	}
+	(*facts)[name] = true
 }
 
 func identName(expr ast.Expr) (string, bool) {
@@ -1210,30 +1331,55 @@ func identName(expr ast.Expr) (string, bool) {
 }
 
 func integerZeroExpr(expr ast.Expr, locals map[string]valueType) bool {
+	value, ok := integerExprValue(expr, locals)
+	return ok && value == 0
+}
+
+func integerExprValue(expr ast.Expr, locals map[string]valueType) (int, bool) {
 	switch e := expr.(type) {
 	case ast.IntExpr:
-		return literalZero(e.Value)
+		return literalInt(e.Value)
 	case ast.UnaryExpr:
 		if e.Op != "-" {
-			return false
+			return 0, false
 		}
 		if lit, ok := e.Expr.(ast.IntExpr); ok {
-			return literalZero(negateIntegerLiteral(lit.Value))
+			return literalInt(negateIntegerLiteral(lit.Value))
 		}
 	case ast.IdentExpr:
 		local, ok := locals[e.Name]
-		return ok && local.IntLiteral != "" && literalZero(local.IntLiteral)
+		if ok && local.IntLiteral != "" {
+			return literalInt(local.IntLiteral)
+		}
 	}
-	return false
+	return 0, false
 }
 
-func applyNonZeroFacts(locals map[string]valueType, facts map[string]bool) {
-	for name := range facts {
+func applyFacts(locals map[string]valueType, facts valueFacts) {
+	for name := range facts.NonZero {
 		typ, ok := locals[name]
 		if !ok || !integerOperand(typ) {
 			continue
 		}
 		typ.NonZero = true
+		locals[name] = typ
+	}
+	for name := range facts.NonNegative {
+		typ, ok := locals[name]
+		if !ok || !integerOperand(typ) {
+			continue
+		}
+		typ.NonNegative = true
+		locals[name] = typ
+	}
+	for name, max := range facts.MaxExclusive {
+		typ, ok := locals[name]
+		if !ok || !integerOperand(typ) {
+			continue
+		}
+		if typ.MaxExclusive == 0 || max < typ.MaxExclusive {
+			typ.MaxExclusive = max
+		}
 		locals[name] = typ
 	}
 }
@@ -1324,7 +1470,7 @@ func (t exprTyper) typeOf(expr ast.Expr) (valueType, []diag.Diagnostic) {
 	case ast.IdentExpr:
 		return t.ident(e)
 	case ast.IntExpr:
-		return valueType{Name: "untyped_int", IntLiteral: e.Value, NonZero: literalNonZero(e.Value)}, nil
+		return valueType{Name: "untyped_int", IntLiteral: e.Value, NonZero: literalNonZero(e.Value), NonNegative: literalNonNegative(e.Value)}, nil
 	case ast.BoolExpr:
 		return valueType{Name: "bool"}, nil
 	case ast.NilExpr:
@@ -1494,6 +1640,7 @@ func (t exprTyper) unary(e ast.UnaryExpr) (valueType, []diag.Diagnostic) {
 		if operand.Name == "untyped_int" && !operand.Ptr && unaryIntegerLiteralOperand(e.Expr) {
 			operand.IntLiteral = negateIntegerLiteral(operand.IntLiteral)
 			operand.NonZero = literalNonZero(operand.IntLiteral)
+			operand.NonNegative = literalNonNegative(operand.IntLiteral)
 			return operand, diags
 		}
 		if isSignedIntegerScalar(operand.Name) && !operand.Ptr {
@@ -1665,10 +1812,14 @@ func integerResult(left valueType, right valueType) valueType {
 	if left.Name != "untyped_int" {
 		left.IntLiteral = ""
 		left.NonZero = false
+		left.NonNegative = false
+		left.MaxExclusive = 0
 		return left
 	}
 	right.IntLiteral = ""
 	right.NonZero = false
+	right.NonNegative = false
+	right.MaxExclusive = 0
 	return right
 }
 
@@ -1753,33 +1904,50 @@ func zeroDivisorDiagnostic(expr ast.BinaryExpr, divisor valueType) (diag.Diagnos
 }
 
 func shiftCountDiagnostic(expr ast.BinaryExpr, value valueType, count valueType) (diag.Diagnostic, bool) {
-	lit, ok := integerLiteralBig(count)
-	if !ok {
-		return diag.Diagnostic{}, false
-	}
 	width := integerBitWidth(value.Name)
 	if width == 0 {
 		return diag.Diagnostic{}, false
 	}
-	if lit.Sign() < 0 {
-		return diag.Diagnostic{
-			Code:     "HZN1479",
-			Severity: diag.SeverityError,
-			Message:  fmt.Sprintf("operator %s shift count cannot be negative", expr.Op),
-			Primary:  expr.Right.GetSpan(),
-			Suggest:  "use a shift count from 0 up to one less than the left operand width",
-		}, true
+	lit, ok := integerLiteralBig(count)
+	if ok {
+		if lit.Sign() < 0 {
+			return diag.Diagnostic{
+				Code:     "HZN1479",
+				Severity: diag.SeverityError,
+				Message:  fmt.Sprintf("operator %s shift count cannot be negative", expr.Op),
+				Primary:  expr.Right.GetSpan(),
+				Suggest:  "use a shift count from 0 up to one less than the left operand width",
+			}, true
+		}
+		if lit.Cmp(big.NewInt(int64(width))) >= 0 {
+			return diag.Diagnostic{
+				Code:     "HZN1479",
+				Severity: diag.SeverityError,
+				Message:  fmt.Sprintf("operator %s shift count %s is outside the %s width", expr.Op, lit.String(), typeName(value)),
+				Primary:  expr.Right.GetSpan(),
+				Suggest:  fmt.Sprintf("use a shift count from 0 to %d for %s values", width-1, typeName(value)),
+			}, true
+		}
+		return diag.Diagnostic{}, false
 	}
-	if lit.Cmp(big.NewInt(int64(width))) >= 0 {
-		return diag.Diagnostic{
-			Code:     "HZN1479",
-			Severity: diag.SeverityError,
-			Message:  fmt.Sprintf("operator %s shift count %s is outside the %s width", expr.Op, lit.String(), typeName(value)),
-			Primary:  expr.Right.GetSpan(),
-			Suggest:  fmt.Sprintf("use a shift count from 0 to %d for %s values", width-1, typeName(value)),
-		}, true
+	if !valueKnownNonNegative(count) {
+		return dynamicShiftCountDiagnostic(expr, value), true
+	}
+	if count.MaxExclusive == 0 || count.MaxExclusive > width {
+		return dynamicShiftCountDiagnostic(expr, value), true
 	}
 	return diag.Diagnostic{}, false
+}
+
+func dynamicShiftCountDiagnostic(expr ast.BinaryExpr, value valueType) diag.Diagnostic {
+	width := integerBitWidth(value.Name)
+	return diag.Diagnostic{
+		Code:     "HZN1482",
+		Severity: diag.SeverityError,
+		Message:  fmt.Sprintf("operator %s shift count must be proven in range for %s", expr.Op, typeName(value)),
+		Primary:  expr.Right.GetSpan(),
+		Suggest:  fmt.Sprintf("guard the count with `if count >= %d { return 0 }` before shifting", width),
+	}
 }
 
 func (t exprTyper) structLiteral(lit ast.StructLiteralExpr) (valueType, []diag.Diagnostic) {
@@ -2039,6 +2207,10 @@ func (t exprTyper) scalarConversion(name string, call ast.CallExpr) (valueType, 
 	if valueKnownNonZero(arg) {
 		result.NonZero = true
 	}
+	if valueKnownNonNegative(arg) || isUnsignedIntegerScalar(name) {
+		result.NonNegative = true
+	}
+	result.MaxExclusive = arg.MaxExclusive
 	if arg.Fallible != "" {
 		diags = append(diags, fallibleResultDiagnostic(call.Span, arg.Fallible))
 		return result, diags
@@ -2425,11 +2597,36 @@ func literalNonZero(lit string) bool {
 	return ok && value.Sign() != 0
 }
 
+func literalNonNegative(lit string) bool {
+	value, ok := new(big.Int).SetString(lit, 0)
+	return ok && value.Sign() >= 0
+}
+
+func literalInt(lit string) (int, bool) {
+	value, ok := new(big.Int).SetString(lit, 0)
+	if !ok || !value.IsInt64() {
+		return 0, false
+	}
+	asInt64 := value.Int64()
+	asInt := int(asInt64)
+	if int64(asInt) != asInt64 {
+		return 0, false
+	}
+	return asInt, true
+}
+
 func valueKnownNonZero(t valueType) bool {
 	if t.IntLiteral != "" {
 		return literalNonZero(t.IntLiteral)
 	}
 	return t.NonZero
+}
+
+func valueKnownNonNegative(t valueType) bool {
+	if t.IntLiteral != "" {
+		return literalNonNegative(t.IntLiteral)
+	}
+	return t.NonNegative || isUnsignedIntegerScalar(t.Name)
 }
 
 func integerBitWidth(name string) int {
@@ -2660,6 +2857,15 @@ func isScalar(name string) bool {
 func isIntegerScalar(name string) bool {
 	switch name {
 	case "u8", "u16", "u32", "u64", "i8", "i16", "i32", "i64":
+		return true
+	default:
+		return false
+	}
+}
+
+func isUnsignedIntegerScalar(name string) bool {
+	switch name {
+	case "u8", "u16", "u32", "u64":
 		return true
 	default:
 		return false

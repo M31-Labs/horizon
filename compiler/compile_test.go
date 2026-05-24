@@ -186,6 +186,67 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	}
 }
 
+func TestAnalyzeAllowsGuardedDynamicShiftCount(t *testing.T) {
+	result := analyzeSource(t, "shift.hzn", `package probes
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    shift := bpf.current_pid()
+    if shift >= 32 {
+        return 0
+    }
+    value := u32(1) << shift
+    if value == 0 {
+        return 0
+    }
+    return 0
+}
+`)
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+}
+
+func TestAnalyzeAllowsBranchGuardedDynamicShiftCount(t *testing.T) {
+	result := analyzeSource(t, "shift.hzn", `package probes
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    shift := bpf.current_pid()
+    if shift < 32 {
+        value := u32(1) << shift
+        if value == 0 {
+            return 0
+        }
+    }
+    return 0
+}
+`)
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+}
+
+func TestAnalyzeAllowsSignedGuardedDynamicShiftCount(t *testing.T) {
+	result := analyzeSource(t, "shift.hzn", `package probes
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    shift := i32(bpf.current_pid())
+    if shift >= 0 && shift < 32 {
+        value := u32(1) << shift
+        if value == 0 {
+            return 0
+        }
+    }
+    return 0
+}
+`)
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+}
+
 func TestAnalyzeReportsParseDiagnostic(t *testing.T) {
 	result := analyzeSource(t, "bad.hzn", `package probes
 
@@ -240,6 +301,8 @@ func TestAnalyzeInvalidRingbufPrograms(t *testing.T) {
 		"../testdata/invalid/dynamic_divisor_missing_guard.hzn":          "HZN1480",
 		"../testdata/invalid/reassigned_divisor_loses_nonzero_proof.hzn": "HZN1480",
 		"../testdata/invalid/constant_assignment.hzn":                    "HZN1481",
+		"../testdata/invalid/dynamic_shift_missing_bound.hzn":            "HZN1482",
+		"../testdata/invalid/reassigned_shift_loses_bound.hzn":           "HZN1482",
 		"../testdata/invalid/source_pointer_type.hzn":                    "HZN1106",
 		"../testdata/invalid/duplicate_struct_field.hzn":                 "HZN1107",
 		"../testdata/invalid/recursive_struct.hzn":                       "HZN1108",
