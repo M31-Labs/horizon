@@ -19,8 +19,11 @@ func TestEmitExecwatchUsesTypedCWrappers(t *testing.T) {
 		t.Fatalf("Emit: %v", err)
 	}
 	for _, want := range []string{
+		`_Static_assert(sizeof(__u32) == 4, "horizon: __u32 width mismatch");`,
 		"static __always_inline struct ExecEvent *ExecEvents_reserve(void)",
 		"static __always_inline void ExecEvents_submit(struct ExecEvent *value)",
+		`_Static_assert(sizeof(struct ExecEvent) == 28, "horizon: struct ExecEvent size mismatch");`,
+		`_Static_assert(__builtin_offsetof(struct ExecEvent, comm) == 12, "horizon: struct ExecEvent.comm offset mismatch");`,
 		"(void)ctx;",
 		"struct ExecEvent *event = ExecEvents_reserve();",
 		"event->pid = hzn_current_pid();",
@@ -193,6 +196,8 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	}
 	for _, want := range []string{
 		"struct Count {",
+		`_Static_assert(sizeof(struct Count) == 4, "horizon: struct Count size mismatch");`,
+		`_Static_assert(__builtin_offsetof(struct Count, seen) == 0, "horizon: struct Count.seen offset mismatch");`,
 		"static __always_inline long Counts_update(__u32 key, struct Count value)",
 		"struct Count state = (struct Count){ .seen = pid };",
 		"state.seen = hzn_current_pid();",
@@ -209,6 +214,53 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	} {
 		if strings.Contains(out.Code, unwanted) {
 			t.Fatalf("generated C contains unused map wrapper %q:\n%s", unwanted, out.Code)
+		}
+	}
+}
+
+func TestEmitStructLayoutAssertionsIncludePadding(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "layout.hzn")
+	if err := os.WriteFile(path, []byte(`package probes
+
+type LayoutEvent struct {
+    tag u8
+    pid u32
+    ports [3]u16
+}
+
+map Events ringbuf[LayoutEvent]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    event := Events.reserve()
+    if event == nil {
+        return 0
+    }
+    event.tag = 1
+    event.pid = bpf.current_pid()
+    Events.submit(event)
+    return 0
+}
+`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	result, err := compiler.AnalyzePath(dir)
+	if err != nil {
+		t.Fatalf("AnalyzePath: %v", err)
+	}
+	out, err := Emit(result.Program)
+	if err != nil {
+		t.Fatalf("Emit: %v", err)
+	}
+	for _, want := range []string{
+		`_Static_assert(sizeof(struct LayoutEvent) == 16, "horizon: struct LayoutEvent size mismatch");`,
+		`_Static_assert(__builtin_offsetof(struct LayoutEvent, tag) == 0, "horizon: struct LayoutEvent.tag offset mismatch");`,
+		`_Static_assert(__builtin_offsetof(struct LayoutEvent, pid) == 4, "horizon: struct LayoutEvent.pid offset mismatch");`,
+		`_Static_assert(__builtin_offsetof(struct LayoutEvent, ports) == 8, "horizon: struct LayoutEvent.ports offset mismatch");`,
+	} {
+		if !strings.Contains(out.Code, want) {
+			t.Fatalf("generated C missing %q:\n%s", want, out.Code)
 		}
 	}
 }

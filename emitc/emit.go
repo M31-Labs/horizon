@@ -21,6 +21,7 @@ func Emit(program ir.Program) (Output, error) {
 		emitXDPActionFallbacks(&b)
 	}
 	b.WriteString("char LICENSE[] SEC(\"license\") = \"GPL\";\n")
+	emitScalarABIAssertions(&b)
 	emitHelperWrappers(&b, usage)
 	if usage.hasXDPPacketHelpers() {
 		emitXDPPacketHelpers(&b, usage)
@@ -28,8 +29,9 @@ func Emit(program ir.Program) (Output, error) {
 	for _, c := range program.Constants {
 		emitConst(&b, c)
 	}
+	structs := cStructMap(program)
 	for _, decl := range program.Structs {
-		emitStruct(&b, decl)
+		emitStruct(&b, decl, structs)
 	}
 	for _, m := range program.Maps {
 		emitMap(&b, m)
@@ -471,7 +473,20 @@ func emitConst(b *strings.Builder, c ir.Const) {
 	fmt.Fprintf(b, "\nstatic const __u64 %s = %s;\n", c.Name, cExpr(&c.Value, nil))
 }
 
-func emitStruct(b *strings.Builder, decl ir.Struct) {
+func emitScalarABIAssertions(b *strings.Builder) {
+	b.WriteString(`
+_Static_assert(sizeof(__u8) == 1, "horizon: __u8 width mismatch");
+_Static_assert(sizeof(__u16) == 2, "horizon: __u16 width mismatch");
+_Static_assert(sizeof(__u32) == 4, "horizon: __u32 width mismatch");
+_Static_assert(sizeof(__u64) == 8, "horizon: __u64 width mismatch");
+_Static_assert(sizeof(__s8) == 1, "horizon: __s8 width mismatch");
+_Static_assert(sizeof(__s16) == 2, "horizon: __s16 width mismatch");
+_Static_assert(sizeof(__s32) == 4, "horizon: __s32 width mismatch");
+_Static_assert(sizeof(__s64) == 8, "horizon: __s64 width mismatch");
+`)
+}
+
+func emitStruct(b *strings.Builder, decl ir.Struct, structs map[string]ir.Struct) {
 	fmt.Fprintf(b, "\nstruct %s {\n", decl.Name)
 	for _, field := range decl.Fields {
 		if field.Type.Len != "" && field.Type.Elem != nil {
@@ -481,6 +496,18 @@ func emitStruct(b *strings.Builder, decl ir.Struct) {
 		fmt.Fprintf(b, "    %s %s;\n", cType(field.Type), field.Name)
 	}
 	b.WriteString("};\n")
+	emitStructLayoutAssertions(b, decl, structs)
+}
+
+func emitStructLayoutAssertions(b *strings.Builder, decl ir.Struct, structs map[string]ir.Struct) {
+	layout, ok := cStructLayout(decl, structs)
+	if !ok {
+		return
+	}
+	fmt.Fprintf(b, "_Static_assert(sizeof(struct %s) == %d, \"horizon: struct %s size mismatch\");\n", decl.Name, layout.Size, decl.Name)
+	for _, field := range layout.Fields {
+		fmt.Fprintf(b, "_Static_assert(__builtin_offsetof(struct %s, %s) == %d, \"horizon: struct %s.%s offset mismatch\");\n", decl.Name, field.Name, field.Offset, decl.Name, field.Name)
+	}
 }
 
 func emitMap(b *strings.Builder, m ir.Map) {
