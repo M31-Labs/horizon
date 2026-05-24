@@ -146,7 +146,19 @@ func TestCgroupConnectCompileSmoke(t *testing.T) {
 
 @cgroup("connect4")
 func BlockSMTP(ctx cgroup.Connect) i32 {
-    if cgroup.dst_port(ctx) == 25 {
+    if cgroup.family(ctx) != cgroup.FamilyIPv4 {
+        return cgroup.Allow
+    }
+    if cgroup.sock_type(ctx) != cgroup.SockStream {
+        return cgroup.Allow
+    }
+    if cgroup.protocol(ctx) != cgroup.IPProtoTCP {
+        return cgroup.Allow
+    }
+    if cgroup.src_ip4(ctx) == cgroup.ip4(0, 0, 0, 0) {
+        return cgroup.Allow
+    }
+    if (cgroup.dst_port(ctx) == 25) && (cgroup.dst_ip4(ctx) != cgroup.ip4(127, 0, 0, 1)) {
         return cgroup.Deny
     }
     return cgroup.Allow

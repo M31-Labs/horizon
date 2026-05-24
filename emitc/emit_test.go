@@ -934,7 +934,19 @@ func TestEmitCgroupConnectProgram(t *testing.T) {
 
 @cgroup("connect4")
 func BlockSMTP(ctx cgroup.Connect) i32 {
-    if cgroup.dst_port(ctx) == 25 {
+    if cgroup.family(ctx) != cgroup.FamilyIPv4 {
+        return cgroup.Allow
+    }
+    if cgroup.sock_type(ctx) != cgroup.SockStream {
+        return cgroup.Allow
+    }
+    if cgroup.protocol(ctx) != cgroup.IPProtoTCP {
+        return cgroup.Allow
+    }
+    if cgroup.src_ip4(ctx) == cgroup.ip4(0, 0, 0, 0) {
+        return cgroup.Allow
+    }
+    if (cgroup.dst_port(ctx) == 25) && (cgroup.dst_ip4(ctx) != cgroup.ip4(127, 0, 0, 1)) {
         return cgroup.Deny
     }
     return cgroup.Allow
@@ -953,9 +965,15 @@ func BlockSMTP(ctx cgroup.Connect) i32 {
 	for _, want := range []string{
 		"#include <bpf/bpf_endian.h>",
 		"#define HZN_CGROUP_ALLOW 1",
+		"#define HZN_CGROUP_IPPROTO_TCP 6",
 		`SEC("cgroup/connect4")`,
 		"int BlockSMTP(struct bpf_sock_addr *ctx) {",
-		"if (bpf_ntohs((__u16)ctx->user_port) == 25) {",
+		"if (ctx->family != HZN_CGROUP_FAMILY_IPV4) {",
+		"if (ctx->type != HZN_CGROUP_SOCK_STREAM) {",
+		"if (ctx->protocol != HZN_CGROUP_IPPROTO_TCP) {",
+		"bpf_ntohl(ctx->msg_src_ip4) == (((__u32)(0) << 24) | ((__u32)(0) << 16) | ((__u32)(0) << 8) | (__u32)(0))",
+		"bpf_ntohs((__u16)ctx->user_port) == 25",
+		"bpf_ntohl(ctx->user_ip4) != (((__u32)(127) << 24) | ((__u32)(0) << 16) | ((__u32)(0) << 8) | (__u32)(1))",
 		"return HZN_CGROUP_DENY;",
 		"return HZN_CGROUP_ALLOW;",
 	} {

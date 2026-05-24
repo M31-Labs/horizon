@@ -276,6 +276,9 @@ func validateSelectorExpr(env *cEnv, expr *ir.Expr) error {
 		if _, ok := cgroupActionC(name); ok {
 			return nil
 		}
+		if _, ok := cgroupConstantC(name); ok {
+			return nil
+		}
 		if _, ok := lsmActionC(name); ok {
 			return nil
 		}
@@ -371,8 +374,10 @@ func validateXDPCall(expr *ir.Expr, method string) error {
 
 func validateCgroupCall(expr *ir.Expr, method string) error {
 	switch method {
-	case "dst_port":
-		return validateArgCount(expr, "cgroup.dst_port", 1)
+	case "family", "sock_type", "protocol", "dst_port", "dst_ip4", "src_ip4":
+		return validateArgCount(expr, "cgroup."+method, 1)
+	case "ip4":
+		return validateArgCount(expr, "cgroup.ip4", 4)
 	default:
 		return unsupportedExpr(expr, "cgroup."+method)
 	}

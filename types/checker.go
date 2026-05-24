@@ -1021,7 +1021,7 @@ func (t exprTyper) compilerSelector(e ast.SelectorExpr) (valueType, []diag.Diagn
 			Severity: diag.SeverityError,
 			Message:  fmt.Sprintf("unknown cgroup symbol cgroup.%s", field),
 			Primary:  e.Span,
-			Suggest:  "use cgroup actions such as cgroup.Allow or helpers such as cgroup.dst_port(ctx)",
+			Suggest:  "use cgroup actions, named protocol constants, or helpers such as cgroup.dst_port(ctx)",
 		}}, true
 	case "lsm":
 		if typ, ok := lsmSelectorType(field); ok {
@@ -1571,29 +1571,69 @@ func (t exprTyper) xdpCall(name string, call ast.CallExpr) (valueType, []diag.Di
 
 func (t exprTyper) cgroupCall(name string, call ast.CallExpr) (valueType, []diag.Diagnostic) {
 	switch name {
+	case "family", "sock_type", "protocol", "dst_ip4", "src_ip4":
+		return t.cgroupConnectFieldCall(name, call, "u32")
 	case "dst_port":
-		if len(call.Args) != 1 {
-			return valueType{Name: "u16"}, []diag.Diagnostic{argCountDiagnostic(call.Span, "cgroup.dst_port", 1, len(call.Args))}
-		}
-		arg, diags := t.typeOf(call.Args[0])
-		if !assignable(valueType{Name: "cgroup.Connect"}, arg) {
-			diags = append(diags, diag.Diagnostic{
-				Code:     "HZN1457",
-				Severity: diag.SeverityError,
-				Message:  fmt.Sprintf("cgroup.dst_port expects cgroup.Connect, got %s", typeName(arg)),
-				Primary:  call.Span,
-			})
-		}
-		return valueType{Name: "u16"}, diags
+		return t.cgroupConnectFieldCall(name, call, "u16")
+	case "ip4":
+		return t.cgroupIP4Call(call)
 	default:
 		return valueType{}, []diag.Diagnostic{{
 			Code:     "HZN1458",
 			Severity: diag.SeverityError,
 			Message:  fmt.Sprintf("unknown cgroup helper cgroup.%s", name),
 			Primary:  call.Span,
-			Suggest:  "use cgroup.dst_port(ctx) or named actions such as cgroup.Allow",
+			Suggest:  "use cgroup.family(ctx), cgroup.protocol(ctx), cgroup.dst_port(ctx), cgroup.dst_ip4(ctx), or named actions such as cgroup.Allow",
 		}}
 	}
+}
+
+func (t exprTyper) cgroupConnectFieldCall(name string, call ast.CallExpr, result string) (valueType, []diag.Diagnostic) {
+	if len(call.Args) != 1 {
+		return valueType{Name: result}, []diag.Diagnostic{argCountDiagnostic(call.Span, "cgroup."+name, 1, len(call.Args))}
+	}
+	arg, diags := t.typeOf(call.Args[0])
+	if !assignable(valueType{Name: "cgroup.Connect"}, arg) {
+		diags = append(diags, diag.Diagnostic{
+			Code:     "HZN1457",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("cgroup.%s expects cgroup.Connect, got %s", name, typeName(arg)),
+			Primary:  call.Span,
+		})
+	}
+	return valueType{Name: result}, diags
+}
+
+func (t exprTyper) cgroupIP4Call(call ast.CallExpr) (valueType, []diag.Diagnostic) {
+	if len(call.Args) != 4 {
+		return valueType{Name: "u32"}, []diag.Diagnostic{argCountDiagnostic(call.Span, "cgroup.ip4", 4, len(call.Args))}
+	}
+	var diags []diag.Diagnostic
+	for _, argExpr := range call.Args {
+		arg, argDiags := t.typeOf(argExpr)
+		diags = append(diags, argDiags...)
+		if !assignable(valueType{Name: "u8"}, arg) {
+			diags = append(diags, diag.Diagnostic{
+				Code:     "HZN1468",
+				Severity: diag.SeverityError,
+				Message:  fmt.Sprintf("cgroup.ip4 octets must be u8-compatible integers, got %s", typeName(arg)),
+				Primary:  argExpr.GetSpan(),
+			})
+			continue
+		}
+		if lit, ok := argExpr.(ast.IntExpr); ok {
+			value, err := strconv.ParseUint(lit.Value, 0, 16)
+			if err != nil || value > 255 {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1469",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("cgroup.ip4 octet %q is outside 0..255", lit.Value),
+					Primary:  lit.Span,
+				})
+			}
+		}
+	}
+	return valueType{Name: "u32"}, diags
 }
 
 func (t exprTyper) kprobeCall(name string, call ast.CallExpr) (valueType, []diag.Diagnostic) {
@@ -1854,6 +1894,8 @@ func cgroupSelectorType(name string) (valueType, bool) {
 	switch name {
 	case "Allow", "Deny":
 		return valueType{Name: "i32", CgroupAction: true}, true
+	case "FamilyIPv4", "FamilyIPv6", "SockStream", "SockDgram", "IPProtoTCP", "IPProtoUDP":
+		return valueType{Name: "u32"}, true
 	default:
 		return valueType{}, false
 	}

@@ -142,6 +142,7 @@ func TestAnalyzeInvalidRingbufPrograms(t *testing.T) {
 		"../testdata/invalid/ringbuf_reservation_alias.hzn":  "HZN1447",
 		"../testdata/invalid/packet_header_alias.hzn":        "HZN1447",
 		"../testdata/invalid/xdp_raw_return.hzn":             "HZN1448",
+		"../testdata/invalid/cgroup_ip4_bad_octet.hzn":       "HZN1469",
 	}
 	for path, code := range tests {
 		result, err := AnalyzePath(path)
@@ -1332,7 +1333,16 @@ func TestAnalyzeCgroupConnectProgramPasses(t *testing.T) {
 @capability("kernel.network.connect.block")
 @cgroup("connect4")
 func BlockSMTP(ctx cgroup.Connect) i32 {
-    if cgroup.dst_port(ctx) == 25 {
+    if cgroup.family(ctx) != cgroup.FamilyIPv4 {
+        return cgroup.Allow
+    }
+    if cgroup.sock_type(ctx) != cgroup.SockStream {
+        return cgroup.Allow
+    }
+    if cgroup.protocol(ctx) != cgroup.IPProtoTCP {
+        return cgroup.Allow
+    }
+    if (cgroup.dst_port(ctx) == 25) && (cgroup.dst_ip4(ctx) != cgroup.ip4(127, 0, 0, 1)) {
         return cgroup.Deny
     }
     return cgroup.Allow
@@ -1353,6 +1363,9 @@ func BlockSMTP(ctx cgroup.Connect) i32 {
 	}
 	if len(manifest.Capabilities) != 1 || manifest.Capabilities[0].Section != "cgroup/connect4" || manifest.Capabilities[0].Danger != "block" {
 		t.Fatalf("capability manifest = %#v, want cgroup block capability", manifest.Capabilities)
+	}
+	if manifest.Requirements == nil {
+		t.Fatal("requirements = nil, want cgroup kernel requirement")
 	}
 }
 

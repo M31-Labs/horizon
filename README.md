@@ -241,7 +241,13 @@ package probes
 @capability("kernel.network.connect.block")
 @cgroup("connect4")
 func BlockSMTP(ctx cgroup.Connect) i32 {
-    if cgroup.dst_port(ctx) == 25 {
+    if cgroup.family(ctx) != cgroup.FamilyIPv4 {
+        return cgroup.Allow
+    }
+    if cgroup.protocol(ctx) != cgroup.IPProtoTCP {
+        return cgroup.Allow
+    }
+    if cgroup.dst_port(ctx) == 25 && cgroup.dst_ip4(ctx) != cgroup.ip4(127, 0, 0, 1) {
         return cgroup.Deny
     }
     return cgroup.Allow
@@ -363,7 +369,7 @@ Horizon makes verifier-sensitive behavior explicit before clang runs:
 - packet headers returned by `xdp.eth(ctx)`, `xdp.ipv4(ctx)`, `xdp.tcp(ctx)`, and `xdp.udp(ctx)` must be nil-checked before field access
 - XDP programs must return named actions such as `xdp.Pass` and `xdp.Drop`, not raw integers
 - TC programs must declare `@tc("ingress")` or `@tc("egress")` and return named actions such as `tc.OK` and `tc.Shot`, not raw integers
-- cgroup connect programs must declare `@cgroup("connect4")` or `@cgroup("connect6")` and return named actions such as `cgroup.Allow` and `cgroup.Deny`, not raw integers
+- cgroup connect programs must declare `@cgroup("connect4")` or `@cgroup("connect6")`, use typed context helpers such as `cgroup.protocol(ctx)` and `cgroup.dst_ip4(ctx)`, and return named actions such as `cgroup.Allow` and `cgroup.Deny`, not raw integers
 - LSM programs must declare an explicit hook such as `@lsm("file_open")` and return named actions such as `lsm.Allow` and `lsm.Deny`, not raw integers
 - generated C emits only the helper and map wrappers the program actually uses
 - generated BPF C is compiled with clang warnings treated as errors

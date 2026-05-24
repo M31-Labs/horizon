@@ -498,7 +498,7 @@ func (u cUsage) hasXDPPacketHelpers() bool {
 }
 
 func (u cUsage) hasEndianHelpers() bool {
-	return len(u.xdpHelpers) > 0 || u.cgroupHelpers["dst_port"]
+	return len(u.xdpHelpers) > 0 || u.cgroupHelpersNeedEndian()
 }
 
 func (u cUsage) hasBool() bool {
@@ -507,6 +507,10 @@ func (u cUsage) hasBool() bool {
 
 func (u cUsage) hasProbeContextHelpers() bool {
 	return len(u.kprobeHelpers) > 0 || len(u.kretHelpers) > 0
+}
+
+func (u cUsage) cgroupHelpersNeedEndian() bool {
+	return u.cgroupHelpers["dst_port"] || u.cgroupHelpers["dst_ip4"] || u.cgroupHelpers["src_ip4"]
 }
 
 func typeUsesBool(typ ir.Type) bool {
@@ -649,6 +653,14 @@ func emitCgroupActionFallbacks(b *strings.Builder) {
 	b.WriteString(`#ifndef HZN_CGROUP_DENY
 #define HZN_CGROUP_DENY 0
 #define HZN_CGROUP_ALLOW 1
+#endif
+#ifndef HZN_CGROUP_FAMILY_IPV4
+#define HZN_CGROUP_FAMILY_IPV4 2
+#define HZN_CGROUP_FAMILY_IPV6 10
+#define HZN_CGROUP_SOCK_STREAM 1
+#define HZN_CGROUP_SOCK_DGRAM 2
+#define HZN_CGROUP_IPPROTO_TCP 6
+#define HZN_CGROUP_IPPROTO_UDP 17
 #endif
 
 `)
@@ -1387,6 +1399,8 @@ func knownCallType(name string) (ir.Type, bool) {
 		return ptrTo(ir.Type{Name: "xdp.UDP"}), true
 	case "xdp.ntohs":
 		return ir.Type{Name: "u16"}, true
+	case "cgroup.family", "cgroup.sock_type", "cgroup.protocol", "cgroup.dst_ip4", "cgroup.src_ip4", "cgroup.ip4":
+		return ir.Type{Name: "u32"}, true
 	case "cgroup.dst_port":
 		return ir.Type{Name: "u16"}, true
 	case "kprobe.arg1", "kprobe.arg2", "kprobe.arg3", "kprobe.arg4", "kprobe.arg5":
@@ -1416,6 +1430,9 @@ func knownSelectorType(name string) (ir.Type, bool) {
 	}
 	if _, ok := cgroupActionC(name); ok {
 		return ir.Type{Name: "i32"}, true
+	}
+	if _, ok := cgroupConstantC(name); ok {
+		return ir.Type{Name: "u32"}, true
 	}
 	if _, ok := lsmActionC(name); ok {
 		return ir.Type{Name: "i32"}, true
@@ -1607,6 +1624,9 @@ func knownSelectorC(name string) (string, bool) {
 	if action, ok := cgroupActionC(name); ok {
 		return action, true
 	}
+	if constant, ok := cgroupConstantC(name); ok {
+		return constant, true
+	}
 	if action, ok := lsmActionC(name); ok {
 		return action, true
 	}
@@ -1673,6 +1693,25 @@ func cgroupActionC(name string) (string, bool) {
 		return "HZN_CGROUP_ALLOW", true
 	case "cgroup.Deny":
 		return "HZN_CGROUP_DENY", true
+	default:
+		return "", false
+	}
+}
+
+func cgroupConstantC(name string) (string, bool) {
+	switch name {
+	case "cgroup.FamilyIPv4":
+		return "HZN_CGROUP_FAMILY_IPV4", true
+	case "cgroup.FamilyIPv6":
+		return "HZN_CGROUP_FAMILY_IPV6", true
+	case "cgroup.SockStream":
+		return "HZN_CGROUP_SOCK_STREAM", true
+	case "cgroup.SockDgram":
+		return "HZN_CGROUP_SOCK_DGRAM", true
+	case "cgroup.IPProtoTCP":
+		return "HZN_CGROUP_IPPROTO_TCP", true
+	case "cgroup.IPProtoUDP":
+		return "HZN_CGROUP_IPPROTO_UDP", true
 	default:
 		return "", false
 	}
@@ -1820,10 +1859,26 @@ func (e cExprEmitter) knownCall(expr *ir.Expr, name string) (string, bool) {
 		return e.oneArgCall(expr, func(arg ir.Expr) string {
 			return fmt.Sprintf("bpf_ntohs(%s)", e.emit(&arg))
 		})
+	case "cgroup.family":
+		return e.cgroupFieldCall(expr, "family")
+	case "cgroup.sock_type":
+		return e.cgroupFieldCall(expr, "type")
+	case "cgroup.protocol":
+		return e.cgroupFieldCall(expr, "protocol")
 	case "cgroup.dst_port":
 		return e.oneArgCall(expr, func(arg ir.Expr) string {
 			return fmt.Sprintf("bpf_ntohs((__u16)%s->user_port)", e.emit(&arg))
 		})
+	case "cgroup.dst_ip4":
+		return e.oneArgCall(expr, func(arg ir.Expr) string {
+			return fmt.Sprintf("bpf_ntohl(%s->user_ip4)", e.emit(&arg))
+		})
+	case "cgroup.src_ip4":
+		return e.oneArgCall(expr, func(arg ir.Expr) string {
+			return fmt.Sprintf("bpf_ntohl(%s->msg_src_ip4)", e.emit(&arg))
+		})
+	case "cgroup.ip4":
+		return e.ip4Call(expr)
 	case "kprobe.arg1", "kprobe.arg2", "kprobe.arg3", "kprobe.arg4", "kprobe.arg5":
 		return e.oneArgCall(expr, func(arg ir.Expr) string {
 			return fmt.Sprintf("hzn_%s(%s)", strings.ReplaceAll(name, ".", "_"), e.emit(&arg))
@@ -1837,11 +1892,29 @@ func (e cExprEmitter) knownCall(expr *ir.Expr, name string) (string, bool) {
 	}
 }
 
+func (e cExprEmitter) cgroupFieldCall(expr *ir.Expr, field string) (string, bool) {
+	return e.oneArgCall(expr, func(arg ir.Expr) string {
+		return fmt.Sprintf("%s->%s", e.emit(&arg), field)
+	})
+}
+
 func (e cExprEmitter) oneArgCall(expr *ir.Expr, render func(ir.Expr) string) (string, bool) {
 	if len(expr.Args) != 1 {
 		return "", false
 	}
 	return render(expr.Args[0]), true
+}
+
+func (e cExprEmitter) ip4Call(expr *ir.Expr) (string, bool) {
+	if len(expr.Args) != 4 {
+		return "", false
+	}
+	return fmt.Sprintf("(((__u32)(%s) << 24) | ((__u32)(%s) << 16) | ((__u32)(%s) << 8) | (__u32)(%s))",
+		e.emit(&expr.Args[0]),
+		e.emit(&expr.Args[1]),
+		e.emit(&expr.Args[2]),
+		e.emit(&expr.Args[3]),
+	), true
 }
 
 func (e cExprEmitter) args(in []ir.Expr) string {
@@ -1971,7 +2044,7 @@ func cgroupHelperCall(expr *ir.Expr) (string, bool) {
 		return "", false
 	}
 	switch expr.Func.Field {
-	case "dst_port":
+	case "family", "sock_type", "protocol", "dst_port", "dst_ip4", "src_ip4", "ip4":
 		return expr.Func.Field, true
 	default:
 		return "", false

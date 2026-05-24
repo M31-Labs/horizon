@@ -1,0 +1,9 @@
+package probes
+
+@cgroup("connect4")
+func BlockSMTP(ctx cgroup.Connect) i32 {
+    if cgroup.dst_ip4(ctx) == cgroup.ip4(127, 0, 0, 300) {
+        return cgroup.Deny
+    }
+    return cgroup.Allow
+}
