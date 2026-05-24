@@ -56,10 +56,11 @@ func (u stackUsage) total() int {
 }
 
 type stackEstimator struct {
-	structs map[string]ir.Struct
-	maps    map[string]ir.Map
-	locals  map[string]ir.Type
-	usage   stackUsage
+	structs    map[string]ir.Struct
+	maps       map[string]ir.Map
+	locals     map[string]ir.Type
+	localBytes int
+	usage      stackUsage
 }
 
 func estimateStack(fn ir.Function, structs map[string]ir.Struct, maps map[string]ir.Map) stackUsage {
@@ -92,8 +93,8 @@ func (e *stackEstimator) walkStatement(stmt ir.Statement) {
 		if typ, ok := e.exprType(stmt.Value); ok {
 			e.locals[stmt.Name] = typ
 			if bytes := e.aggregateSize(typ); bytes > 0 {
-				e.usage.LocalBytes += bytes
-				e.trackPrimary(stmt.Span, bytes)
+				e.localBytes += bytes
+				e.trackPeak(e.localBytes, stmt.Span)
 			}
 		}
 	case "assign":
@@ -110,17 +111,27 @@ func (e *stackEstimator) walkStatement(stmt ir.Statement) {
 		e.walkExpr(stmt.Value)
 	case "if":
 		e.walkExpr(stmt.Cond)
-		e.walkStatements(stmt.Then)
-		e.walkStatements(stmt.Else)
+		thenEstimator := e.child()
+		thenEstimator.walkStatements(stmt.Then)
+		e.mergePeak(thenEstimator.usage)
+		if len(stmt.Else) > 0 {
+			elseEstimator := e.child()
+			elseEstimator.walkStatements(stmt.Else)
+			e.mergePeak(elseEstimator.usage)
+		}
 	case "for":
+		loopEstimator := e.child()
 		if stmt.Init != nil {
-			e.walkStatement(*stmt.Init)
+			loopEstimator.walkStatement(*stmt.Init)
 		}
-		e.walkExpr(stmt.Cond)
+		loopEstimator.walkExpr(stmt.Cond)
 		if stmt.Post != nil {
-			e.walkStatement(*stmt.Post)
+			loopEstimator.walkStatement(*stmt.Post)
 		}
-		e.walkStatements(stmt.Body)
+		bodyEstimator := loopEstimator.child()
+		bodyEstimator.walkStatements(stmt.Body)
+		loopEstimator.mergePeak(bodyEstimator.usage)
+		e.mergePeak(loopEstimator.usage)
 	}
 }
 
@@ -130,10 +141,7 @@ func (e *stackEstimator) walkExpr(expr *ir.Expr) {
 	}
 	if expr.Kind == "struct_lit" {
 		bytes := e.aggregateSize(ir.Type{Name: expr.Name})
-		if bytes > e.usage.MaxTemp {
-			e.usage.MaxTemp = bytes
-			e.trackPrimary(expr.Span, bytes)
-		}
+		e.trackPeak(e.localBytes+bytes, expr.Span)
 	}
 	e.walkExprChildren(expr)
 }
@@ -154,11 +162,37 @@ func (e *stackEstimator) walkExprChildren(expr *ir.Expr) {
 	}
 }
 
-func (e *stackEstimator) trackPrimary(primary span.Span, bytes int) {
-	if bytes <= 0 || primary.IsZero() {
+func (e *stackEstimator) child() stackEstimator {
+	return stackEstimator{
+		structs:    e.structs,
+		maps:       e.maps,
+		locals:     cloneStackLocals(e.locals),
+		localBytes: e.localBytes,
+		usage:      e.usage,
+	}
+}
+
+func cloneStackLocals(in map[string]ir.Type) map[string]ir.Type {
+	out := make(map[string]ir.Type, len(in))
+	for name, typ := range in {
+		out[name] = typ
+	}
+	return out
+}
+
+func (e *stackEstimator) mergePeak(usage stackUsage) {
+	if usage.total() > e.usage.total() {
+		e.usage = usage
+	}
+}
+
+func (e *stackEstimator) trackPeak(total int, primary span.Span) {
+	if total <= e.usage.total() {
 		return
 	}
-	if e.usage.Primary.IsZero() || bytes >= e.usage.total() {
+	e.usage.LocalBytes = total
+	e.usage.MaxTemp = 0
+	if !primary.IsZero() {
 		e.usage.Primary = primary
 	}
 }

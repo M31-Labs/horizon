@@ -52,6 +52,45 @@ func TestAnalyzeInvalidRingbufPrograms(t *testing.T) {
 	}
 }
 
+func TestAnalyzeAllowsStackReuseAcrossExclusiveBranches(t *testing.T) {
+	result := analyzeSource(t, "stack.hzn", `package probes
+
+type Big struct {
+    payload [300]u8
+}
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    if bpf.current_pid() != 0 {
+        left := Big{}
+    } else {
+        right := Big{}
+    }
+    return 0
+}
+`)
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+}
+
+func TestAnalyzeRejectsSequentialLargeStackLocals(t *testing.T) {
+	result := analyzeSource(t, "stack.hzn", `package probes
+
+type Big struct {
+    payload [300]u8
+}
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    first := Big{}
+    second := Big{}
+    return 0
+}
+`)
+	requireDiagnosticCode(t, result, "HZN2700")
+}
+
 func TestAnalyzeBoundedForLoopPasses(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "loop.hzn")
