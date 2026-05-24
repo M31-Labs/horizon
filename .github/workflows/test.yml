@@ -22,15 +22,12 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.24.x'
-      - run: sudo apt-get update && sudo apt-get install -y clang llvm libbpf-dev linux-tools-generic
+      - run: sudo apt-get update && sudo apt-get install -y clang llvm libbpf-dev bpftool
       - name: Prepare vmlinux.h
         run: |
           set -euo pipefail
-          if [ -r /sys/kernel/btf/vmlinux ]; then
-            BPFTOOL="$(command -v bpftool || true)"
-            if [ -z "$BPFTOOL" ] || ! "$BPFTOOL" version >/dev/null 2>&1; then
-              BPFTOOL="$(find /usr/lib/linux-tools -name bpftool -type f | head -n 1)"
-            fi
+          BPFTOOL="$(command -v bpftool || true)"
+          if [ -r /sys/kernel/btf/vmlinux ] && [ -n "$BPFTOOL" ] && "$BPFTOOL" version >/dev/null 2>&1; then
             "$BPFTOOL" btf dump file /sys/kernel/btf/vmlinux format c | sudo tee /usr/local/include/vmlinux.h >/dev/null
           else
             printf '%s\n' \
@@ -45,10 +42,11 @@ jobs:
               'typedef __u16 __be16;' \
               'typedef __u32 __be32;' \
               'typedef __u32 __wsum;' \
-              'enum bpf_map_type { BPF_MAP_TYPE_HASH = 1, BPF_MAP_TYPE_ARRAY = 2, BPF_MAP_TYPE_RINGBUF = 27 };' \
+              'enum bpf_map_type { BPF_MAP_TYPE_HASH = 1, BPF_MAP_TYPE_ARRAY = 2, BPF_MAP_TYPE_PERCPU_HASH = 5, BPF_MAP_TYPE_PERCPU_ARRAY = 6, BPF_MAP_TYPE_LRU_HASH = 9, BPF_MAP_TYPE_LRU_PERCPU_HASH = 10, BPF_MAP_TYPE_RINGBUF = 27 };' \
               'enum { BPF_ANY = 0 };' \
               'struct __sk_buff;' \
               'struct pt_regs {};' \
+              'struct bpf_sock_addr { __u32 family; __u32 type; __u32 protocol; __u32 msg_src_ip4; __u32 user_ip4; __u32 user_port; };' \
               'struct xdp_md { __u32 data; __u32 data_end; };' \
               'struct trace_event_raw_sched_process_exec {};' |
               sudo tee /usr/local/include/vmlinux.h >/dev/null
