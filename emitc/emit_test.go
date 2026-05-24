@@ -531,6 +531,46 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	}
 }
 
+func TestEmitUsesAuthoredContextParamName(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "xdp.hzn")
+	if err := os.WriteFile(path, []byte(`package probes
+
+@xdp
+func Pass(packet xdp.Context) i32 {
+    if eth := xdp.eth(packet); eth != nil {
+        return xdp.Pass
+    }
+    return xdp.Pass
+}
+`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	result, err := compiler.AnalyzePath(dir)
+	if err != nil {
+		t.Fatalf("AnalyzePath: %v", err)
+	}
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+	out, err := Emit(result.Program)
+	if err != nil {
+		t.Fatalf("Emit: %v", err)
+	}
+	for _, needle := range []string{
+		"int Pass(struct xdp_md *packet) {",
+		"(void)packet;",
+		"hzn_xdp_eth(packet)",
+	} {
+		if !strings.Contains(out.Code, needle) {
+			t.Fatalf("generated C missing %q:\n%s", needle, out.Code)
+		}
+	}
+	if strings.Contains(out.Code, "int Pass(struct xdp_md *ctx) {") {
+		t.Fatalf("generated C ignored authored context parameter:\n%s", out.Code)
+	}
+}
+
 func TestEmitMapMaxEntries(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "maps.hzn")

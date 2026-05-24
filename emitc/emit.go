@@ -188,8 +188,9 @@ func (e *cEmitter) emitFunction(fn ir.Function) error {
 		env.setLocal(param.Name, param.Type)
 	}
 	startLine := generatedLine(&e.b)
+	ctxName := contextParamName(fn)
 	fmt.Fprintf(&e.b, "\nSEC(%q)\nint %s(%s) {\n", fn.Section.Name, fn.Name, cContext(fn))
-	e.b.WriteString("    (void)ctx;\n")
+	fmt.Fprintf(&e.b, "    (void)%s;\n", ctxName)
 	statements := cStatementEmitter{
 		b:         &e.b,
 		program:   e.program,
@@ -1303,29 +1304,37 @@ func cDecl(t ir.Type, name string) string {
 }
 
 func cContext(fn ir.Function) string {
+	name := contextParamName(fn)
 	switch fn.Section.Kind {
 	case ir.ProgramTracepoint:
 		if fn.Section.Attach == "" {
-			return "void *ctx"
+			return "void *" + name
 		}
 		event := fn.Section.Attach
 		if idx := strings.IndexByte(event, ':'); idx >= 0 {
 			event = event[idx+1:]
 		}
-		return "struct trace_event_raw_" + cIdent(event) + " *ctx"
+		return "struct trace_event_raw_" + cIdent(event) + " *" + name
 	case ir.ProgramXDP:
-		return "struct xdp_md *ctx"
+		return "struct xdp_md *" + name
 	case ir.ProgramTC:
-		return "struct __sk_buff *ctx"
+		return "struct __sk_buff *" + name
 	case ir.ProgramCgroup:
-		return "struct bpf_sock_addr *ctx"
+		return "struct bpf_sock_addr *" + name
 	case ir.ProgramLSM:
-		return "void *ctx"
+		return "void *" + name
 	case ir.ProgramKprobe, ir.ProgramKretprobe:
-		return "struct pt_regs *ctx"
+		return "struct pt_regs *" + name
 	default:
-		return "void *ctx"
+		return "void *" + name
 	}
+}
+
+func contextParamName(fn ir.Function) string {
+	if len(fn.Params) > 0 && fn.Params[0].Name != "" {
+		return fn.Params[0].Name
+	}
+	return "ctx"
 }
 
 func cIdent(s string) string {

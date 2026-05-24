@@ -137,6 +137,39 @@ func PassIngress(ctx tc.Context) i32 {
 	}
 }
 
+func TestAuthoredContextParamCompileSmoke(t *testing.T) {
+	requireClangSmoke(t)
+	srcDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(srcDir, "xdp.hzn"), []byte(`package probes
+
+@xdp
+func Pass(packet xdp.Context) i32 {
+    if eth := xdp.eth(packet); eth != nil {
+        return xdp.Pass
+    }
+    return xdp.Pass
+}
+`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	outDir := t.TempDir()
+	requireRunQuietly(t, []string{"workbench", srcDir, "-o", outDir, "-compile"})
+	data, err := os.ReadFile(filepath.Join(outDir, "xdp.bpf.c"))
+	if err != nil {
+		t.Fatalf("read generated C: %v", err)
+	}
+	code := string(data)
+	for _, needle := range []string{
+		"int Pass(struct xdp_md *packet) {",
+		"(void)packet;",
+		"hzn_xdp_eth(packet)",
+	} {
+		if !strings.Contains(code, needle) {
+			t.Fatalf("generated C missing %q:\n%s", needle, data)
+		}
+	}
+}
+
 func TestCgroupConnectCompileSmoke(t *testing.T) {
 	requireClangSmoke(t)
 	srcDir := t.TempDir()
