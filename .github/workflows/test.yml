@@ -4,15 +4,12 @@ on:
   push:
   pull_request:
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
-
 jobs:
   go:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: '1.24.x'
       - run: go run ./cmd/hzn fmt ./examples -check
@@ -21,8 +18,8 @@ jobs:
   clang-smoke:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: '1.24.x'
       - run: sudo apt-get update && sudo apt-get install -y clang llvm libbpf-dev
