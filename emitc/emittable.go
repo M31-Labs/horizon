@@ -130,6 +130,12 @@ func validateEmittableStatement(env *cEnv, program ir.Program, stmt ir.Statement
 	case "return":
 		return validateRequiredExpr(env, stmt.Value, "return value", stmt.Span)
 	case "if":
+		if stmt.Init != nil {
+			env = env.child()
+			if err := validateEmittableStatement(env, program, *stmt.Init); err != nil {
+				return err
+			}
+		}
 		if err := validateRequiredExpr(env, stmt.Cond, "if condition", stmt.Span); err != nil {
 			return err
 		}

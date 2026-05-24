@@ -18,6 +18,7 @@ It keeps the kernel-side language deliberately small:
 - package-scoped declarations across multiple `.hzn` files
 - integer constants with optional scalar widths
 - signed integer literals such as `-1` for signed scalar fields and helpers
+- scoped `if name := expr; condition` declarations for short-lived nullable resources
 - ringbuf event output
 - hash, array, per-CPU, and LRU maps
 - explicit `@max_entries(...)` map sizing
@@ -94,12 +95,9 @@ func OnExec(ctx tracepoint.Exec) i32 {
         return 0
     }
 
-    count := Counts.lookup(pid)
-    if count == nil {
-        return 0
+    if count := Counts.lookup(pid); count != nil {
+        count.seen = count.seen + 1
     }
-
-    count.seen = bpf.current_pid()
     return 0
 }
 ```
@@ -399,6 +397,7 @@ Use `make setup-vmlinux` on BTF-enabled Linux hosts to generate
 Horizon makes verifier-sensitive behavior explicit before clang runs:
 
 - ringbuf reservations must be nil-checked, submitted, or discarded exactly once
+- scoped `if name := expr; condition` declarations lower to a C block before the `if`, so nullable lookup/header/reservation locals can be kept short-lived without leaking outside the branch
 - writes after ringbuf submit/discard are rejected
 - map lookup results must be nil-checked before field access
 - nullable map, packet, and ringbuf resource pointers cannot be copied or aliased

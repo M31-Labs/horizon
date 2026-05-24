@@ -441,6 +441,9 @@ func (u *cUsage) walkStatement(stmt ir.Statement, origin cUsageOrigin) {
 }
 
 func (u *cUsage) walkBranch(stmt ir.Statement, origin cUsageOrigin) {
+	if stmt.Init != nil {
+		u.walkStatement(*stmt.Init, origin)
+	}
 	u.walkExpr(stmt.Cond, origin)
 	u.walkStatements(stmt.Then, origin)
 	u.walkStatements(stmt.Else, origin)
@@ -1356,6 +1359,22 @@ func (e cStatementEmitter) emitReturn(stmt ir.Statement, depth int, env *cEnv) {
 }
 
 func (e cStatementEmitter) emitIf(stmt ir.Statement, depth int, env *cEnv) error {
+	if stmt.Init != nil {
+		initEnv := env.child()
+		fmt.Fprintf(e.b, "%s{\n", indent(depth))
+		if err := e.emit(*stmt.Init, depth+1, initEnv); err != nil {
+			return err
+		}
+		if err := e.emitIfBody(stmt, depth+1, initEnv); err != nil {
+			return err
+		}
+		fmt.Fprintf(e.b, "%s}\n", indent(depth))
+		return nil
+	}
+	return e.emitIfBody(stmt, depth, env)
+}
+
+func (e cStatementEmitter) emitIfBody(stmt ir.Statement, depth int, env *cEnv) error {
 	indent := indent(depth)
 	fmt.Fprintf(e.b, "%sif (%s) {\n", indent, cExpr(stmt.Cond, env))
 	if err := e.emitChildren(stmt.Then, depth+1, env.child()); err != nil {

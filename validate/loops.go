@@ -77,6 +77,9 @@ func validateTypedLoops(fn ir.Function, loopBounds map[string]bool) []diag.Diagn
 				}
 				walk(stmt.Body)
 			case "if":
+				if stmt.Init != nil {
+					walk([]ir.Statement{*stmt.Init})
+				}
 				walk(stmt.Then)
 				walk(stmt.Else)
 			}

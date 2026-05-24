@@ -130,6 +130,39 @@ func F(ctx tracepoint.Exec) i32 {
 	}
 }
 
+func TestBuildIfInitStatement(t *testing.T) {
+	parsed, err := parser.ParseSource(parser.SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
+
+@xdp
+func F(ctx xdp.Context) i32 {
+    if tcp := xdp.tcp(ctx); tcp != nil {
+        return xdp.Drop
+    }
+    return xdp.Pass
+}
+`)})
+	if err != nil {
+		t.Fatalf("ParseSource: %v", err)
+	}
+	file, err := Build(parsed)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	fn := file.Decls[0].(FuncDecl)
+	stmt, ok := fn.Body[0].(IfStmt)
+	if !ok {
+		t.Fatalf("body[0] = %T, want IfStmt", fn.Body[0])
+	}
+	init, ok := stmt.Init.(ShortVarStmt)
+	if !ok || init.Name != "tcp" {
+		t.Fatalf("if init = %#v, want short var tcp", stmt.Init)
+	}
+	cond, ok := stmt.Cond.(BinaryExpr)
+	if !ok || cond.Op != "!=" {
+		t.Fatalf("if cond = %#v, want != binary expr", stmt.Cond)
+	}
+}
+
 func TestBuildMapAttribute(t *testing.T) {
 	parsed, err := parser.ParseSource(parser.SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
 

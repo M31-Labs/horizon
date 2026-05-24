@@ -893,11 +893,15 @@ func foreignActionReturnDiagnostic(programSection string, value valueType, prima
 }
 
 func (c *funcBodyChecker) checkIf(s ast.IfStmt, locals map[string]valueType) {
-	cond, exprDiags := c.typeOf(s.Cond, locals)
+	ifLocals := cloneValueTypes(locals)
+	if s.Init != nil {
+		c.checkStmt(s.Init, ifLocals)
+	}
+	cond, exprDiags := c.typeOf(s.Cond, ifLocals)
 	c.add(exprDiags...)
 	c.add(validateCondition(cond, s.Cond.GetSpan())...)
-	c.checkStatements(s.Then, cloneValueTypes(locals))
-	c.checkStatements(s.Else, cloneValueTypes(locals))
+	c.checkStatements(s.Then, cloneValueTypes(ifLocals))
+	c.checkStatements(s.Else, cloneValueTypes(ifLocals))
 }
 
 func (c *funcBodyChecker) checkFor(s ast.ForStmt, locals map[string]valueType) {

@@ -199,7 +199,7 @@ func buildStmt(parsed *parser.File, n *gotreesitter.Node) Stmt {
 	if n == nil {
 		return nil
 	}
-	if (n.Type(parsed.Lang) == "statement" || n.Type(parsed.Lang) == "for_init_statement" || n.Type(parsed.Lang) == "for_post_statement") && n.NamedChildCount() == 1 {
+	if (n.Type(parsed.Lang) == "statement" || n.Type(parsed.Lang) == "if_init_statement" || n.Type(parsed.Lang) == "for_init_statement" || n.Type(parsed.Lang) == "for_post_statement") && n.NamedChildCount() == 1 {
 		return buildStmt(parsed, n.NamedChild(0))
 	}
 	switch n.Type(parsed.Lang) {
@@ -222,6 +222,7 @@ func buildStmt(parsed *parser.File, n *gotreesitter.Node) Stmt {
 		}
 	case "if_statement":
 		return IfStmt{
+			Init: buildStmt(parsed, n.ChildByFieldName("init", parsed.Lang)),
 			Cond: buildExpr(parsed, n.ChildByFieldName("condition", parsed.Lang)),
 			Then: buildBlockStatements(parsed, n.ChildByFieldName("consequence", parsed.Lang)),
 			Else: buildElseStatements(parsed, n.ChildByFieldName("alternative", parsed.Lang)),

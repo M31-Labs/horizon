@@ -205,6 +205,89 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	}
 }
 
+func TestEmitIfInitLookupScope(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "lookup.hzn")
+	if err := os.WriteFile(path, []byte(`package probes
+
+type Count struct {
+    seen u32
+}
+
+map Counts hash[u32, Count]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    pid := bpf.current_pid()
+    if count := Counts.lookup(pid); count != nil {
+        count.seen = count.seen + 1
+    }
+    return 0
+}
+`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	result, err := compiler.AnalyzePath(dir)
+	if err != nil {
+		t.Fatalf("AnalyzePath: %v", err)
+	}
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+	out, err := Emit(result.Program)
+	if err != nil {
+		t.Fatalf("Emit: %v", err)
+	}
+	for _, needle := range []string{
+		"{\n        struct hzn_type_Count *count = Counts_lookup(pid);",
+		"if (count != 0) {",
+		"count->seen = count->seen + 1;",
+	} {
+		if !strings.Contains(out.Code, needle) {
+			t.Fatalf("generated C missing %q:\n%s", needle, out.Code)
+		}
+	}
+}
+
+func TestEmitIfInitPacketScope(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "xdp.hzn")
+	if err := os.WriteFile(path, []byte(`package probes
+
+@xdp
+func DropTCP(ctx xdp.Context) i32 {
+    if tcp := xdp.tcp(ctx); tcp != nil {
+        if xdp.ntohs(tcp.dst_port) == 443 {
+            return xdp.Drop
+        }
+    }
+    return xdp.Pass
+}
+`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	result, err := compiler.AnalyzePath(dir)
+	if err != nil {
+		t.Fatalf("AnalyzePath: %v", err)
+	}
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+	out, err := Emit(result.Program)
+	if err != nil {
+		t.Fatalf("Emit: %v", err)
+	}
+	for _, needle := range []string{
+		"{\n        struct hzn_xdp_tcp *tcp = hzn_xdp_tcp(ctx);",
+		"if (tcp != 0) {",
+		"if (bpf_ntohs(tcp->dst_port) == 443) {",
+	} {
+		if !strings.Contains(out.Code, needle) {
+			t.Fatalf("generated C missing %q:\n%s", needle, out.Code)
+		}
+	}
+}
+
 func assertSourceMapLine(t *testing.T, out Output, generatedNeedle string, wantNode string, wantSourceLine int) {
 	t.Helper()
 	line := generatedLineContaining(t, out.Code, generatedNeedle)

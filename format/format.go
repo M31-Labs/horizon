@@ -252,7 +252,7 @@ func (b *builder) stmt(stmt ast.Stmt) {
 }
 
 func (b *builder) ifStmt(stmt ast.IfStmt) {
-	b.lineWithComment("if "+expr(stmt.Cond)+" {", stmt.Span.Start.Line)
+	b.lineWithComment(ifHeader(stmt), stmt.Span.Start.Line)
 	b.indent++
 	b.stmts(stmt.Then)
 	if len(stmt.Else) == 0 {
@@ -311,7 +311,11 @@ func (b *builder) emitElse(stmts []ast.Stmt) {
 }
 
 func ifHeader(stmt ast.IfStmt) string {
-	return "if " + expr(stmt.Cond) + " {"
+	header := "if "
+	if stmt.Init != nil {
+		header += simpleStmt(stmt.Init) + "; "
+	}
+	return header + expr(stmt.Cond) + " {"
 }
 
 func (b *builder) forStmt(stmt ast.ForStmt) {

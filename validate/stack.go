@@ -110,15 +110,20 @@ func (e *stackEstimator) walkStatement(stmt ir.Statement) {
 	case "return":
 		e.walkExpr(stmt.Value)
 	case "if":
-		e.walkExpr(stmt.Cond)
-		thenEstimator := e.child()
+		ifEstimator := e.child()
+		if stmt.Init != nil {
+			ifEstimator.walkStatement(*stmt.Init)
+		}
+		ifEstimator.walkExpr(stmt.Cond)
+		thenEstimator := ifEstimator.child()
 		thenEstimator.walkStatements(stmt.Then)
 		e.mergePeak(thenEstimator.usage)
 		if len(stmt.Else) > 0 {
-			elseEstimator := e.child()
+			elseEstimator := ifEstimator.child()
 			elseEstimator.walkStatements(stmt.Else)
 			e.mergePeak(elseEstimator.usage)
 		}
+		e.mergePeak(ifEstimator.usage)
 	case "for":
 		loopEstimator := e.child()
 		if stmt.Init != nil {

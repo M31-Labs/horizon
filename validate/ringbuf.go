@@ -224,75 +224,87 @@ func validateTypedRingbuf(fn ir.Function, ringMaps map[string]ir.Map) []diag.Dia
 					checkWrite(varName, stmt.Span)
 				}
 			case "if":
-				checkExprHelperWrites(stmt.Cond, checkWrite)
-				if varName, ok := nilCheckedVar(stmt.Cond); ok {
-					branchStates := cloneReserveStates(states)
-					if state, ok := branchStates[varName]; ok && state.State == "maybe_nil" {
-						state.State = "nil"
-						branchStates[varName] = state
-					}
-					oldStates := states
-					states = branchStates
-					walk(stmt.Then)
-					thenStates := states
-					states = oldStates
-					if len(stmt.Else) > 0 {
-						elseStates := cloneReserveStates(oldStates)
-						if state, ok := elseStates[varName]; ok && state.State == "maybe_nil" {
-							state.State = "live"
-							elseStates[varName] = state
-						}
-						states = elseStates
-						walk(stmt.Else)
-						elseStates = states
-						states = mergeReserveBranchStates(thenStates, elseStates, branchAlwaysReturns(stmt.Then), branchAlwaysReturns(stmt.Else))
-						break
-					}
-					if branchAlwaysReturns(stmt.Then) {
-						if state, ok := states[varName]; ok && state.State == "maybe_nil" {
-							state.State = "live"
-							states[varName] = state
-						}
-					}
-					break
+				outerStates := states
+				scoped := stmt.Init != nil
+				if scoped {
+					states = cloneReserveStates(outerStates)
+					walk([]ir.Statement{*stmt.Init})
 				}
-				if varName, ok := nilComparedVar(stmt.Cond, "!="); ok {
-					branchStates := cloneReserveStates(states)
-					if state, ok := branchStates[varName]; ok && state.State == "maybe_nil" {
-						state.State = "live"
-						branchStates[varName] = state
-					}
-					oldStates := states
-					states = branchStates
-					walk(stmt.Then)
-					thenStates := states
-					states = oldStates
-					if len(stmt.Else) > 0 {
-						elseStates := cloneReserveStates(oldStates)
-						if state, ok := elseStates[varName]; ok && state.State == "maybe_nil" {
+				func() {
+					checkExprHelperWrites(stmt.Cond, checkWrite)
+					if varName, ok := nilCheckedVar(stmt.Cond); ok {
+						branchStates := cloneReserveStates(states)
+						if state, ok := branchStates[varName]; ok && state.State == "maybe_nil" {
 							state.State = "nil"
-							elseStates[varName] = state
+							branchStates[varName] = state
 						}
-						states = elseStates
+						oldStates := states
+						states = branchStates
+						walk(stmt.Then)
+						thenStates := states
+						states = oldStates
+						if len(stmt.Else) > 0 {
+							elseStates := cloneReserveStates(oldStates)
+							if state, ok := elseStates[varName]; ok && state.State == "maybe_nil" {
+								state.State = "live"
+								elseStates[varName] = state
+							}
+							states = elseStates
+							walk(stmt.Else)
+							elseStates = states
+							states = mergeReserveBranchStates(thenStates, elseStates, branchAlwaysReturns(stmt.Then), branchAlwaysReturns(stmt.Else))
+							return
+						}
+						if branchAlwaysReturns(stmt.Then) {
+							if state, ok := states[varName]; ok && state.State == "maybe_nil" {
+								state.State = "live"
+								states[varName] = state
+							}
+						}
+						return
+					}
+					if varName, ok := nilComparedVar(stmt.Cond, "!="); ok {
+						branchStates := cloneReserveStates(states)
+						if state, ok := branchStates[varName]; ok && state.State == "maybe_nil" {
+							state.State = "live"
+							branchStates[varName] = state
+						}
+						oldStates := states
+						states = branchStates
+						walk(stmt.Then)
+						thenStates := states
+						states = oldStates
+						if len(stmt.Else) > 0 {
+							elseStates := cloneReserveStates(oldStates)
+							if state, ok := elseStates[varName]; ok && state.State == "maybe_nil" {
+								state.State = "nil"
+								elseStates[varName] = state
+							}
+							states = elseStates
+							walk(stmt.Else)
+							elseStates = states
+							states = mergeReserveBranchStates(thenStates, elseStates, branchAlwaysReturns(stmt.Then), branchAlwaysReturns(stmt.Else))
+							return
+						}
+						states = mergeReserveBranchStates(thenStates, oldStates, branchAlwaysReturns(stmt.Then), false)
+						return
+					}
+					oldStates := states
+					states = cloneReserveStates(oldStates)
+					walk(stmt.Then)
+					thenStates := states
+					elseStates := oldStates
+					if len(stmt.Else) > 0 {
+						states = cloneReserveStates(oldStates)
 						walk(stmt.Else)
 						elseStates = states
-						states = mergeReserveBranchStates(thenStates, elseStates, branchAlwaysReturns(stmt.Then), branchAlwaysReturns(stmt.Else))
-						break
 					}
-					states = mergeReserveBranchStates(thenStates, oldStates, branchAlwaysReturns(stmt.Then), false)
-					break
+					states = mergeReserveBranchStates(thenStates, elseStates, branchAlwaysReturns(stmt.Then), branchAlwaysReturns(stmt.Else))
+				}()
+				if scoped {
+					reportScopedLiveReservations(states, outerStates, reportLive, stmt.Span)
+					states = pruneNewReserveStates(states, outerStates)
 				}
-				oldStates := states
-				states = cloneReserveStates(oldStates)
-				walk(stmt.Then)
-				thenStates := states
-				elseStates := oldStates
-				if len(stmt.Else) > 0 {
-					states = cloneReserveStates(oldStates)
-					walk(stmt.Else)
-					elseStates = states
-				}
-				states = mergeReserveBranchStates(thenStates, elseStates, branchAlwaysReturns(stmt.Then), branchAlwaysReturns(stmt.Else))
 			case "for":
 				walk(stmt.Body)
 			case "return":
@@ -388,6 +400,27 @@ func cloneReserveStates(in map[string]reserveState) map[string]reserveState {
 		out[k] = v
 	}
 	return out
+}
+
+func pruneNewReserveStates(in map[string]reserveState, outer map[string]reserveState) map[string]reserveState {
+	out := cloneReserveStates(in)
+	for name := range out {
+		if _, ok := outer[name]; !ok {
+			delete(out, name)
+		}
+	}
+	return out
+}
+
+func reportScopedLiveReservations(states map[string]reserveState, outer map[string]reserveState, report func(string, span.Span), primary span.Span) {
+	for name, state := range states {
+		if _, ok := outer[name]; ok {
+			continue
+		}
+		if state.State == "live" || state.State == "maybe_nil" || state.State == "maybe_consumed" {
+			report(name, primary)
+		}
+	}
 }
 
 func mergeReserveBranchStates(thenStates map[string]reserveState, elseStates map[string]reserveState, thenReturns bool, elseReturns bool) map[string]reserveState {

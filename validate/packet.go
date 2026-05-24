@@ -92,74 +92,85 @@ func validateXDPPacketHeaders(fn ir.Function) []diag.Diagnostic {
 			case "return":
 				checkExpr(stmt.Value)
 			case "if":
-				checkExpr(stmt.Cond)
-				if varName, ok := nilComparedVar(stmt.Cond, "=="); ok {
-					branchStates := clonePacketHeaderStates(states)
-					if state, ok := branchStates[varName]; ok && state.State == "maybe_nil" {
-						state.State = "nil"
-						branchStates[varName] = state
-					}
-					oldStates := states
-					states = branchStates
-					walk(stmt.Then)
-					thenStates := states
-					states = oldStates
-					if len(stmt.Else) > 0 {
-						elseStates := clonePacketHeaderStates(oldStates)
-						if state, ok := elseStates[varName]; ok && state.State == "maybe_nil" {
-							state.State = "live"
-							elseStates[varName] = state
-						}
-						states = elseStates
-						walk(stmt.Else)
-						elseStates = states
-						states = mergePacketBranchStates(thenStates, elseStates, branchAlwaysReturns(stmt.Then), branchAlwaysReturns(stmt.Else))
-						break
-					}
-					if branchAlwaysReturns(stmt.Then) {
-						if state, ok := states[varName]; ok && state.State == "maybe_nil" {
-							state.State = "live"
-							states[varName] = state
-						}
-					}
-					break
+				outerStates := states
+				scoped := stmt.Init != nil
+				if scoped {
+					states = clonePacketHeaderStates(outerStates)
+					walk([]ir.Statement{*stmt.Init})
 				}
-				if varName, ok := nilComparedVar(stmt.Cond, "!="); ok {
-					branchStates := clonePacketHeaderStates(states)
-					if state, ok := branchStates[varName]; ok && state.State == "maybe_nil" {
-						state.State = "live"
-						branchStates[varName] = state
-					}
-					oldStates := states
-					states = branchStates
-					walk(stmt.Then)
-					thenStates := states
-					states = oldStates
-					if len(stmt.Else) > 0 {
-						elseStates := clonePacketHeaderStates(oldStates)
-						if state, ok := elseStates[varName]; ok && state.State == "maybe_nil" {
+				func() {
+					checkExpr(stmt.Cond)
+					if varName, ok := nilComparedVar(stmt.Cond, "=="); ok {
+						branchStates := clonePacketHeaderStates(states)
+						if state, ok := branchStates[varName]; ok && state.State == "maybe_nil" {
 							state.State = "nil"
-							elseStates[varName] = state
+							branchStates[varName] = state
 						}
-						states = elseStates
+						oldStates := states
+						states = branchStates
+						walk(stmt.Then)
+						thenStates := states
+						states = oldStates
+						if len(stmt.Else) > 0 {
+							elseStates := clonePacketHeaderStates(oldStates)
+							if state, ok := elseStates[varName]; ok && state.State == "maybe_nil" {
+								state.State = "live"
+								elseStates[varName] = state
+							}
+							states = elseStates
+							walk(stmt.Else)
+							elseStates = states
+							states = mergePacketBranchStates(thenStates, elseStates, branchAlwaysReturns(stmt.Then), branchAlwaysReturns(stmt.Else))
+							return
+						}
+						if branchAlwaysReturns(stmt.Then) {
+							if state, ok := states[varName]; ok && state.State == "maybe_nil" {
+								state.State = "live"
+								states[varName] = state
+							}
+						}
+						return
+					}
+					if varName, ok := nilComparedVar(stmt.Cond, "!="); ok {
+						branchStates := clonePacketHeaderStates(states)
+						if state, ok := branchStates[varName]; ok && state.State == "maybe_nil" {
+							state.State = "live"
+							branchStates[varName] = state
+						}
+						oldStates := states
+						states = branchStates
+						walk(stmt.Then)
+						thenStates := states
+						states = oldStates
+						if len(stmt.Else) > 0 {
+							elseStates := clonePacketHeaderStates(oldStates)
+							if state, ok := elseStates[varName]; ok && state.State == "maybe_nil" {
+								state.State = "nil"
+								elseStates[varName] = state
+							}
+							states = elseStates
+							walk(stmt.Else)
+							elseStates = states
+							states = mergePacketBranchStates(thenStates, elseStates, branchAlwaysReturns(stmt.Then), branchAlwaysReturns(stmt.Else))
+							return
+						}
+						return
+					}
+					oldStates := states
+					states = clonePacketHeaderStates(oldStates)
+					walk(stmt.Then)
+					thenStates := states
+					elseStates := oldStates
+					if len(stmt.Else) > 0 {
+						states = clonePacketHeaderStates(oldStates)
 						walk(stmt.Else)
 						elseStates = states
-						states = mergePacketBranchStates(thenStates, elseStates, branchAlwaysReturns(stmt.Then), branchAlwaysReturns(stmt.Else))
-						break
 					}
-					break
+					states = mergePacketBranchStates(thenStates, elseStates, branchAlwaysReturns(stmt.Then), branchAlwaysReturns(stmt.Else))
+				}()
+				if scoped {
+					states = pruneNewPacketHeaderStates(states, outerStates)
 				}
-				oldStates := states
-				states = clonePacketHeaderStates(oldStates)
-				walk(stmt.Then)
-				thenStates := states
-				elseStates := oldStates
-				if len(stmt.Else) > 0 {
-					states = clonePacketHeaderStates(oldStates)
-					walk(stmt.Else)
-					elseStates = states
-				}
-				states = mergePacketBranchStates(thenStates, elseStates, branchAlwaysReturns(stmt.Then), branchAlwaysReturns(stmt.Else))
 			case "for":
 				if stmt.Init != nil {
 					walk([]ir.Statement{*stmt.Init})
@@ -196,6 +207,16 @@ func clonePacketHeaderStates(in map[string]packetHeaderState) map[string]packetH
 	out := make(map[string]packetHeaderState, len(in))
 	for k, v := range in {
 		out[k] = v
+	}
+	return out
+}
+
+func pruneNewPacketHeaderStates(in map[string]packetHeaderState, outer map[string]packetHeaderState) map[string]packetHeaderState {
+	out := clonePacketHeaderStates(in)
+	for name := range out {
+		if _, ok := outer[name]; !ok {
+			delete(out, name)
+		}
 	}
 	return out
 }

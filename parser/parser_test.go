@@ -72,6 +72,29 @@ func F(ctx tracepoint.Exec) i32 {
 	}
 }
 
+func TestParseIfInitStatement(t *testing.T) {
+	src := SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
+
+@xdp
+func F(ctx xdp.Context) i32 {
+    if tcp := xdp.tcp(ctx); tcp != nil {
+        return xdp.Drop
+    }
+    return xdp.Pass
+}
+`)}
+	file, err := ParseSource(src)
+	if err != nil {
+		t.Fatalf("ParseSource: %v", err)
+	}
+	if countNamedDescendants(file.Tree.RootNode(), file.Lang, "if_init_statement") != 1 {
+		t.Fatalf("if init count = %d, want 1; tree: %s", countNamedDescendants(file.Tree.RootNode(), file.Lang, "if_init_statement"), file.Tree.RootNode().SExpr(file.Lang))
+	}
+	if countNamedDescendants(file.Tree.RootNode(), file.Lang, "short_var_declaration") != 1 {
+		t.Fatalf("short var count = %d, want 1; tree: %s", countNamedDescendants(file.Tree.RootNode(), file.Lang, "short_var_declaration"), file.Tree.RootNode().SExpr(file.Lang))
+	}
+}
+
 func TestParseSingleLineBlockStatement(t *testing.T) {
 	src := SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
 

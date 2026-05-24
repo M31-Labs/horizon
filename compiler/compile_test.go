@@ -1391,6 +1391,27 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	requireDiagnosticCode(t, result, "HZN1404")
 }
 
+func TestAnalyzeRejectsIfInitLocalOutsideScope(t *testing.T) {
+	result := analyzeSource(t, "scope.hzn", `package probes
+
+type Count struct {
+    seen u32
+}
+
+map Counts hash[u32, Count]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    pid := bpf.current_pid()
+    if count := Counts.lookup(pid); count != nil {
+        count.seen = count.seen + 1
+    }
+    return count.seen
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1404")
+}
+
 func TestAnalyzeRejectsForInitLocalOutsideScope(t *testing.T) {
 	result := analyzeSource(t, "scope.hzn", `package probes
 
@@ -1433,6 +1454,24 @@ func DropTCP(ctx xdp.Context) i32 {
 	}
 	if len(manifest.Capabilities) != 1 || manifest.Capabilities[0].Section != "xdp" || manifest.Capabilities[0].Danger != "drop" {
 		t.Fatalf("capability manifest = %#v, want xdp drop capability section", manifest.Capabilities)
+	}
+}
+
+func TestAnalyzeIfInitPacketHeaderPasses(t *testing.T) {
+	result := analyzeSource(t, "xdp.hzn", `package probes
+
+@xdp
+func DropTCP(ctx xdp.Context) i32 {
+    if tcp := xdp.tcp(ctx); tcp != nil {
+        if xdp.ntohs(tcp.dst_port) == 443 {
+            return xdp.Drop
+        }
+    }
+    return xdp.Pass
+}
+`)
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
 	}
 }
 
@@ -2103,6 +2142,31 @@ func OnExec(ctx tracepoint.Exec) i32 {
         Events.submit(event)
     } else {
         return 0
+    }
+    return 0
+}
+`)
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+}
+
+func TestAnalyzeIfInitRingbufElseBranchConsumesReservation(t *testing.T) {
+	result := analyzeSource(t, "else.hzn", `package probes
+
+type Event struct {
+    pid u32
+}
+
+map Events ringbuf[Event]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    if event := Events.reserve(); event == nil {
+        return 0
+    } else {
+        event.pid = bpf.current_pid()
+        Events.submit(event)
     }
     return 0
 }

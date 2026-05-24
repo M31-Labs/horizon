@@ -206,6 +206,10 @@ func defineStatements(g *grammargen.Grammar) {
 
 	g.Define("if_statement", grammargen.Seq(
 		grammargen.Str("if"),
+		grammargen.Optional(grammargen.Seq(
+			grammargen.Field("init", grammargen.Sym("if_init_statement")),
+			grammargen.Str(";"),
+		)),
 		grammargen.Field("condition", grammargen.Sym("condition_expression")),
 		grammargen.Field("consequence", grammargen.Sym("block")),
 		grammargen.Optional(grammargen.Seq(
@@ -216,6 +220,8 @@ func defineStatements(g *grammargen.Grammar) {
 			)),
 		)),
 	))
+
+	g.Define("if_init_statement", grammargen.Sym("short_var_declaration"))
 
 	g.Define("for_statement", grammargen.Seq(
 		grammargen.Str("for"),

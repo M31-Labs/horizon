@@ -184,6 +184,31 @@ func OnOpenReturn(ctx kretprobe.Context) i32 {
 	}
 }
 
+func TestSourceFormatsIfInitStatement(t *testing.T) {
+	got, err := Source(parser.SourceFile{Path: "if_init.hzn", Bytes: []byte(`package probes
+@xdp
+func DropTCP(ctx xdp.Context)i32{
+if tcp:=xdp.tcp(ctx);tcp!=nil{return xdp.Drop}
+return xdp.Pass
+}`)})
+	if err != nil {
+		t.Fatalf("Source: %v", err)
+	}
+	want := `package probes
+
+@xdp
+func DropTCP(ctx xdp.Context) i32 {
+    if tcp := xdp.tcp(ctx); tcp != nil {
+        return xdp.Drop
+    }
+    return xdp.Pass
+}
+`
+	if string(got) != want {
+		t.Fatalf("formatted source mismatch\nwant:\n%s\ngot:\n%s", want, got)
+	}
+}
+
 func TestSourceFormatsPerCPUAndLRUMaps(t *testing.T) {
 	got, err := Source(parser.SourceFile{Path: "maps.hzn", Bytes: []byte(`package probes
 map Counts percpu_hash[u32,u64]

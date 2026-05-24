@@ -162,74 +162,85 @@ func validateTypedMapLookups(fn ir.Function, lookupMaps map[string]ir.Map) []dia
 			case "return":
 				checkExpr(stmt.Value)
 			case "if":
-				checkExpr(stmt.Cond)
-				if varName, ok := nilComparedVar(stmt.Cond, "=="); ok {
-					branchStates := cloneLookupStates(states)
-					if state, ok := branchStates[varName]; ok && state.State == "maybe_nil" {
-						state.State = "nil"
-						branchStates[varName] = state
-					}
-					oldStates := states
-					states = branchStates
-					walk(stmt.Then)
-					thenStates := states
-					states = oldStates
-					if len(stmt.Else) > 0 {
-						elseStates := cloneLookupStates(oldStates)
-						if state, ok := elseStates[varName]; ok && state.State == "maybe_nil" {
-							state.State = "live"
-							elseStates[varName] = state
-						}
-						states = elseStates
-						walk(stmt.Else)
-						elseStates = states
-						states = mergeLookupBranchStates(thenStates, elseStates, branchAlwaysReturns(stmt.Then), branchAlwaysReturns(stmt.Else))
-						break
-					}
-					if branchAlwaysReturns(stmt.Then) {
-						if state, ok := states[varName]; ok && state.State == "maybe_nil" {
-							state.State = "live"
-							states[varName] = state
-						}
-					}
-					break
+				outerStates := states
+				scoped := stmt.Init != nil
+				if scoped {
+					states = cloneLookupStates(outerStates)
+					walk([]ir.Statement{*stmt.Init})
 				}
-				if varName, ok := nilComparedVar(stmt.Cond, "!="); ok {
-					branchStates := cloneLookupStates(states)
-					if state, ok := branchStates[varName]; ok && state.State == "maybe_nil" {
-						state.State = "live"
-						branchStates[varName] = state
-					}
-					oldStates := states
-					states = branchStates
-					walk(stmt.Then)
-					thenStates := states
-					states = oldStates
-					if len(stmt.Else) > 0 {
-						elseStates := cloneLookupStates(oldStates)
-						if state, ok := elseStates[varName]; ok && state.State == "maybe_nil" {
+				func() {
+					checkExpr(stmt.Cond)
+					if varName, ok := nilComparedVar(stmt.Cond, "=="); ok {
+						branchStates := cloneLookupStates(states)
+						if state, ok := branchStates[varName]; ok && state.State == "maybe_nil" {
 							state.State = "nil"
-							elseStates[varName] = state
+							branchStates[varName] = state
 						}
-						states = elseStates
+						oldStates := states
+						states = branchStates
+						walk(stmt.Then)
+						thenStates := states
+						states = oldStates
+						if len(stmt.Else) > 0 {
+							elseStates := cloneLookupStates(oldStates)
+							if state, ok := elseStates[varName]; ok && state.State == "maybe_nil" {
+								state.State = "live"
+								elseStates[varName] = state
+							}
+							states = elseStates
+							walk(stmt.Else)
+							elseStates = states
+							states = mergeLookupBranchStates(thenStates, elseStates, branchAlwaysReturns(stmt.Then), branchAlwaysReturns(stmt.Else))
+							return
+						}
+						if branchAlwaysReturns(stmt.Then) {
+							if state, ok := states[varName]; ok && state.State == "maybe_nil" {
+								state.State = "live"
+								states[varName] = state
+							}
+						}
+						return
+					}
+					if varName, ok := nilComparedVar(stmt.Cond, "!="); ok {
+						branchStates := cloneLookupStates(states)
+						if state, ok := branchStates[varName]; ok && state.State == "maybe_nil" {
+							state.State = "live"
+							branchStates[varName] = state
+						}
+						oldStates := states
+						states = branchStates
+						walk(stmt.Then)
+						thenStates := states
+						states = oldStates
+						if len(stmt.Else) > 0 {
+							elseStates := cloneLookupStates(oldStates)
+							if state, ok := elseStates[varName]; ok && state.State == "maybe_nil" {
+								state.State = "nil"
+								elseStates[varName] = state
+							}
+							states = elseStates
+							walk(stmt.Else)
+							elseStates = states
+							states = mergeLookupBranchStates(thenStates, elseStates, branchAlwaysReturns(stmt.Then), branchAlwaysReturns(stmt.Else))
+							return
+						}
+						return
+					}
+					oldStates := states
+					states = cloneLookupStates(oldStates)
+					walk(stmt.Then)
+					thenStates := states
+					elseStates := oldStates
+					if len(stmt.Else) > 0 {
+						states = cloneLookupStates(oldStates)
 						walk(stmt.Else)
 						elseStates = states
-						states = mergeLookupBranchStates(thenStates, elseStates, branchAlwaysReturns(stmt.Then), branchAlwaysReturns(stmt.Else))
-						break
 					}
-					break
+					states = mergeLookupBranchStates(thenStates, elseStates, branchAlwaysReturns(stmt.Then), branchAlwaysReturns(stmt.Else))
+				}()
+				if scoped {
+					states = pruneNewLookupStates(states, outerStates)
 				}
-				oldStates := states
-				states = cloneLookupStates(oldStates)
-				walk(stmt.Then)
-				thenStates := states
-				elseStates := oldStates
-				if len(stmt.Else) > 0 {
-					states = cloneLookupStates(oldStates)
-					walk(stmt.Else)
-					elseStates = states
-				}
-				states = mergeLookupBranchStates(thenStates, elseStates, branchAlwaysReturns(stmt.Then), branchAlwaysReturns(stmt.Else))
 			case "for":
 				if stmt.Init != nil {
 					walk([]ir.Statement{*stmt.Init})
@@ -290,6 +301,16 @@ func cloneLookupStates(in map[string]lookupState) map[string]lookupState {
 	out := make(map[string]lookupState, len(in))
 	for k, v := range in {
 		out[k] = v
+	}
+	return out
+}
+
+func pruneNewLookupStates(in map[string]lookupState, outer map[string]lookupState) map[string]lookupState {
+	out := cloneLookupStates(in)
+	for name := range out {
+		if _, ok := outer[name]; !ok {
+			delete(out, name)
+		}
 	}
 	return out
 }
