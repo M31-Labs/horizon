@@ -123,6 +123,24 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	}
 }
 
+func TestAnalyzeAllowsSafeLiteralArithmetic(t *testing.T) {
+	result := analyzeSource(t, "arithmetic.hzn", `package probes
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    value := u32(1) << 31
+    other := value / u32(1)
+    if other % 3 == 0 {
+        return 0
+    }
+    return 0
+}
+`)
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+}
+
 func TestAnalyzeReportsParseDiagnostic(t *testing.T) {
 	result := analyzeSource(t, "bad.hzn", `package probes
 
@@ -166,6 +184,10 @@ func TestAnalyzeInvalidRingbufPrograms(t *testing.T) {
 		"../testdata/invalid/raw_scalar_address.hzn":          "HZN1472",
 		"../testdata/invalid/pointer_deref.hzn":               "HZN1473",
 		"../testdata/invalid/bare_return.hzn":                 "HZN1476",
+		"../testdata/invalid/division_by_zero.hzn":            "HZN1478",
+		"../testdata/invalid/modulo_by_zero.hzn":              "HZN1478",
+		"../testdata/invalid/shift_out_of_range.hzn":          "HZN1479",
+		"../testdata/invalid/negative_shift_count.hzn":        "HZN1479",
 		"../testdata/invalid/source_pointer_type.hzn":         "HZN1106",
 		"../testdata/invalid/duplicate_struct_field.hzn":      "HZN1107",
 		"../testdata/invalid/recursive_struct.hzn":            "HZN1108",

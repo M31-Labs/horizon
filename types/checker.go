@@ -1467,11 +1467,17 @@ func typeOfBinaryExpr(expr ast.BinaryExpr, left valueType, right valueType) (val
 		}}
 	case isShiftOp(expr.Op):
 		if integerOperand(left) && integerOperand(right) {
+			if d, ok := shiftCountDiagnostic(expr, left, right); ok {
+				return integerResult(left, right), []diag.Diagnostic{d}
+			}
 			return integerResult(left, right), nil
 		}
 	case isIntegerBinaryOp(expr.Op):
 		if integerOperand(left) && integerOperand(right) && compatibleIntegerOperands(left, right) {
 			if d, ok := integerOperandRangeDiagnostic(expr, left, right); ok {
+				return integerResult(left, right), []diag.Diagnostic{d}
+			}
+			if d, ok := zeroDivisorDiagnostic(expr, right); ok {
 				return integerResult(left, right), []diag.Diagnostic{d}
 			}
 			return integerResult(left, right), nil
@@ -1570,6 +1576,53 @@ func isIntegerBinaryOp(op string) bool {
 	default:
 		return false
 	}
+}
+
+func zeroDivisorDiagnostic(expr ast.BinaryExpr, divisor valueType) (diag.Diagnostic, bool) {
+	if expr.Op != "/" && expr.Op != "%" {
+		return diag.Diagnostic{}, false
+	}
+	value, ok := integerLiteralValue(divisor)
+	if !ok || value != 0 {
+		return diag.Diagnostic{}, false
+	}
+	return diag.Diagnostic{
+		Code:     "HZN1478",
+		Severity: diag.SeverityError,
+		Message:  fmt.Sprintf("operator %s divisor cannot be literal zero", expr.Op),
+		Primary:  expr.Right.GetSpan(),
+		Suggest:  "use a non-zero constant or branch around dynamic divisors before dividing",
+	}, true
+}
+
+func shiftCountDiagnostic(expr ast.BinaryExpr, value valueType, count valueType) (diag.Diagnostic, bool) {
+	lit, ok := integerLiteralValue(count)
+	if !ok {
+		return diag.Diagnostic{}, false
+	}
+	width := integerBitWidth(value.Name)
+	if width == 0 {
+		return diag.Diagnostic{}, false
+	}
+	if lit < 0 {
+		return diag.Diagnostic{
+			Code:     "HZN1479",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("operator %s shift count cannot be negative", expr.Op),
+			Primary:  expr.Right.GetSpan(),
+			Suggest:  "use a shift count from 0 up to one less than the left operand width",
+		}, true
+	}
+	if lit >= int64(width) {
+		return diag.Diagnostic{
+			Code:     "HZN1479",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("operator %s shift count %d is outside the %s width", expr.Op, lit, typeName(value)),
+			Primary:  expr.Right.GetSpan(),
+			Suggest:  fmt.Sprintf("use a shift count from 0 to %d for %s values", width-1, typeName(value)),
+		}, true
+	}
+	return diag.Diagnostic{}, false
 }
 
 func (t exprTyper) structLiteral(lit ast.StructLiteralExpr) (valueType, []diag.Diagnostic) {
@@ -1821,10 +1874,14 @@ func (t exprTyper) scalarConversion(name string, call ast.CallExpr) (valueType, 
 	if len(call.Args) != 1 {
 		return valueType{Name: name}, []diag.Diagnostic{argCountDiagnostic(call.Span, name, 1, len(call.Args))}
 	}
+	result := valueType{Name: name}
 	arg, diags := t.typeOf(call.Args[0])
+	if arg.IntLiteral != "" {
+		result.IntLiteral = arg.IntLiteral
+	}
 	if arg.Fallible != "" {
 		diags = append(diags, fallibleResultDiagnostic(call.Span, arg.Fallible))
-		return valueType{Name: name}, diags
+		return result, diags
 	}
 	if arg.Void || arg.Ptr || arg.MaybeNil || arg.Resource || !integerOperand(arg) ||
 		arg.XDPAction || arg.TCAction || arg.CgroupAction || arg.LSMAction {
@@ -1835,12 +1892,12 @@ func (t exprTyper) scalarConversion(name string, call ast.CallExpr) (valueType, 
 			Primary:  call.Span,
 			Suggest:  "explicit conversions only work between integer scalar values, for example `u64(pid)`",
 		})
-		return valueType{Name: name}, diags
+		return result, diags
 	}
 	if d, ok := integerLiteralRangeDiagnostic(valueType{Name: name}, arg, call.Args[0].GetSpan()); ok {
 		diags = append(diags, d)
 	}
-	return valueType{Name: name}, diags
+	return result, diags
 }
 
 func (t exprTyper) xdpCall(name string, call ast.CallExpr) (valueType, []diag.Diagnostic) {
@@ -2184,6 +2241,32 @@ func integerLiteralFitsScalar(lit string, scalar string) bool {
 		return signedLiteralFits(lit, -9223372036854775808, 9223372036854775807)
 	default:
 		return false
+	}
+}
+
+func integerLiteralValue(t valueType) (int64, bool) {
+	if t.IntLiteral == "" {
+		return 0, false
+	}
+	value, err := strconv.ParseInt(t.IntLiteral, 0, 64)
+	if err != nil {
+		return 0, false
+	}
+	return value, true
+}
+
+func integerBitWidth(name string) int {
+	switch name {
+	case "u8", "i8":
+		return 8
+	case "u16", "i16":
+		return 16
+	case "u32", "i32":
+		return 32
+	case "u64", "i64", "untyped_int":
+		return 64
+	default:
+		return 0
 	}
 }
 
