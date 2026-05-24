@@ -53,16 +53,44 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	}
 }
 
-func TestSourceRefusesLineComments(t *testing.T) {
-	_, err := Source(parser.SourceFile{Path: "commented.hzn", Bytes: []byte(`package probes
+func TestSourcePreservesStandaloneLineComments(t *testing.T) {
+	got, err := Source(parser.SourceFile{Path: "commented.hzn", Bytes: []byte(`// package comment
+package probes
 
-// keep this
+// program comment
 @tracepoint("sched:sched_process_exec")
 func OnExec(ctx tracepoint.Exec) i32 {
+    // return comment
     return 0
 }
 `)})
-	if err == nil || !strings.Contains(err.Error(), "does not preserve line comments") {
-		t.Fatalf("Source error = %v, want line comment refusal", err)
+	if err != nil {
+		t.Fatalf("Source: %v", err)
+	}
+	want := `// package comment
+package probes
+
+// program comment
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    // return comment
+    return 0
+}
+`
+	if string(got) != want {
+		t.Fatalf("formatted source mismatch\nwant:\n%s\ngot:\n%s", want, got)
+	}
+}
+
+func TestSourceRejectsInlineLineComments(t *testing.T) {
+	_, err := Source(parser.SourceFile{Path: "commented.hzn", Bytes: []byte(`package probes
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    return 0 // keep this
+}
+`)})
+	if err == nil || !strings.Contains(err.Error(), "inline comments") {
+		t.Fatalf("Source error = %v, want inline comment refusal", err)
 	}
 }

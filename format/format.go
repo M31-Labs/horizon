@@ -11,8 +11,9 @@ import (
 )
 
 func Source(src parser.SourceFile) ([]byte, error) {
-	if hasLineComment(src.Bytes) {
-		return nil, fmt.Errorf("%s: hzn fmt does not preserve line comments yet", src.Path)
+	comments, err := lineComments(src)
+	if err != nil {
+		return nil, err
 	}
 	parsed, err := parser.ParseSource(src)
 	if err != nil {
@@ -22,17 +23,26 @@ func Source(src parser.SourceFile) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return File(*file), nil
+	return formatFile(*file, comments, packageLine(src.Bytes)), nil
 }
 
 func File(file ast.File) []byte {
+	return formatFile(file, nil, 0)
+}
+
+func formatFile(file ast.File, comments []lineComment, packageLine int) []byte {
 	var b builder
+	b.comments = comments
+	if packageLine > 0 {
+		b.flushCommentsBefore(packageLine)
+	}
 	if file.Package != "" {
 		b.line("package " + file.Package)
 	}
 	if len(file.Imports) > 0 {
 		b.blank()
 		for _, imp := range file.Imports {
+			b.flushCommentsBefore(imp.Span.Start.Line)
 			line := "import "
 			if imp.Alias != "" {
 				line += imp.Alias + " "
@@ -45,14 +55,17 @@ func File(file ast.File) []byte {
 		b.blank()
 		b.decl(decl)
 	}
+	b.flushRemainingComments()
 	out := bytes.TrimRight(b.buf.Bytes(), "\n")
 	out = append(out, '\n')
 	return out
 }
 
 type builder struct {
-	buf    bytes.Buffer
-	indent int
+	buf      bytes.Buffer
+	indent   int
+	comments []lineComment
+	next     int
 }
 
 func (b *builder) line(text string) {
@@ -76,7 +89,29 @@ func (b *builder) blank() {
 	b.buf.WriteByte('\n')
 }
 
+func (b *builder) comment(text string) {
+	b.line(text)
+}
+
+func (b *builder) flushCommentsBefore(line int) {
+	if line <= 0 {
+		return
+	}
+	for b.next < len(b.comments) && b.comments[b.next].Line < line {
+		b.comment(b.comments[b.next].Text)
+		b.next++
+	}
+}
+
+func (b *builder) flushRemainingComments() {
+	for b.next < len(b.comments) {
+		b.comment(b.comments[b.next].Text)
+		b.next++
+	}
+}
+
 func (b *builder) decl(decl ast.Decl) {
+	b.flushCommentsBefore(decl.GetSpan().Start.Line)
 	switch d := decl.(type) {
 	case ast.TypeDecl:
 		b.typeDecl(d)
@@ -104,6 +139,7 @@ func (b *builder) decl(decl ast.Decl) {
 		b.line(line + " {")
 		b.indent++
 		b.stmts(d.Body)
+		b.flushCommentsBefore(d.Span.End.Line)
 		b.indent--
 		b.line("}")
 	}
@@ -113,8 +149,10 @@ func (b *builder) typeDecl(decl ast.TypeDecl) {
 	b.line("type " + decl.Name + " struct {")
 	b.indent++
 	for _, field := range decl.Fields {
+		b.flushCommentsBefore(field.Span.Start.Line)
 		b.line(field.Name + " " + typeRef(field.Type))
 	}
+	b.flushCommentsBefore(decl.Span.End.Line)
 	b.indent--
 	b.line("}")
 }
@@ -126,6 +164,7 @@ func (b *builder) stmts(stmts []ast.Stmt) {
 }
 
 func (b *builder) stmt(stmt ast.Stmt) {
+	b.flushCommentsBefore(stmt.GetSpan().Start.Line)
 	switch s := stmt.(type) {
 	case ast.ShortVarStmt:
 		b.line(s.Name + " := " + expr(s.Value))
@@ -154,12 +193,18 @@ func (b *builder) ifStmt(stmt ast.IfStmt) {
 	b.line("if " + expr(stmt.Cond) + " {")
 	b.indent++
 	b.stmts(stmt.Then)
+	if len(stmt.Else) == 0 {
+		b.flushCommentsBefore(stmt.Span.End.Line)
+	}
 	b.indent--
 	if len(stmt.Else) == 1 {
 		if nested, ok := stmt.Else[0].(ast.IfStmt); ok {
 			b.line("} else " + ifHeader(nested))
 			b.indent++
 			b.stmts(nested.Then)
+			if len(nested.Else) == 0 {
+				b.flushCommentsBefore(nested.Span.End.Line)
+			}
 			b.indent--
 			b.emitElse(nested.Else)
 			return
@@ -169,6 +214,7 @@ func (b *builder) ifStmt(stmt ast.IfStmt) {
 		b.line("} else {")
 		b.indent++
 		b.stmts(stmt.Else)
+		b.flushCommentsBefore(stmt.Span.End.Line)
 		b.indent--
 		b.line("}")
 		return
@@ -182,6 +228,9 @@ func (b *builder) emitElse(stmts []ast.Stmt) {
 			b.line("} else " + ifHeader(nested))
 			b.indent++
 			b.stmts(nested.Then)
+			if len(nested.Else) == 0 {
+				b.flushCommentsBefore(nested.Span.End.Line)
+			}
 			b.indent--
 			b.emitElse(nested.Else)
 			return
@@ -191,6 +240,7 @@ func (b *builder) emitElse(stmts []ast.Stmt) {
 		b.line("} else {")
 		b.indent++
 		b.stmts(stmts)
+		b.flushCommentsBefore(stmts[len(stmts)-1].GetSpan().End.Line)
 		b.indent--
 		b.line("}")
 		return
@@ -213,6 +263,7 @@ func (b *builder) forStmt(stmt ast.ForStmt) {
 	b.line(header + " {")
 	b.indent++
 	b.stmts(stmt.Body)
+	b.flushCommentsBefore(stmt.Span.End.Line)
 	b.indent--
 	b.line("}")
 }
@@ -355,17 +406,56 @@ func binaryPrecedence(op string) int {
 	}
 }
 
-func hasLineComment(source []byte) bool {
+type lineComment struct {
+	Line int
+	Text string
+}
+
+func lineComments(src parser.SourceFile) ([]lineComment, error) {
+	lines := strings.Split(string(src.Bytes), "\n")
+	comments := make([]lineComment, 0)
+	for i, line := range lines {
+		idx := lineCommentIndex(line)
+		if idx < 0 {
+			continue
+		}
+		if strings.TrimSpace(line[:idx]) != "" {
+			return nil, fmt.Errorf("%s:%d: hzn fmt cannot preserve inline comments yet", src.Path, i+1)
+		}
+		comments = append(comments, lineComment{
+			Line: i + 1,
+			Text: strings.TrimSpace(line[idx:]),
+		})
+	}
+	return comments, nil
+}
+
+func lineCommentIndex(line string) int {
 	inString := false
-	for i := 0; i < len(source); i++ {
-		switch source[i] {
+	for i := 0; i < len(line); i++ {
+		switch line[i] {
 		case '"':
 			inString = !inString
 		case '/':
-			if !inString && i+1 < len(source) && source[i+1] == '/' {
-				return true
+			if !inString && i+1 < len(line) && line[i+1] == '/' {
+				return i
 			}
 		}
 	}
-	return false
+	return -1
+}
+
+func packageLine(source []byte) int {
+	lines := strings.Split(string(source), "\n")
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "//") {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "package ") || trimmed == "package" {
+			return i + 1
+		}
+		return 0
+	}
+	return 0
 }

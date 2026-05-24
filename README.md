@@ -215,8 +215,8 @@ hzn diagnose dist/exec.verifier.log --map dist/exec.hznmap.json
 
 `hzn fmt` gives `.hzn` files a canonical AST-based style for local editing and
 CI. Use `-w` to update files in place and `-check` to fail when files need
-formatting. The v0 formatter refuses files with line comments until comment
-preservation is implemented.
+formatting. The v0 formatter preserves standalone line comments and rejects
+inline comments until it can preserve them exactly.
 
 `hzn workbench` is the authoring path: it validates source and writes readable
 BPF C, a source map, typed Go bindings, a capability manifest, diagnostics, and
