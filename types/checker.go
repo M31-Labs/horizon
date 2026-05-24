@@ -1786,6 +1786,11 @@ func (t exprTyper) helperCall(name string, call ast.CallExpr) (valueType, []diag
 			return valueType{Name: "u32"}, []diag.Diagnostic{argCountDiagnostic(call.Span, "bpf."+name, 0, len(call.Args))}
 		}
 		return valueType{Name: "u32"}, nil
+	case "ktime_get_ns":
+		if len(call.Args) != 0 {
+			return valueType{Name: "u64"}, []diag.Diagnostic{argCountDiagnostic(call.Span, "bpf.ktime_get_ns", 0, len(call.Args))}
+		}
+		return valueType{Name: "u64"}, nil
 	case "current_comm":
 		if len(call.Args) != 1 {
 			return valueType{Void: true}, []diag.Diagnostic{argCountDiagnostic(call.Span, "bpf.current_comm", 1, len(call.Args))}

@@ -1495,6 +1495,35 @@ func DropAll(ctx xdp.Context) i32 {
 	requireDiagnosticCode(t, result, "HZN2300")
 }
 
+func TestAnalyzeAllowsKernelTimeHelperAcrossProgramKinds(t *testing.T) {
+	result := analyzeSource(t, "xdp.hzn", `package probes
+
+@xdp
+func Pass(ctx xdp.Context) i32 {
+    ts := bpf.ktime_get_ns()
+    if ts == 0 {
+        return xdp.Pass
+    }
+    return xdp.Pass
+}
+`)
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+}
+
+func TestAnalyzeRejectsKernelTimeHelperArgs(t *testing.T) {
+	result := analyzeSource(t, "time.hzn", `package probes
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    bpf.ktime_get_ns(1)
+    return 0
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1417")
+}
+
 func TestAnalyzeRejectsXDPWrongContext(t *testing.T) {
 	result := analyzeSource(t, "xdp.hzn", `package probes
 

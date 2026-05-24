@@ -40,28 +40,33 @@
     {
       "name": "ExecEvent",
       "kind": "struct",
-      "size": 28,
-      "align": 4,
+      "size": 40,
+      "align": 8,
       "fields": [
         {
-          "name": "pid",
-          "type": "u32",
+          "name": "ts_ns",
+          "type": "u64",
           "offset": 0
         },
         {
-          "name": "ppid",
-          "type": "u32",
-          "offset": 4
-        },
-        {
-          "name": "uid",
+          "name": "pid",
           "type": "u32",
           "offset": 8
         },
         {
+          "name": "ppid",
+          "type": "u32",
+          "offset": 12
+        },
+        {
+          "name": "uid",
+          "type": "u32",
+          "offset": 16
+        },
+        {
           "name": "comm",
           "type": "[16]u8",
-          "offset": 12
+          "offset": 20
         }
       ]
     }
@@ -91,6 +96,10 @@
       },
       {
         "name": "bpf_get_current_uid_gid",
+        "min_kernel": "4.1"
+      },
+      {
+        "name": "bpf_ktime_get_ns",
         "min_kernel": "4.1"
       },
       {

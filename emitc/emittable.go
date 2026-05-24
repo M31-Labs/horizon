@@ -354,7 +354,7 @@ func validateCallExpr(env *cEnv, expr *ir.Expr) error {
 
 func validateBPFCall(expr *ir.Expr, method string) error {
 	switch method {
-	case "current_pid", "current_ppid", "current_uid":
+	case "current_pid", "current_ppid", "current_uid", "ktime_get_ns":
 		return validateArgCount(expr, "bpf."+method, 0)
 	case "current_comm":
 		return validateArgCount(expr, "bpf.current_comm", 1)

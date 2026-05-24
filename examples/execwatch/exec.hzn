@@ -3,6 +3,7 @@ package probes
 import bpf "m31labs.dev/horizon/runtime/kernel"
 
 type ExecEvent struct {
+    ts_ns u64
     pid u32
     ppid u32
     uid u32
@@ -18,6 +19,7 @@ func OnExec(ctx tracepoint.Exec) i32 {
     if event == nil {
         return 0
     }
+    event.ts_ns = bpf.ktime_get_ns()
     event.pid = bpf.current_pid()
     event.ppid = bpf.current_ppid()
     event.uid = bpf.current_uid()

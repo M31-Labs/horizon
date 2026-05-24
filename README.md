@@ -46,6 +46,7 @@ package probes
 import bpf "m31labs.dev/horizon/runtime/kernel"
 
 type ExecEvent struct {
+    ts_ns u64
     pid  u32
     ppid u32
     uid  u32
@@ -62,6 +63,7 @@ func OnExec(ctx tracepoint.Exec) i32 {
         return 0
     }
 
+    event.ts_ns = bpf.ktime_get_ns()
     event.pid = bpf.current_pid()
     event.ppid = bpf.current_ppid()
     event.uid = bpf.current_uid()
@@ -353,6 +355,8 @@ and value types, and struct size/align/field-offset schemas for declared
 Horizon types. They also include minimum kernel requirements for program types,
 map kinds, and compiler-known helpers, so Continuum consumers can inspect what a
 program observes, emits, and needs from a target host without parsing BPF C.
+Compiler-known helpers stay explicit: `bpf.ktime_get_ns()` lowers to
+`bpf_ktime_get_ns()` and returns a typed `u64` monotonic kernel timestamp.
 
 `hzn doctor` checks the local eBPF C toolchain: clang BPF support, libbpf
 headers, bpftool/LLVM utilities, kernel BTF, and a usable `vmlinux.h`.
@@ -370,6 +374,7 @@ Horizon makes verifier-sensitive behavior explicit before clang runs:
 - map sizing is explicit through `@max_entries(...)`; integer constants are resolved before C emission, and ringbuf sizes must be powers of two
 - map update/delete results must be checked with an explicit comparison
 - fixed array fields are address-only; pass `&event.comm` directly to helpers instead of copying arrays
+- compiler-known helpers have typed signatures and section availability rules before C emission
 - conditions must be typed boolean expressions; integers and pointers need explicit comparison
 - parser failures are surfaced as stable diagnostics and never produce generated C
 - integer, bitwise, comparison, and boolean operators are typed before C emission

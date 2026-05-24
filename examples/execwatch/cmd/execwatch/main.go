@@ -20,6 +20,7 @@ import (
 )
 
 type execEvent struct {
+	TsNs uint64
 	Pid  uint32
 	Ppid uint32
 	Uid  uint32
@@ -80,7 +81,7 @@ func run(objPath string, timeout time.Duration) error {
 		_ = reader.Close()
 	}()
 
-	fmt.Println("PID\tUID\tCOMM")
+	fmt.Println("TIME_NS\tPID\tUID\tCOMM")
 	for {
 		record, err := reader.Read()
 		if err != nil {
@@ -93,7 +94,7 @@ func run(objPath string, timeout time.Duration) error {
 		if err := binary.Read(bytes.NewReader(record.RawSample), binary.LittleEndian, &event); err != nil {
 			return fmt.Errorf("decode ExecEvent: %w", err)
 		}
-		fmt.Printf("%d\t%d\t%s\n", event.Pid, event.Uid, commString(event.Comm))
+		fmt.Printf("%d\t%d\t%d\t%s\n", event.TsNs, event.Pid, event.Uid, commString(event.Comm))
 	}
 }
 

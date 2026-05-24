@@ -24,10 +24,13 @@ func TestEmitExecwatchUsesTypedCWrappers(t *testing.T) {
 		`_Static_assert(sizeof(__u32) == 4, "horizon: __u32 width mismatch");`,
 		"static __always_inline struct hzn_type_ExecEvent *ExecEvents_reserve(void)",
 		"static __always_inline void ExecEvents_submit(struct hzn_type_ExecEvent *value)",
-		`_Static_assert(sizeof(struct hzn_type_ExecEvent) == 28, "horizon: struct ExecEvent size mismatch");`,
-		`_Static_assert(__builtin_offsetof(struct hzn_type_ExecEvent, comm) == 12, "horizon: struct ExecEvent.comm offset mismatch");`,
+		"static __always_inline __u64 hzn_ktime_get_ns(void)",
+		`_Static_assert(sizeof(struct hzn_type_ExecEvent) == 40, "horizon: struct ExecEvent size mismatch");`,
+		`_Static_assert(__builtin_offsetof(struct hzn_type_ExecEvent, ts_ns) == 0, "horizon: struct ExecEvent.ts_ns offset mismatch");`,
+		`_Static_assert(__builtin_offsetof(struct hzn_type_ExecEvent, comm) == 20, "horizon: struct ExecEvent.comm offset mismatch");`,
 		"(void)ctx;",
 		"struct hzn_type_ExecEvent *event = ExecEvents_reserve();",
+		"event->ts_ns = hzn_ktime_get_ns();",
 		"event->pid = hzn_current_pid();",
 		"hzn_current_comm(&event->comm, sizeof(event->comm));",
 		"ExecEvents_submit(event);",
@@ -57,9 +60,9 @@ func TestEmitSourceMapIncludesDeclarations(t *testing.T) {
 	}
 
 	assertSourceMapLine(t, out, "struct hzn_type_ExecEvent {", "struct", 5)
-	assertSourceMapLine(t, out, `} ExecEvents SEC(".maps");`, "map", 12)
-	assertSourceMapLine(t, out, "static __always_inline struct hzn_type_ExecEvent *ExecEvents_reserve(void)", "map_wrapper", 12)
-	assertSourceMapLine(t, out, "int OnExec(struct trace_event_raw_sched_process_exec *ctx)", "function", 14)
+	assertSourceMapLine(t, out, `} ExecEvents SEC(".maps");`, "map", 13)
+	assertSourceMapLine(t, out, "static __always_inline struct hzn_type_ExecEvent *ExecEvents_reserve(void)", "map_wrapper", 13)
+	assertSourceMapLine(t, out, "int OnExec(struct trace_event_raw_sched_process_exec *ctx)", "function", 15)
 
 	result, err = compiler.AnalyzePath("../examples/execcount")
 	if err != nil {
@@ -221,6 +224,7 @@ func OnExec(ctx tracepoint.Exec) i32 {
 		"hzn_current_ppid",
 		"hzn_current_uid",
 		"hzn_current_comm",
+		"hzn_ktime_get_ns",
 	} {
 		if strings.Contains(out.Code, unwanted) {
 			t.Fatalf("generated C contains unused kernel helper wrapper %q:\n%s", unwanted, out.Code)

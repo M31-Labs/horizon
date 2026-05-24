@@ -564,6 +564,14 @@ static __always_inline __u32 hzn_current_uid(void) {
 `)
 	}
 
+	if usage.helpers["ktime_get_ns"] {
+		b.WriteString(`
+static __always_inline __u64 hzn_ktime_get_ns(void) {
+    return bpf_ktime_get_ns();
+}
+`)
+	}
+
 	if usage.helpers["current_comm"] {
 		b.WriteString(`
 static __always_inline long hzn_current_comm(void *dst, __u32 size) {
@@ -1390,6 +1398,8 @@ func knownCallType(name string) (ir.Type, bool) {
 	switch name {
 	case "bpf.current_pid", "bpf.current_ppid", "bpf.current_uid":
 		return ir.Type{Name: "u32"}, true
+	case "bpf.ktime_get_ns":
+		return ir.Type{Name: "u64"}, true
 	case "bpf.current_comm":
 		return ir.Type{Name: "i64"}, true
 	case "xdp.eth":
@@ -1856,6 +1866,8 @@ func (e cExprEmitter) knownCall(expr *ir.Expr, name string) (string, bool) {
 		return "hzn_current_ppid()", true
 	case "bpf.current_uid":
 		return "hzn_current_uid()", true
+	case "bpf.ktime_get_ns":
+		return "hzn_ktime_get_ns()", true
 	case "bpf.current_comm":
 		return e.oneArgCall(expr, func(arg ir.Expr) string {
 			return fmt.Sprintf("hzn_current_comm(%s, sizeof(%s))", e.emit(&arg), sizeofExpr(&arg, e.env))
@@ -2020,6 +2032,8 @@ func helperWrapperCall(expr *ir.Expr) (string, bool) {
 		return "current_ppid", true
 	case "bpf.current_uid":
 		return "current_uid", true
+	case "bpf.ktime_get_ns":
+		return "ktime_get_ns", true
 	case "bpf.current_comm":
 		return "current_comm", true
 	default:

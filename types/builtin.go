@@ -7,4 +7,5 @@ const (
 	BuiltinCurrentPPID Builtin = "current_ppid"
 	BuiltinCurrentUID  Builtin = "current_uid"
 	BuiltinCurrentComm Builtin = "current_comm"
+	BuiltinKtimeGetNS  Builtin = "ktime_get_ns"
 )

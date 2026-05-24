@@ -15,21 +15,24 @@ import (
 )
 
 type ExecEvent struct {
+	TsNs uint64
 	Pid  uint32
 	Ppid uint32
 	Uid  uint32
 	Comm [16]uint8
 }
 
-var _ [28 - int(unsafe.Sizeof(ExecEvent{}))]byte
-var _ [int(unsafe.Sizeof(ExecEvent{})) - 28]byte
-var _ [-int(unsafe.Offsetof(ExecEvent{}.Pid))]byte
-var _ [4 - int(unsafe.Offsetof(ExecEvent{}.Ppid))]byte
-var _ [int(unsafe.Offsetof(ExecEvent{}.Ppid)) - 4]byte
-var _ [8 - int(unsafe.Offsetof(ExecEvent{}.Uid))]byte
-var _ [int(unsafe.Offsetof(ExecEvent{}.Uid)) - 8]byte
-var _ [12 - int(unsafe.Offsetof(ExecEvent{}.Comm))]byte
-var _ [int(unsafe.Offsetof(ExecEvent{}.Comm)) - 12]byte
+var _ [40 - int(unsafe.Sizeof(ExecEvent{}))]byte
+var _ [int(unsafe.Sizeof(ExecEvent{})) - 40]byte
+var _ [-int(unsafe.Offsetof(ExecEvent{}.TsNs))]byte
+var _ [8 - int(unsafe.Offsetof(ExecEvent{}.Pid))]byte
+var _ [int(unsafe.Offsetof(ExecEvent{}.Pid)) - 8]byte
+var _ [12 - int(unsafe.Offsetof(ExecEvent{}.Ppid))]byte
+var _ [int(unsafe.Offsetof(ExecEvent{}.Ppid)) - 12]byte
+var _ [16 - int(unsafe.Offsetof(ExecEvent{}.Uid))]byte
+var _ [int(unsafe.Offsetof(ExecEvent{}.Uid)) - 16]byte
+var _ [20 - int(unsafe.Offsetof(ExecEvent{}.Comm))]byte
+var _ [int(unsafe.Offsetof(ExecEvent{}.Comm)) - 20]byte
 
 type Objects struct {
 	ExecEvents *ebpf.Map     `ebpf:"ExecEvents"`

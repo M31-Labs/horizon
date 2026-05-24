@@ -11,22 +11,16 @@ import (
 var helperCallRE = regexp.MustCompile(`\bbpf\.([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
 
 func ValidateHelpers(program ir.Program) []diag.Diagnostic {
-	allowed := map[string]bool{
-		"current_pid":  true,
-		"current_ppid": true,
-		"current_uid":  true,
-		"current_comm": true,
-	}
 	var diags []diag.Diagnostic
 	for _, fn := range program.Functions {
 		if hasTypedStatements(fn) {
-			diags = append(diags, validateTypedHelpers(fn, allowed)...)
+			diags = append(diags, validateTypedHelpers(fn)...)
 			continue
 		}
 		for _, line := range bodyLines(fn) {
 			for _, match := range helperCallRE.FindAllStringSubmatch(line, -1) {
 				helper := match[1]
-				if allowed[helper] && isTracingProgram(fn.Section.Kind) {
+				if helperAvailable(helper, fn.Section.Kind) {
 					continue
 				}
 				diags = append(diags, diag.Diagnostic{
@@ -41,7 +35,7 @@ func ValidateHelpers(program ir.Program) []diag.Diagnostic {
 	return diags
 }
 
-func validateTypedHelpers(fn ir.Function, allowed map[string]bool) []diag.Diagnostic {
+func validateTypedHelpers(fn ir.Function) []diag.Diagnostic {
 	var diags []diag.Diagnostic
 	walkStatements(functionStatements(fn), func(expr *ir.Expr) {
 		if expr == nil || expr.Kind != "call" {
@@ -52,7 +46,7 @@ func validateTypedHelpers(fn ir.Function, allowed map[string]bool) []diag.Diagno
 			return
 		}
 		helper := name[len("bpf."):]
-		if allowed[helper] && isTracingProgram(fn.Section.Kind) {
+		if helperAvailable(helper, fn.Section.Kind) {
 			return
 		}
 		diags = append(diags, diag.Diagnostic{
@@ -63,6 +57,26 @@ func validateTypedHelpers(fn ir.Function, allowed map[string]bool) []diag.Diagno
 		})
 	})
 	return diags
+}
+
+func helperAvailable(name string, kind ir.ProgramKind) bool {
+	switch name {
+	case "current_pid", "current_ppid", "current_uid", "current_comm":
+		return isTracingProgram(kind)
+	case "ktime_get_ns":
+		return knownProgramKind(kind)
+	default:
+		return false
+	}
+}
+
+func knownProgramKind(kind ir.ProgramKind) bool {
+	switch kind {
+	case ir.ProgramTracepoint, ir.ProgramKprobe, ir.ProgramKretprobe, ir.ProgramXDP, ir.ProgramTC, ir.ProgramCgroup, ir.ProgramLSM:
+		return true
+	default:
+		return false
+	}
 }
 
 func isTracingProgram(kind ir.ProgramKind) bool {

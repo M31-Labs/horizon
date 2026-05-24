@@ -26,21 +26,27 @@ static __always_inline __u32 hzn_current_uid(void) {
     return (__u32)bpf_get_current_uid_gid();
 }
 
+static __always_inline __u64 hzn_ktime_get_ns(void) {
+    return bpf_ktime_get_ns();
+}
+
 static __always_inline long hzn_current_comm(void *dst, __u32 size) {
     return bpf_get_current_comm(dst, size);
 }
 
 struct hzn_type_ExecEvent {
+    __u64 ts_ns;
     __u32 pid;
     __u32 ppid;
     __u32 uid;
     __u8 comm[16];
 };
-_Static_assert(sizeof(struct hzn_type_ExecEvent) == 28, "horizon: struct ExecEvent size mismatch");
-_Static_assert(__builtin_offsetof(struct hzn_type_ExecEvent, pid) == 0, "horizon: struct ExecEvent.pid offset mismatch");
-_Static_assert(__builtin_offsetof(struct hzn_type_ExecEvent, ppid) == 4, "horizon: struct ExecEvent.ppid offset mismatch");
-_Static_assert(__builtin_offsetof(struct hzn_type_ExecEvent, uid) == 8, "horizon: struct ExecEvent.uid offset mismatch");
-_Static_assert(__builtin_offsetof(struct hzn_type_ExecEvent, comm) == 12, "horizon: struct ExecEvent.comm offset mismatch");
+_Static_assert(sizeof(struct hzn_type_ExecEvent) == 40, "horizon: struct ExecEvent size mismatch");
+_Static_assert(__builtin_offsetof(struct hzn_type_ExecEvent, ts_ns) == 0, "horizon: struct ExecEvent.ts_ns offset mismatch");
+_Static_assert(__builtin_offsetof(struct hzn_type_ExecEvent, pid) == 8, "horizon: struct ExecEvent.pid offset mismatch");
+_Static_assert(__builtin_offsetof(struct hzn_type_ExecEvent, ppid) == 12, "horizon: struct ExecEvent.ppid offset mismatch");
+_Static_assert(__builtin_offsetof(struct hzn_type_ExecEvent, uid) == 16, "horizon: struct ExecEvent.uid offset mismatch");
+_Static_assert(__builtin_offsetof(struct hzn_type_ExecEvent, comm) == 20, "horizon: struct ExecEvent.comm offset mismatch");
 
 struct {
     __uint(type, BPF_MAP_TYPE_RINGBUF);
@@ -62,6 +68,7 @@ int OnExec(struct trace_event_raw_sched_process_exec *ctx) {
     if (event == 0) {
         return 0;
     }
+    event->ts_ns = hzn_ktime_get_ns();
     event->pid = hzn_current_pid();
     event->ppid = hzn_current_ppid();
     event->uid = hzn_current_uid();

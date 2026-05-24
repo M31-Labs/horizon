@@ -162,6 +162,8 @@ func compilerHelperRequirement(name string) (string, bool) {
 		return "bpf_get_current_uid_gid", true
 	case "bpf.current_comm":
 		return "bpf_get_current_comm", true
+	case "bpf.ktime_get_ns":
+		return "bpf_ktime_get_ns", true
 	default:
 		return "", false
 	}
@@ -223,6 +225,8 @@ func helperMinKernel(name string) string {
 	case "bpf_map_lookup_elem", "bpf_map_update_elem", "bpf_map_delete_elem":
 		return "3.19"
 	case "bpf_get_current_pid_tgid", "bpf_get_current_uid_gid", "bpf_get_current_comm":
+		return "4.1"
+	case "bpf_ktime_get_ns":
 		return "4.1"
 	case "bpf_ringbuf_reserve", "bpf_ringbuf_submit", "bpf_ringbuf_discard":
 		return "5.8"

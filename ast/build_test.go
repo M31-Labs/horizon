@@ -35,10 +35,13 @@ func TestBuildExecwatchAST(t *testing.T) {
 	if typeDecl.Name != "ExecEvent" {
 		t.Fatalf("type name = %q, want ExecEvent", typeDecl.Name)
 	}
-	if len(typeDecl.Fields) != 4 {
-		t.Fatalf("fields = %d, want 4", len(typeDecl.Fields))
+	if len(typeDecl.Fields) != 5 {
+		t.Fatalf("fields = %d, want 5", len(typeDecl.Fields))
 	}
-	comm := typeDecl.Fields[3]
+	if ts := typeDecl.Fields[0]; ts.Name != "ts_ns" || ts.Type.Name != "u64" {
+		t.Fatalf("ts_ns field = %#v, want u64", ts)
+	}
+	comm := typeDecl.Fields[4]
 	if comm.Name != "comm" || comm.Type.Len != "16" || comm.Type.Elem == nil || comm.Type.Elem.Name != "u8" {
 		t.Fatalf("comm field = %#v, want [16]u8", comm)
 	}
@@ -67,8 +70,8 @@ func TestBuildExecwatchAST(t *testing.T) {
 	if len(fn.Body) == 0 {
 		t.Fatal("func body is empty")
 	}
-	if len(fn.Body) != 8 {
-		t.Fatalf("body statements = %d, want 8", len(fn.Body))
+	if len(fn.Body) != 9 {
+		t.Fatalf("body statements = %d, want 9", len(fn.Body))
 	}
 	if _, ok := fn.Body[0].(ShortVarStmt); !ok {
 		t.Fatalf("body[0] = %T, want ShortVarStmt", fn.Body[0])
@@ -79,14 +82,14 @@ func TestBuildExecwatchAST(t *testing.T) {
 	if _, ok := fn.Body[2].(AssignStmt); !ok {
 		t.Fatalf("body[2] = %T, want AssignStmt", fn.Body[2])
 	}
-	if _, ok := fn.Body[5].(ExprStmt); !ok {
-		t.Fatalf("body[5] = %T, want ExprStmt", fn.Body[5])
-	}
 	if _, ok := fn.Body[6].(ExprStmt); !ok {
 		t.Fatalf("body[6] = %T, want ExprStmt", fn.Body[6])
 	}
-	if _, ok := fn.Body[7].(ReturnStmt); !ok {
-		t.Fatalf("body[7] = %T, want ReturnStmt", fn.Body[7])
+	if _, ok := fn.Body[7].(ExprStmt); !ok {
+		t.Fatalf("body[7] = %T, want ExprStmt", fn.Body[7])
+	}
+	if _, ok := fn.Body[8].(ReturnStmt); !ok {
+		t.Fatalf("body[8] = %T, want ReturnStmt", fn.Body[8])
 	}
 }
 
