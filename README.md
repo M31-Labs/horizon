@@ -291,6 +291,7 @@ hzn fmt ./examples/execwatch
 hzn fmt ./examples -w
 hzn fmt ./examples -check
 hzn doctor
+hzn doctor -capabilities dist/exec.cap.json
 make setup-vmlinux
 make ci-go
 hzn workbench ./examples/execwatch -o dist
@@ -380,7 +381,9 @@ requires libbpf's `bpf_core_read.h` and a `vmlinux.h` that includes
 
 `hzn doctor` checks the local eBPF C toolchain: clang BPF support, libbpf
 headers including CO-RE helpers, bpftool/LLVM utilities, kernel BTF, and a
-usable `vmlinux.h`.
+usable `vmlinux.h`. With `-capabilities`, it also reads a generated capability
+manifest and checks the target host against the manifest's minimum kernel,
+permission, and attach-feature requirements.
 Use `make setup-vmlinux` on BTF-enabled Linux hosts to generate
 `/usr/local/include/vmlinux.h`.
 

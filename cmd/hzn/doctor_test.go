@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"m31labs.dev/horizon/capability"
 )
 
 func TestDoctorReadyWithRequiredWorkbenchDeps(t *testing.T) {
@@ -139,6 +141,168 @@ func TestDoctorRetriesTransientClangProbeFailure(t *testing.T) {
 	if calls != 2 {
 		t.Fatalf("clang probe calls = %d, want 2", calls)
 	}
+}
+
+func TestDoctorReadyWithCapabilityManifestRequirements(t *testing.T) {
+	mask := uint64(1)<<linuxCapBPF |
+		uint64(1)<<linuxCapPerfmon |
+		uint64(1)<<linuxCapNetAdmin |
+		uint64(1)<<linuxCapSysAdmin
+	report := runDoctorChecks(doctorManifestConfig(t, mask), capability.Manifest{
+		Schema:       capability.SchemaV0,
+		Package:      "probes",
+		Capabilities: []capability.Capability{},
+		Requirements: &capability.Requirements{
+			MinKernel: "5.8",
+			Permissions: []string{
+				"bpf_program_load",
+				"perf_event_open",
+				"net_admin",
+				"cgroup_admin",
+				"lsm_admin",
+			},
+			Features: []string{
+				"tracefs",
+				"kprobes",
+				"netdev_xdp",
+				"tc_clsact",
+				"cgroup_v2",
+				"bpf_lsm",
+			},
+		},
+	})
+	if !report.Ready {
+		t.Fatalf("ready = false, checks = %#v", report.Checks)
+	}
+	for _, name := range []string{
+		"kernel >= 5.8",
+		"permission bpf_program_load",
+		"permission perf_event_open",
+		"permission net_admin",
+		"permission cgroup_admin",
+		"permission lsm_admin",
+		"host feature tracefs",
+		"host feature kprobes",
+		"host feature netdev_xdp",
+		"host feature tc_clsact",
+		"host feature cgroup_v2",
+		"host feature bpf_lsm",
+	} {
+		requireDoctorCheck(t, report, name, "ok")
+	}
+}
+
+func TestDoctorNotReadyWithUnsatisfiedCapabilityManifestRequirements(t *testing.T) {
+	cfg := doctorManifestConfig(t, 0)
+	cfg.KernelRelease = func() (string, error) { return "5.4.0-test", nil }
+	cfg.CgroupControllers = filepath.Join(t.TempDir(), "missing-cgroup.controllers")
+
+	report := runDoctorChecks(cfg, capability.Manifest{
+		Schema:       capability.SchemaV0,
+		Package:      "probes",
+		Capabilities: []capability.Capability{},
+		Requirements: &capability.Requirements{
+			MinKernel:   "5.8",
+			Permissions: []string{"net_admin"},
+			Features:    []string{"cgroup_v2"},
+		},
+	})
+	if report.Ready {
+		t.Fatalf("ready = true, want false")
+	}
+	requireDoctorCheck(t, report, "kernel >= 5.8", "error")
+	requireDoctorCheck(t, report, "permission net_admin", "error")
+	requireDoctorCheck(t, report, "host feature cgroup_v2", "error")
+}
+
+func TestDoctorReadsCapabilityManifest(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "exec.cap.json")
+	manifest := capability.Manifest{
+		Schema:       capability.SchemaV0,
+		Package:      "probes",
+		Capabilities: []capability.Capability{},
+		Requirements: &capability.Requirements{
+			MinKernel:   "5.8",
+			Permissions: []string{"bpf_program_load"},
+			Features:    []string{"tracefs"},
+		},
+	}
+	if err := writeJSON(path, manifest); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+	loaded, err := readDoctorCapabilityManifest(path)
+	if err != nil {
+		t.Fatalf("readDoctorCapabilityManifest: %v", err)
+	}
+	if loaded.Requirements == nil || loaded.Requirements.MinKernel != "5.8" {
+		t.Fatalf("loaded manifest = %#v, want requirements", loaded)
+	}
+}
+
+func doctorManifestConfig(t *testing.T, capabilityMask uint64) doctorConfig {
+	t.Helper()
+	binDir := t.TempDir()
+	for _, name := range []string{"clang", "bpftool", "llvm-objdump", "llvm-strip", "tc"} {
+		writeExecutable(t, filepath.Join(binDir, name))
+	}
+	includeDir := t.TempDir()
+	bpfHeader := filepath.Join(includeDir, "bpf_helpers.h")
+	coreHeader := filepath.Join(includeDir, "bpf_core_read.h")
+	vmlinuxHeader := filepath.Join(includeDir, "vmlinux.h")
+	btf := filepath.Join(includeDir, "btf.vmlinux")
+	kprobeEvents := filepath.Join(includeDir, "kprobe_events")
+	cgroupControllers := filepath.Join(includeDir, "cgroup.controllers")
+	lsm := filepath.Join(includeDir, "lsm")
+	procStatus := filepath.Join(includeDir, "status")
+	for _, path := range []string{bpfHeader, coreHeader, vmlinuxHeader, btf, kprobeEvents, cgroupControllers} {
+		if err := os.WriteFile(path, []byte("ok\n"), 0o644); err != nil {
+			t.Fatalf("write %s: %v", path, err)
+		}
+	}
+	if err := os.WriteFile(lsm, []byte("lockdown,capability,bpf\n"), 0o644); err != nil {
+		t.Fatalf("write lsm: %v", err)
+	}
+	if err := os.WriteFile(procStatus, []byte(fmt.Sprintf("CapEff:\t%016x\n", capabilityMask)), 0o644); err != nil {
+		t.Fatalf("write proc status: %v", err)
+	}
+	return doctorConfig{
+		PathEnv:         binDir,
+		BPFHeaders:      []string{bpfHeader},
+		CoreReadHeaders: []string{coreHeader},
+		VmlinuxHeaders:  []string{vmlinuxHeader},
+		BTFPath:         btf,
+		AdditionalTools: []string{
+			"bpftool",
+			"llvm-objdump",
+			"llvm-strip",
+		},
+		RunCommand: func(_ context.Context, _ string, _ []string, _ string) error {
+			return nil
+		},
+		RuntimeGOOS:       "linux",
+		KernelRelease:     func() (string, error) { return "6.8.0-test", nil },
+		EffectiveUID:      func() int { return 1000 },
+		ProcStatusPath:    procStatus,
+		TracefsPaths:      []string{t.TempDir()},
+		KprobeEventPaths:  []string{kprobeEvents},
+		NetdevPath:        t.TempDir(),
+		TCCommand:         "tc",
+		CgroupControllers: cgroupControllers,
+		LSMPath:           lsm,
+	}
+}
+
+func requireDoctorCheck(t *testing.T, report doctorReport, name string, status string) {
+	t.Helper()
+	for _, check := range report.Checks {
+		if check.Name == name {
+			if check.Status != status {
+				t.Fatalf("%s status = %q, want %q: %#v", name, check.Status, status, check)
+			}
+			return
+		}
+	}
+	t.Fatalf("missing doctor check %q in %#v", name, report.Checks)
 }
 
 func writeExecutable(t *testing.T, path string) {
