@@ -31,6 +31,9 @@ func Emit(program ir.Program) (Output, error) {
 	if programHasXDP(program) {
 		emitXDPActionFallbacks(&b)
 	}
+	if programHasTC(program) {
+		emitTCActionFallbacks(&b)
+	}
 	b.WriteString("char LICENSE[] SEC(\"license\") = \"GPL\";\n")
 	emitScalarABIAssertions(&b)
 	emitHelperWrappers(&b, usage)
@@ -459,6 +462,28 @@ func programHasXDP(program ir.Program) bool {
 	return false
 }
 
+func emitTCActionFallbacks(b *strings.Builder) {
+	b.WriteString(`#ifndef TC_ACT_OK
+#define TC_ACT_OK 0
+#define TC_ACT_RECLASSIFY 1
+#define TC_ACT_SHOT 2
+#define TC_ACT_PIPE 3
+#define TC_ACT_STOLEN 4
+#define TC_ACT_REDIRECT 7
+#endif
+
+`)
+}
+
+func programHasTC(program ir.Program) bool {
+	for _, fn := range program.Functions {
+		if fn.Section.Kind == ir.ProgramTC {
+			return true
+		}
+	}
+	return false
+}
+
 func emitXDPPacketHelpers(b *strings.Builder, usage cUsage) {
 	b.WriteString(`
 struct hzn_xdp_eth {
@@ -806,6 +831,8 @@ func cContext(fn ir.Function) string {
 		return "struct trace_event_raw_" + cIdent(event) + " *ctx"
 	case ir.ProgramXDP:
 		return "struct xdp_md *ctx"
+	case ir.ProgramTC:
+		return "struct __sk_buff *ctx"
 	case ir.ProgramKprobe, ir.ProgramKretprobe:
 		return "struct pt_regs *ctx"
 	default:
@@ -1024,6 +1051,9 @@ func cExprType(expr *ir.Expr, env *cEnv) (ir.Type, bool) {
 			if _, ok := xdpActionC(name); ok {
 				return ir.Type{Name: "i32"}, true
 			}
+			if _, ok := tcActionC(name); ok {
+				return ir.Type{Name: "i32"}, true
+			}
 			if typ, ok := xdpConstantType(name); ok {
 				return typ, true
 			}
@@ -1149,6 +1179,9 @@ func cExpr(expr *ir.Expr, env *cEnv) string {
 			if action, ok := xdpActionC(name); ok {
 				return action
 			}
+			if action, ok := tcActionC(name); ok {
+				return action
+			}
 			if constant, ok := xdpConstantC(name); ok {
 				return constant
 			}
@@ -1195,6 +1228,25 @@ func xdpActionC(name string) (string, bool) {
 		return "XDP_TX", true
 	case "xdp.Redirect":
 		return "XDP_REDIRECT", true
+	default:
+		return "", false
+	}
+}
+
+func tcActionC(name string) (string, bool) {
+	switch name {
+	case "tc.OK":
+		return "TC_ACT_OK", true
+	case "tc.Reclassify":
+		return "TC_ACT_RECLASSIFY", true
+	case "tc.Shot":
+		return "TC_ACT_SHOT", true
+	case "tc.Pipe":
+		return "TC_ACT_PIPE", true
+	case "tc.Stolen":
+		return "TC_ACT_STOLEN", true
+	case "tc.Redirect":
+		return "TC_ACT_REDIRECT", true
 	default:
 		return "", false
 	}

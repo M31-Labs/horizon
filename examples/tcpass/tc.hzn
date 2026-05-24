@@ -1,0 +1,7 @@
+package probes
+
+@capability("kernel.network.tc.observe")
+@tc("ingress")
+func PassIngress(ctx tc.Context) i32 {
+    return tc.OK
+}

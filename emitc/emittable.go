@@ -270,11 +270,14 @@ func validateSelectorExpr(env *cEnv, expr *ir.Expr) error {
 		if _, ok := xdpActionC(name); ok {
 			return nil
 		}
+		if _, ok := tcActionC(name); ok {
+			return nil
+		}
 		if _, ok := xdpConstantC(name); ok {
 			return nil
 		}
 		switch selectorRoot(expr) {
-		case "bpf", "xdp":
+		case "bpf", "xdp", "tc":
 			return unsupportedExpr(expr, name)
 		}
 	}

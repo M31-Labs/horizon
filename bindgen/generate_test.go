@@ -104,6 +104,43 @@ func TestGenerateKprobeAttachBindings(t *testing.T) {
 	}
 }
 
+func TestGenerateTCAttachBindings(t *testing.T) {
+	code, err := Generate(ir.Program{
+		Package: "probes",
+		Functions: []ir.Function{{
+			Name: "PassIngress",
+			Section: ir.Section{
+				Kind:   ir.ProgramTC,
+				Attach: "ingress",
+				Name:   "tc/ingress",
+			},
+		}, {
+			Name: "PassEgress",
+			Section: ir.Section{
+				Kind:   ir.ProgramTC,
+				Attach: "egress",
+				Name:   "tc/egress",
+			},
+		}},
+	}, "bindings")
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	for _, want := range []string{
+		`"net"`,
+		`"github.com/cilium/ebpf/link"`,
+		"func (o *Objects) AttachPassIngress(interfaceIndex int) (link.Link, error)",
+		"func (o *Objects) AttachPassIngressInterface(name string) (link.Link, error)",
+		"return link.AttachTCX(link.TCXOptions{Program: o.PassIngress, Interface: interfaceIndex, Attach: ebpf.AttachTCXIngress})",
+		"func (o *Objects) AttachPassEgress(interfaceIndex int) (link.Link, error)",
+		"return link.AttachTCX(link.TCXOptions{Program: o.PassEgress, Interface: interfaceIndex, Attach: ebpf.AttachTCXEgress})",
+	} {
+		if !strings.Contains(code, want) {
+			t.Fatalf("generated bindings missing %q:\n%s", want, code)
+		}
+	}
+}
+
 func TestGenerateTypedMapBindings(t *testing.T) {
 	code, err := Generate(ir.Program{
 		Package: "probes",

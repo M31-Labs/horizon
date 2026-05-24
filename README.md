@@ -10,6 +10,7 @@ It keeps the kernel-side language deliberately small:
 - tracepoint programs
 - kprobe and kretprobe programs
 - XDP programs
+- TC classifier programs
 - typed structs and fixed arrays
 - boolean literals and typed boolean expressions
 - package-scoped declarations across multiple `.hzn` files
@@ -133,6 +134,19 @@ func OnOpen(ctx kprobe.Context) i32 {
 }
 ```
 
+TC classifier programs are explicit about direction and return named TC actions,
+not raw integers.
+
+```go
+package probes
+
+@capability("kernel.network.tc.observe")
+@tc("ingress")
+func PassIngress(ctx tc.Context) i32 {
+    return tc.OK
+}
+```
+
 ## Commands
 
 ```sh
@@ -151,6 +165,8 @@ hzn build ./examples/openwatch -o dist
 sudo go run ./examples/openwatch/cmd/openwatch -obj dist/open.bpf.o
 hzn build ./examples/tcpconnect -o dist
 sudo go run ./examples/tcpconnect/cmd/tcpconnect -obj dist/tcp.bpf.o
+hzn build ./examples/tcpass -o dist
+sudo go run ./examples/tcpass/cmd/tcpass -obj dist/tc.bpf.o -iface lo
 hzn build ./examples/xdpdrop -o dist
 sudo go run ./examples/xdpdrop/cmd/xdpdrop -obj dist/xdp.bpf.o -iface lo
 hzn diagnose dist/exec.verifier.log --map dist/exec.hznmap.json
@@ -214,6 +230,7 @@ Horizon makes verifier-sensitive behavior explicit before clang runs:
 - helper availability is checked against the program kind
 - packet headers returned by `xdp.eth(ctx)`, `xdp.ipv4(ctx)`, `xdp.tcp(ctx)`, and `xdp.udp(ctx)` must be nil-checked before field access
 - XDP programs must return named actions such as `xdp.Pass` and `xdp.Drop`, not raw integers
+- TC programs must declare `@tc("ingress")` or `@tc("egress")` and return named actions such as `tc.OK` and `tc.Shot`, not raw integers
 - generated C emits only the helper and map wrappers the program actually uses
 - generated BPF C is compiled with clang warnings treated as errors
 - generated C stays readable so clang and verifier logs remain inspectable
@@ -221,7 +238,7 @@ Horizon makes verifier-sensitive behavior explicit before clang runs:
 
 ## Status
 
-Pre-alpha. The current implementation targets tracepoint, kprobe/kretprobe, and
-XDP programs with typed ringbuf event output, typed hash/array map access,
+Pre-alpha. The current implementation targets tracepoint, kprobe/kretprobe, TC,
+and XDP programs with typed ringbuf event output, typed hash/array map access,
 bounded loops, generated BPF C, clang builds, Go bindings, and Continuum
 capability manifests.

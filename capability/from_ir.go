@@ -79,6 +79,9 @@ func manifestSection(section ir.Section) string {
 	if section.Kind == ir.ProgramXDP {
 		return "xdp"
 	}
+	if section.Kind == ir.ProgramTC {
+		return "tc/" + section.Attach
+	}
 	if (section.Kind == ir.ProgramKprobe || section.Kind == ir.ProgramKretprobe) && section.Attach != "" {
 		return string(section.Kind) + "/" + section.Attach
 	}

@@ -105,6 +105,7 @@ func builtinTypes() map[string]bool {
 		"xdp.IPv4":          true,
 		"xdp.TCP":           true,
 		"xdp.UDP":           true,
+		"tc.Context":        true,
 		"kprobe.Context":    true,
 		"kretprobe.Context": true,
 	}
@@ -250,7 +251,7 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 			Severity: diag.SeverityError,
 			Message:  fmt.Sprintf("function %q is missing an eBPF program section", decl.Name),
 			Primary:  decl.Span,
-			Suggest:  `add @tracepoint("category:event"), @xdp, @kprobe("symbol"), or @kretprobe("symbol") above the function`,
+			Suggest:  `add @tracepoint("category:event"), @xdp, @tc("ingress"), @kprobe("symbol"), or @kretprobe("symbol") above the function`,
 		})
 	} else if len(sections) > 1 {
 		diags = append(diags, diag.Diagnostic{
@@ -258,7 +259,7 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 			Severity: diag.SeverityError,
 			Message:  fmt.Sprintf("function %q has multiple eBPF program sections", decl.Name),
 			Primary:  decl.Span,
-			Suggest:  "use exactly one section attribute such as @tracepoint(...), @xdp, @kprobe(...), or @kretprobe(...)",
+			Suggest:  `use exactly one section attribute such as @tracepoint(...), @xdp, @tc("ingress"), @kprobe(...), or @kretprobe(...)`,
 		})
 	}
 	for _, attr := range decl.Attrs {
@@ -279,6 +280,26 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 					Severity: diag.SeverityError,
 					Message:  "@xdp does not take arguments; choose the interface at attach time",
 					Primary:  attr.Span,
+				})
+			}
+		case "tc":
+			if len(attr.Args) != 1 {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1312",
+					Severity: diag.SeverityError,
+					Message:  `@tc requires one direction string argument, "ingress" or "egress"`,
+					Primary:  attr.Span,
+				})
+				break
+			}
+			direction := attrStringArg(attr)
+			if direction != "ingress" && direction != "egress" {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1313",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("@tc direction %q is not supported", direction),
+					Primary:  attr.Span,
+					Suggest:  `use @tc("ingress") or @tc("egress")`,
 				})
 			}
 		case "kprobe":
@@ -380,6 +401,8 @@ func sectionAttrs(attrs []ast.Attr) []sectionSpec {
 			out = append(out, sectionSpec{Attr: attr, Context: "tracepoint.Exec"})
 		case "xdp":
 			out = append(out, sectionSpec{Attr: attr, Context: "xdp.Context"})
+		case "tc":
+			out = append(out, sectionSpec{Attr: attr, Context: "tc.Context"})
 		case "kprobe":
 			out = append(out, sectionSpec{Attr: attr, Context: "kprobe.Context"})
 		case "kretprobe":
@@ -420,6 +443,7 @@ type valueType struct {
 	Fallible  string
 	Void      bool
 	XDPAction bool
+	TCAction  bool
 }
 
 func validateFuncBody(decl ast.FuncDecl, maps map[string]ast.MapDecl, structs map[string]ast.TypeDecl, consts map[string]ast.ConstDecl, sections []sectionSpec) []diag.Diagnostic {
@@ -497,6 +521,16 @@ func validateFuncBody(decl ast.FuncDecl, maps map[string]ast.MapDecl, structs ma
 				})
 				break
 			}
+			if target.TCAction && !value.TCAction {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1450",
+					Severity: diag.SeverityError,
+					Message:  "TC action locals can only be assigned named tc actions",
+					Primary:  s.Span,
+					Suggest:  "assign tc.OK, tc.Shot, tc.Reclassify, tc.Pipe, tc.Stolen, or tc.Redirect",
+				})
+				break
+			}
 			if targetHadErrors {
 				break
 			}
@@ -550,6 +584,14 @@ func validateFuncBody(decl ast.FuncDecl, maps map[string]ast.MapDecl, structs ma
 					Primary:  s.Span,
 					Suggest:  "return xdp.Pass, xdp.Drop, xdp.Aborted, xdp.Tx, or xdp.Redirect",
 				})
+			} else if programSection == "tc" && !value.TCAction {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1450",
+					Severity: diag.SeverityError,
+					Message:  "TC programs must return a named tc action",
+					Primary:  s.Span,
+					Suggest:  "return tc.OK, tc.Shot, tc.Reclassify, tc.Pipe, tc.Stolen, or tc.Redirect",
+				})
 			} else if programSection != "" && programSection != "xdp" && value.XDPAction {
 				diags = append(diags, diag.Diagnostic{
 					Code:     "HZN1449",
@@ -557,6 +599,14 @@ func validateFuncBody(decl ast.FuncDecl, maps map[string]ast.MapDecl, structs ma
 					Message:  fmt.Sprintf("@%s programs cannot return XDP actions", programSection),
 					Primary:  s.Span,
 					Suggest:  "return 0 from tracing programs; XDP actions are only valid in @xdp programs",
+				})
+			} else if programSection != "" && programSection != "tc" && value.TCAction {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1451",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("@%s programs cannot return TC actions", programSection),
+					Primary:  s.Span,
+					Suggest:  `return 0 from tracing programs; TC actions are only valid in @tc programs`,
 				})
 			} else if s.Value != nil && !assignable(valueType{Name: "i32"}, value) {
 				diags = append(diags, diag.Diagnostic{
@@ -704,6 +754,18 @@ func typeOfExpr(expr ast.Expr, locals map[string]valueType, maps map[string]ast.
 				Message:  fmt.Sprintf("unknown XDP symbol xdp.%s", field),
 				Primary:  e.Span,
 				Suggest:  "use XDP actions such as xdp.Pass or packet constants such as xdp.IPProtoTCP",
+			}}
+		}
+		if root, field, ok := selectorParts(e); ok && root == "tc" {
+			if typ, ok := tcSelectorType(field); ok {
+				return typ, nil
+			}
+			return valueType{}, []diag.Diagnostic{{
+				Code:     "HZN1452",
+				Severity: diag.SeverityError,
+				Message:  fmt.Sprintf("unknown TC symbol tc.%s", field),
+				Primary:  e.Span,
+				Suggest:  "use TC actions such as tc.OK or tc.Shot",
 			}}
 		}
 		operand, diags := typeOfExpr(e.Operand, locals, maps, structs)
@@ -1015,6 +1077,15 @@ func typeOfCall(call ast.CallExpr, locals map[string]valueType, maps map[string]
 	}
 	if root == "xdp" {
 		return typeOfXDPCall(method, call, locals, maps, structs)
+	}
+	if root == "tc" {
+		return valueType{}, []diag.Diagnostic{{
+			Code:     "HZN1453",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("tc.%s is not a callable helper in Horizon v0", method),
+			Primary:  call.Span,
+			Suggest:  "use named TC action constants such as tc.OK in return statements",
+		}}
 	}
 	if m, ok := maps[root]; ok {
 		switch method {
@@ -1380,6 +1451,15 @@ func xdpSelectorType(name string) (valueType, bool) {
 	}
 }
 
+func tcSelectorType(name string) (valueType, bool) {
+	switch name {
+	case "OK", "Reclassify", "Shot", "Pipe", "Stolen", "Redirect":
+		return valueType{Name: "i32", TCAction: true}, true
+	default:
+		return valueType{}, false
+	}
+}
+
 func isScalar(name string) bool {
 	switch name {
 	case "u8", "u16", "u32", "u64", "i8", "i16", "i32", "i64", "bool":
@@ -1412,6 +1492,9 @@ func typeName(t valueType) string {
 	if t.XDPAction {
 		return "xdp action"
 	}
+	if t.TCAction {
+		return "tc action"
+	}
 	if t.Ref.Len != "" && t.Ref.Elem != nil {
 		name = "[" + t.Ref.Len + "]" + t.Ref.Elem.Name
 	}
@@ -1419,6 +1502,16 @@ func typeName(t valueType) string {
 		return "*" + name
 	}
 	return name
+}
+
+func attrStringArg(attr ast.Attr) string {
+	if len(attr.Args) == 0 {
+		return ""
+	}
+	if value, ok := attr.Args[0].(ast.StringExpr); ok {
+		return value.Value
+	}
+	return ""
 }
 
 func argCountDiagnostic(primary span.Span, name string, want, got int) diag.Diagnostic {

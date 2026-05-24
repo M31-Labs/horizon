@@ -290,6 +290,13 @@ func sectionFromAttrs(attrs []ast.Attr) Section {
 				Kind: ProgramXDP,
 				Name: "xdp",
 			}
+		case "tc":
+			attach := stringArg(attr)
+			return Section{
+				Kind:   ProgramTC,
+				Attach: attach,
+				Name:   "tc/" + attach,
+			}
 		case "kprobe":
 			attach := stringArg(attr)
 			return Section{
@@ -458,7 +465,7 @@ func addUnique(values *[]string, seen map[string]bool, value string) {
 }
 
 func inferDanger(fn Function) DangerLevel {
-	if fn.Section.Kind != ProgramXDP {
+	if fn.Section.Kind != ProgramXDP && fn.Section.Kind != ProgramTC {
 		return DangerObserve
 	}
 	danger := DangerObserve
@@ -471,6 +478,10 @@ func inferDanger(fn Function) DangerLevel {
 				case "xdp.Drop", "xdp.Aborted":
 					danger = moreDangerous(danger, DangerDrop)
 				case "xdp.Tx", "xdp.Redirect":
+					danger = moreDangerous(danger, DangerMutate)
+				case "tc.Shot", "tc.Stolen":
+					danger = moreDangerous(danger, DangerDrop)
+				case "tc.Reclassify", "tc.Redirect":
 					danger = moreDangerous(danger, DangerMutate)
 				}
 			case "if":
@@ -529,6 +540,9 @@ func manifestSection(section Section) string {
 	}
 	if section.Kind == ProgramXDP {
 		return "xdp"
+	}
+	if section.Kind == ProgramTC {
+		return "tc/" + section.Attach
 	}
 	if (section.Kind == ProgramKprobe || section.Kind == ProgramKretprobe) && section.Attach != "" {
 		return string(section.Kind) + "/" + section.Attach

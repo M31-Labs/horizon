@@ -5,6 +5,7 @@ type ProgramKind string
 const (
 	ProgramTracepoint ProgramKind = "tracepoint"
 	ProgramXDP        ProgramKind = "xdp"
+	ProgramTC         ProgramKind = "tc"
 	ProgramKprobe     ProgramKind = "kprobe"
 	ProgramKretprobe  ProgramKind = "kretprobe"
 )

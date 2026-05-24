@@ -891,6 +891,66 @@ func DropAll(ctx tracepoint.Exec) i32 {
 	requireDiagnosticCode(t, result, "HZN1308")
 }
 
+func TestAnalyzeTCProgramPasses(t *testing.T) {
+	result := analyzeSource(t, "tc.hzn", `package probes
+
+@capability("kernel.network.tc.drop")
+@tc("ingress")
+func DropIngress(ctx tc.Context) i32 {
+    return tc.Shot
+}
+`)
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+	if len(result.Program.Functions) != 1 || result.Program.Functions[0].Section.Kind != ir.ProgramTC {
+		t.Fatalf("functions = %#v, want one TC function", result.Program.Functions)
+	}
+	if result.Program.Functions[0].Section.Attach != "ingress" || result.Program.Functions[0].Section.Name != "tc/ingress" {
+		t.Fatalf("section = %#v, want tc ingress", result.Program.Functions[0].Section)
+	}
+	manifest := capability.FromIR(result.Program)
+	if len(manifest.Programs) != 1 || manifest.Programs[0].Section != "tc/ingress" || manifest.Programs[0].Kind != "tc" {
+		t.Fatalf("program manifest = %#v, want tc ingress section", manifest.Programs)
+	}
+	if len(manifest.Capabilities) != 1 || manifest.Capabilities[0].Section != "tc/ingress" || manifest.Capabilities[0].Danger != "drop" {
+		t.Fatalf("capability manifest = %#v, want tc drop capability", manifest.Capabilities)
+	}
+}
+
+func TestAnalyzeRejectsRawIntegerTCReturn(t *testing.T) {
+	result := analyzeSource(t, "tc.hzn", `package probes
+
+@tc("ingress")
+func PassIngress(ctx tc.Context) i32 {
+    return 0
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1450")
+}
+
+func TestAnalyzeRejectsTCWrongDirection(t *testing.T) {
+	result := analyzeSource(t, "tc.hzn", `package probes
+
+@tc("middle")
+func PassIngress(ctx tc.Context) i32 {
+    return tc.OK
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1313")
+}
+
+func TestAnalyzeRejectsTCWrongContext(t *testing.T) {
+	result := analyzeSource(t, "tc.hzn", `package probes
+
+@tc("ingress")
+func PassIngress(ctx xdp.Context) i32 {
+    return tc.OK
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1308")
+}
+
 func TestAnalyzeKprobeProgramPasses(t *testing.T) {
 	result := analyzeSource(t, "open.hzn", `package probes
 

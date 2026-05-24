@@ -202,7 +202,7 @@ func TestValidateRejectsUnsupportedEnumValues(t *testing.T) {
 		"program kind": {
 			Schema:       SchemaV0,
 			Package:      "probes",
-			Programs:     []Program{{Name: "OnExec", Kind: "tc", Section: "tc/ingress"}},
+			Programs:     []Program{{Name: "OnExec", Kind: "sockops", Section: "sockops"}},
 			Capabilities: []Capability{},
 		},
 		"map kind": {

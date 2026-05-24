@@ -608,6 +608,38 @@ func OnOpen(ctx kprobe.Context) i32 {
 	}
 }
 
+func TestEmitTCProgram(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tc.hzn")
+	if err := os.WriteFile(path, []byte(`package probes
+
+@tc("egress")
+func PassEgress(ctx tc.Context) i32 {
+    return tc.OK
+}
+`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	result, err := compiler.AnalyzePath(dir)
+	if err != nil {
+		t.Fatalf("AnalyzePath: %v", err)
+	}
+	out, err := Emit(result.Program)
+	if err != nil {
+		t.Fatalf("Emit: %v", err)
+	}
+	for _, want := range []string{
+		"#define TC_ACT_OK 0",
+		`SEC("tc/egress")`,
+		"int PassEgress(struct __sk_buff *ctx) {",
+		"return TC_ACT_OK;",
+	} {
+		if !strings.Contains(out.Code, want) {
+			t.Fatalf("generated C missing %q:\n%s", want, out.Code)
+		}
+	}
+}
+
 func TestEmitRejectsUnsupportedStatementKind(t *testing.T) {
 	out, err := Emit(ir.Program{
 		Functions: []ir.Function{{

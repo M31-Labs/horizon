@@ -147,6 +147,8 @@ func emitAttach(b *bytes.Buffer, fn ir.Function) {
 		emitTracepointAttach(b, fn)
 	case ir.ProgramXDP:
 		emitXDPAttach(b, fn)
+	case ir.ProgramTC:
+		emitTCAttach(b, fn)
 	case ir.ProgramKprobe:
 		emitKprobeAttach(b, fn, "Kprobe")
 	case ir.ProgramKretprobe:
@@ -193,6 +195,30 @@ func (o *Objects) Attach%sInterface(name string) (link.Link, error) {
 `, field, field, fn.Name, field, field, field)
 }
 
+func emitTCAttach(b *bytes.Buffer, fn ir.Function) {
+	field := exported(fn.Name)
+	attach := "ebpf.AttachTCXIngress"
+	if fn.Section.Attach == "egress" {
+		attach = "ebpf.AttachTCXEgress"
+	}
+	fmt.Fprintf(b, `func (o *Objects) Attach%s(interfaceIndex int) (link.Link, error) {
+	if o == nil || o.%s == nil {
+		return nil, fmt.Errorf("%s program is not loaded")
+	}
+	return link.AttachTCX(link.TCXOptions{Program: o.%s, Interface: interfaceIndex, Attach: %s})
+}
+
+func (o *Objects) Attach%sInterface(name string) (link.Link, error) {
+	iface, err := net.InterfaceByName(name)
+	if err != nil {
+		return nil, err
+	}
+	return o.Attach%s(iface.Index)
+}
+
+`, field, field, fn.Name, field, attach, field, field)
+}
+
 func emitKprobeAttach(b *bytes.Buffer, fn ir.Function, linkFunc string) {
 	if fn.Section.Attach == "" {
 		return
@@ -211,7 +237,7 @@ func emitKprobeAttach(b *bytes.Buffer, fn ir.Function, linkFunc string) {
 func emitImports(b *bytes.Buffer, program ir.Program) {
 	needsRingbuf := hasRingbuf(program)
 	needsAttach := hasAttach(program)
-	needsXDP := hasXDP(program)
+	needsInterfaceAttach := hasInterfaceAttach(program)
 	var std []string
 	if needsRingbuf {
 		std = append(std, "bytes", "context", "encoding/binary")
@@ -220,7 +246,7 @@ func emitImports(b *bytes.Buffer, program ir.Program) {
 		std = append(std, "errors")
 	}
 	std = append(std, "fmt")
-	if needsXDP {
+	if needsInterfaceAttach {
 		std = append(std, "net")
 	}
 	if needsStructLayoutAssertions(program) {
@@ -263,16 +289,16 @@ func hasRingbuf(program ir.Program) bool {
 func hasAttach(program ir.Program) bool {
 	for _, fn := range program.Functions {
 		switch fn.Section.Kind {
-		case ir.ProgramTracepoint, ir.ProgramXDP, ir.ProgramKprobe, ir.ProgramKretprobe:
+		case ir.ProgramTracepoint, ir.ProgramXDP, ir.ProgramTC, ir.ProgramKprobe, ir.ProgramKretprobe:
 			return true
 		}
 	}
 	return false
 }
 
-func hasXDP(program ir.Program) bool {
+func hasInterfaceAttach(program ir.Program) bool {
 	for _, fn := range program.Functions {
-		if fn.Section.Kind == ir.ProgramXDP {
+		if fn.Section.Kind == ir.ProgramXDP || fn.Section.Kind == ir.ProgramTC {
 			return true
 		}
 	}

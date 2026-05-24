@@ -224,6 +224,9 @@ func nilGuardSuggestion(fn ir.Function, varName string) string {
 	if fn.Section.Kind == ir.ProgramXDP {
 		return fmt.Sprintf("if %s == nil { return xdp.Pass }", varName)
 	}
+	if fn.Section.Kind == ir.ProgramTC {
+		return fmt.Sprintf("if %s == nil { return tc.OK }", varName)
+	}
 	return fmt.Sprintf("if %s == nil { return 0 }", varName)
 }
 
