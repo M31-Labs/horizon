@@ -1,0 +1,12 @@
+package probes
+
+type Event struct {
+    ptr *u32
+}
+
+map Events ringbuf[Event]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    return 0
+}

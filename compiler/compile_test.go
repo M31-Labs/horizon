@@ -146,6 +146,7 @@ func TestAnalyzeInvalidRingbufPrograms(t *testing.T) {
 		"../testdata/invalid/raw_scalar_address.hzn":         "HZN1472",
 		"../testdata/invalid/pointer_deref.hzn":              "HZN1473",
 		"../testdata/invalid/bare_return.hzn":                "HZN1476",
+		"../testdata/invalid/source_pointer_type.hzn":        "HZN1106",
 	}
 	for path, code := range tests {
 		result, err := AnalyzePath(path)

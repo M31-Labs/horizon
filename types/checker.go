@@ -516,6 +516,7 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 	for _, param := range decl.Params {
 		diags = append(diags, validateTypeRef(param.Type, known)...)
 	}
+	diags = append(diags, validateTypeRef(decl.Return, known)...)
 	if decl.Return.IsZero() {
 		diags = append(diags, diag.Diagnostic{
 			Code:     "HZN1304",
@@ -539,10 +540,22 @@ func validateTypeRef(ref ast.TypeRef, known map[string]bool) []diag.Diagnostic {
 	if ref.IsZero() {
 		return nil
 	}
-	if ref.Elem != nil {
-		return validateTypeRef(*ref.Elem, known)
-	}
 	var diags []diag.Diagnostic
+	if ref.Ptr {
+		diags = append(diags, diag.Diagnostic{
+			Code:     "HZN1106",
+			Severity: diag.SeverityError,
+			Message:  "source-authored pointer types are not supported in Horizon v0",
+			Primary:  ref.Span,
+			Suggest:  "use compiler-known nullable resources from map lookup, ringbuf reserve, packet helpers, or fixed-array helper operands instead of writing *T types",
+		})
+	}
+	if ref.Elem != nil {
+		diags = append(diags, validateTypeRef(*ref.Elem, known)...)
+		if ref.Len != "" || ref.Ptr {
+			return diags
+		}
+	}
 	for _, arg := range ref.Args {
 		diags = append(diags, validateTypeRef(arg, known)...)
 	}
