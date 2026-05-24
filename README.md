@@ -27,6 +27,7 @@ It keeps the kernel-side language deliberately small:
 - explicit integer scalar conversions such as `u64(pid)`
 - explicitly typed constants such as `const Port u16 = 443`
 - signed constants such as `const Errno i32 = -1`
+- named capability aliases such as `capability ExecObserve = "kernel.process.exec.observe"`
 - scalar user helper functions that lower to `static __always_inline` C
 - compiler-known kernel helpers
 - typed kprobe argument and kretprobe return helpers
@@ -79,6 +80,20 @@ func OnExec(ctx tracepoint.Exec) i32 {
 
 Stateful programs can use typed maps. Lookup results are nullable and must be
 checked before dereference.
+
+Capability strings can be named once at package scope and referenced from
+entrypoint attributes. This keeps the source readable while preserving the
+manifest's stable Continuum capability name.
+
+```go
+capability ExecObserve = "kernel.process.exec.observe"
+
+@capability(ExecObserve)
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    return 0
+}
+```
 
 ```go
 const FirstSeen u32 = 1

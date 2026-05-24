@@ -21,6 +21,7 @@ func defineSourceFile(g *grammargen.Grammar) {
 		grammargen.Sym("import_declaration"),
 		grammargen.Sym("type_declaration"),
 		grammargen.Sym("const_declaration"),
+		grammargen.Sym("capability_declaration"),
 		grammargen.Sym("map_declaration"),
 		grammargen.Sym("function_declaration"),
 	))
@@ -54,6 +55,13 @@ func defineDeclarations(g *grammargen.Grammar) {
 		grammargen.Optional(grammargen.Field("type", grammargen.Sym("type_ref"))),
 		grammargen.Str("="),
 		grammargen.Field("value", grammargen.Sym("expression")),
+	))
+
+	g.Define("capability_declaration", grammargen.Seq(
+		grammargen.Str("capability"),
+		grammargen.Field("name", grammargen.Sym("identifier")),
+		grammargen.Str("="),
+		grammargen.Field("value", grammargen.Sym("string_literal")),
 	))
 
 	g.Define("map_declaration", grammargen.Seq(

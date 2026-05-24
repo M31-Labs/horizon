@@ -7,6 +7,9 @@
 (const_declaration
   name: (identifier) @name) @definition.constant
 
+(capability_declaration
+  name: (identifier) @name) @definition.capability
+
 (function_declaration
   name: (identifier) @name) @definition.function
 

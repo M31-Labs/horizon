@@ -154,6 +154,31 @@ map ConstCounts hash[u32, u32]
 	}
 }
 
+func TestSourceFormatsCapabilityAliases(t *testing.T) {
+	got, err := Source(parser.SourceFile{Path: "capabilities.hzn", Bytes: []byte(`package probes
+capability ExecObserve="kernel.process.exec.observe"
+@capability(ExecObserve)
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec)i32{return 0}
+`)})
+	if err != nil {
+		t.Fatalf("Source: %v", err)
+	}
+	want := `package probes
+
+capability ExecObserve = "kernel.process.exec.observe"
+
+@capability(ExecObserve)
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    return 0
+}
+`
+	if string(got) != want {
+		t.Fatalf("formatted source mismatch\nwant:\n%s\ngot:\n%s", want, got)
+	}
+}
+
 func TestSourceFormatsSignedIntegerLiterals(t *testing.T) {
 	got, err := Source(parser.SourceFile{Path: "signed.hzn", Bytes: []byte(`package probes
 const Negative i32=-1

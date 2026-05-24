@@ -26,6 +26,7 @@ func CheckPackage(files []ast.File) [][]diag.Diagnostic {
 	structs := builtinStructs()
 	maps := map[string]ast.MapDecl{}
 	consts := map[string]ast.ConstDecl{}
+	capabilities := map[string]ast.CapabilityDecl{}
 	userStructs := map[string]ast.TypeDecl{}
 	funcs := map[string]ast.FuncDecl{}
 	for i, file := range files {
@@ -74,6 +75,9 @@ func CheckPackage(files []ast.File) [][]diag.Diagnostic {
 			if constant, ok := decl.(ast.ConstDecl); ok && constant.Name != "" {
 				consts[constant.Name] = constant
 			}
+			if capability, ok := decl.(ast.CapabilityDecl); ok && capability.Name != "" {
+				capabilities[capability.Name] = capability
+			}
 			if fn, ok := decl.(ast.FuncDecl); ok && fn.Name != "" {
 				funcs[fn.Name] = fn
 			}
@@ -88,10 +92,12 @@ func CheckPackage(files []ast.File) [][]diag.Diagnostic {
 			case ast.MapDecl:
 				diags[i] = append(diags[i], validateMapDecl(d, knownTypes, userStructs, consts)...)
 			case ast.FuncDecl:
-				diags[i] = append(diags[i], validateFuncDecl(d, knownTypes, maps, structs, consts, funcs)...)
+				diags[i] = append(diags[i], validateFuncDecl(d, knownTypes, maps, structs, consts, funcs, capabilities)...)
 				diags[i] = append(diags[i], callGraphDiags[d.Name]...)
 			case ast.ConstDecl:
 				diags[i] = append(diags[i], validateConstDecl(d, knownTypes)...)
+			case ast.CapabilityDecl:
+				diags[i] = append(diags[i], validateCapabilityDecl(d)...)
 			}
 		}
 	}
@@ -107,6 +113,8 @@ func declName(decl ast.Decl) string {
 	case ast.FuncDecl:
 		return d.Name
 	case ast.ConstDecl:
+		return d.Name
+	case ast.CapabilityDecl:
 		return d.Name
 	default:
 		return ""
@@ -524,7 +532,7 @@ func constDeclType(decl ast.ConstDecl) (valueType, bool) {
 	return typ, ok
 }
 
-func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]ast.MapDecl, structs map[string]ast.TypeDecl, consts map[string]ast.ConstDecl, funcs map[string]ast.FuncDecl) []diag.Diagnostic {
+func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]ast.MapDecl, structs map[string]ast.TypeDecl, consts map[string]ast.ConstDecl, funcs map[string]ast.FuncDecl, capabilities map[string]ast.CapabilityDecl) []diag.Diagnostic {
 	var diags []diag.Diagnostic
 	sections := sectionAttrs(decl.Attrs)
 	isHelper := len(sections) == 0
@@ -635,14 +643,7 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 				})
 			}
 		case "capability":
-			if !attrHasStringArg(attr) {
-				diags = append(diags, diag.Diagnostic{
-					Code:     "HZN1302",
-					Severity: diag.SeverityError,
-					Message:  "@capability requires one string argument",
-					Primary:  attr.Span,
-				})
-			}
+			diags = append(diags, validateCapabilityAttr(attr, capabilities)...)
 			if isHelper {
 				diags = append(diags, diag.Diagnostic{
 					Code:     "HZN1318",
@@ -689,6 +690,61 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 	}
 	diags = append(diags, validateFuncBody(decl, maps, structs, consts, sections, funcs)...)
 	return diags
+}
+
+func validateCapabilityDecl(decl ast.CapabilityDecl) []diag.Diagnostic {
+	if decl.Value != "" {
+		return nil
+	}
+	return []diag.Diagnostic{{
+		Code:     "HZN1322",
+		Severity: diag.SeverityError,
+		Message:  fmt.Sprintf("capability alias %q must name a capability", decl.Name),
+		Primary:  decl.Span,
+		Suggest:  `use a stable capability string such as "kernel.process.exec.observe"`,
+	}}
+}
+
+func validateCapabilityAttr(attr ast.Attr, capabilities map[string]ast.CapabilityDecl) []diag.Diagnostic {
+	if len(attr.Args) != 1 {
+		return []diag.Diagnostic{{
+			Code:     "HZN1302",
+			Severity: diag.SeverityError,
+			Message:  "@capability requires one string argument or capability alias",
+			Primary:  attr.Span,
+		}}
+	}
+	switch value := attr.Args[0].(type) {
+	case ast.StringExpr:
+		if value.Value == "" {
+			return []diag.Diagnostic{{
+				Code:     "HZN1322",
+				Severity: diag.SeverityError,
+				Message:  "@capability string cannot be empty",
+				Primary:  value.Span,
+				Suggest:  `use a stable capability string such as "kernel.process.exec.observe"`,
+			}}
+		}
+		return nil
+	case ast.IdentExpr:
+		if _, ok := capabilities[value.Name]; ok {
+			return nil
+		}
+		return []diag.Diagnostic{{
+			Code:     "HZN1321",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("unknown capability alias %q", value.Name),
+			Primary:  value.Span,
+			Suggest:  fmt.Sprintf("declare it with capability %s = \"...\" or use a string literal", value.Name),
+		}}
+	default:
+		return []diag.Diagnostic{{
+			Code:     "HZN1302",
+			Severity: diag.SeverityError,
+			Message:  "@capability requires one string argument or capability alias",
+			Primary:  attr.Span,
+		}}
+	}
 }
 
 func validateHelperSignature(decl ast.FuncDecl) []diag.Diagnostic {

@@ -93,6 +93,41 @@ func TestBuildExecwatchAST(t *testing.T) {
 	}
 }
 
+func TestBuildCapabilityAlias(t *testing.T) {
+	parsed, err := parser.ParseSource(parser.SourceFile{Path: "inline.hzn", Bytes: []byte(`package probes
+
+capability ExecObserve = "kernel.process.exec.observe"
+
+@capability(ExecObserve)
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    return 0
+}
+`)})
+	if err != nil {
+		t.Fatalf("ParseSource: %v", err)
+	}
+	file, err := Build(parsed)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(file.Decls) != 2 {
+		t.Fatalf("decls = %d, want capability alias and function", len(file.Decls))
+	}
+	capabilityDecl, ok := file.Decls[0].(CapabilityDecl)
+	if !ok {
+		t.Fatalf("decl[0] = %T, want CapabilityDecl", file.Decls[0])
+	}
+	if capabilityDecl.Name != "ExecObserve" || capabilityDecl.Value != "kernel.process.exec.observe" {
+		t.Fatalf("capability decl = %#v, want ExecObserve alias", capabilityDecl)
+	}
+	fn := file.Decls[1].(FuncDecl)
+	arg, ok := fn.Attrs[0].Args[0].(IdentExpr)
+	if !ok || arg.Name != "ExecObserve" {
+		t.Fatalf("capability attr arg = %#v, want ExecObserve identifier", fn.Attrs[0].Args)
+	}
+}
+
 func TestBuildBoundedForClause(t *testing.T) {
 	parsed, err := parser.ParseSource(parser.SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
 

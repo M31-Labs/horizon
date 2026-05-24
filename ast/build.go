@@ -27,6 +27,8 @@ func Build(parsed *parser.File) (*File, error) {
 			file.Decls = append(file.Decls, buildFuncDecl(parsed, child))
 		case "const_declaration":
 			file.Decls = append(file.Decls, buildConstDecl(parsed, child))
+		case "capability_declaration":
+			file.Decls = append(file.Decls, buildCapabilityDecl(parsed, child))
 		}
 	}
 	return file, nil
@@ -170,6 +172,14 @@ func buildConstDecl(parsed *parser.File, n *gotreesitter.Node) ConstDecl {
 		Name:  text(parsed, n.ChildByFieldName("name", parsed.Lang)),
 		Type:  buildTypeRef(parsed, n.ChildByFieldName("type", parsed.Lang)),
 		Value: buildExpr(parsed, value),
+		Span:  spanForNode(parsed.Source.FileID, n),
+	}
+}
+
+func buildCapabilityDecl(parsed *parser.File, n *gotreesitter.Node) CapabilityDecl {
+	return CapabilityDecl{
+		Name:  text(parsed, n.ChildByFieldName("name", parsed.Lang)),
+		Value: strings.Trim(text(parsed, n.ChildByFieldName("value", parsed.Lang)), `"`),
 		Span:  spanForNode(parsed.Source.FileID, n),
 	}
 }

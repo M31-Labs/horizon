@@ -13,6 +13,8 @@ import bpf "m31labs.dev/horizon/runtime/kernel"
 
 const EventBytes u32 = 262144
 
+capability DropCapability = "kernel.network.xdp.drop"
+
 type Event struct {
     pid u32
     ok bool
@@ -21,7 +23,7 @@ type Event struct {
 @max_entries(EventBytes)
 map Events ringbuf[Event]
 
-@capability("kernel.network.xdp.drop")
+@capability(DropCapability)
 @xdp
 func DropTCP(ctx xdp.Context) i32 {
     // keep packet access typed and nil-checked
@@ -52,7 +54,7 @@ func TestQueriesCompile(t *testing.T) {
 func TestHighlightsQueryCoversCurrentLanguageSurface(t *testing.T) {
 	captures := queryCaptures(t, HighlightsQuery, []byte(queryFixture))
 
-	assertCaptureContains(t, captures, "keyword", "package", "import", "const", "type", "struct", "map", "func", "if", "return")
+	assertCaptureContains(t, captures, "keyword", "package", "import", "const", "capability", "type", "struct", "map", "func", "if", "return")
 	assertCaptureContains(t, captures, "attribute", "max_entries", "capability", "xdp")
 	assertCaptureContains(t, captures, "comment", "// keep packet access typed and nil-checked")
 	assertCaptureContains(t, captures, "string", `"m31labs.dev/horizon/runtime/kernel"`, `"kernel.network.xdp.drop"`)
@@ -71,11 +73,12 @@ func TestLocalsQueryCapturesScopesDefinitionsAndReferences(t *testing.T) {
 	assertCaptureContains(t, captures, "local.definition.function", "DropTCP")
 	assertCaptureContains(t, captures, "local.definition.type", "Event")
 	assertCaptureContains(t, captures, "local.definition.constant", "EventBytes")
+	assertCaptureContains(t, captures, "local.definition.capability", "DropCapability")
 	assertCaptureContains(t, captures, "local.definition.map", "Events")
 	assertCaptureContains(t, captures, "local.definition.parameter", "ctx")
 	assertCaptureContains(t, captures, "local.definition.var", "tcp")
 	assertCaptureContains(t, captures, "local.definition.namespace", "bpf")
-	assertCaptureContains(t, captures, "local.reference", "tcp", "ctx", "xdp")
+	assertCaptureContains(t, captures, "local.reference", "tcp", "ctx", "xdp", "DropCapability")
 	if len(captures["local.scope"]) < 2 {
 		t.Fatalf("local.scope captures = %d, want at least source and block scopes", len(captures["local.scope"]))
 	}
@@ -84,9 +87,12 @@ func TestLocalsQueryCapturesScopesDefinitionsAndReferences(t *testing.T) {
 func TestSymbolsQueryCapturesAuthoringOutline(t *testing.T) {
 	captures := queryCaptures(t, SymbolsQuery, []byte(queryFixture))
 
-	assertCaptureContains(t, captures, "name", "probes", "bpf", "EventBytes", "Event", "pid", "ok", "Events", "max_entries", "capability", "xdp", "DropTCP")
+	assertCaptureContains(t, captures, "name", "probes", "bpf", "EventBytes", "DropCapability", "Event", "pid", "ok", "Events", "max_entries", "capability", "xdp", "DropTCP")
 	if len(captures["definition.function"]) == 0 {
 		t.Fatal("definition.function captures = 0, want function outline entry")
+	}
+	if len(captures["definition.capability"]) == 0 {
+		t.Fatal("definition.capability captures = 0, want capability outline entry")
 	}
 	if len(captures["definition.map"]) == 0 {
 		t.Fatal("definition.map captures = 0, want map outline entry")

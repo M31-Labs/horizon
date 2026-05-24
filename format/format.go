@@ -158,6 +158,8 @@ func (b *builder) decl(decl ast.Decl) {
 		}
 		line += " = " + expr(d.Value)
 		b.lineWithComment(line, d.Span.Start.Line)
+	case ast.CapabilityDecl:
+		b.lineWithComment("capability "+d.Name+" = "+strconv.Quote(d.Value), d.Span.Start.Line)
 	case ast.MapDecl:
 		for _, attr := range d.Attrs {
 			b.lineWithComment(attrText(attr), attr.Span.Start.Line)

@@ -2,6 +2,7 @@
 (import_declaration "import" @keyword)
 (type_declaration "type" @keyword)
 (const_declaration "const" @keyword)
+(capability_declaration "capability" @keyword)
 (function_declaration "func" @keyword)
 (map_declaration "map" @keyword)
 (struct_type "struct" @keyword)
@@ -49,6 +50,9 @@
   name: (identifier) @variable)
 
 (const_declaration
+  name: (identifier) @constant)
+
+(capability_declaration
   name: (identifier) @constant)
 
 (parameter

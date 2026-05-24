@@ -78,3 +78,14 @@ func (ConstDecl) declNode() {}
 func (d ConstDecl) GetSpan() span.Span {
 	return d.Span
 }
+
+type CapabilityDecl struct {
+	Name  string
+	Value string
+	Span  span.Span
+}
+
+func (CapabilityDecl) declNode() {}
+func (d CapabilityDecl) GetSpan() span.Span {
+	return d.Span
+}

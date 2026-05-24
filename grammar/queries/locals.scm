@@ -11,6 +11,9 @@
 (const_declaration
   name: (identifier) @local.definition.constant)
 
+(capability_declaration
+  name: (identifier) @local.definition.capability)
+
 (parameter
   name: (identifier) @local.definition.parameter)
 

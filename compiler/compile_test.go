@@ -81,6 +81,85 @@ map Events ringbuf[Event]
 	}
 }
 
+func TestAnalyzeCapabilityAliasResolvesManifestName(t *testing.T) {
+	result := analyzeSource(t, "capability.hzn", `package probes
+
+capability ExecObserve = "kernel.process.exec.observe"
+
+@capability(ExecObserve)
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    return 0
+}
+`)
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+	manifest := capability.FromIR(result.Program)
+	if len(manifest.Capabilities) != 1 {
+		t.Fatalf("capabilities = %#v, want one", manifest.Capabilities)
+	}
+	if got, want := manifest.Capabilities[0].Name, "kernel.process.exec.observe"; got != want {
+		t.Fatalf("capability name = %q, want %q", got, want)
+	}
+}
+
+func TestAnalyzeCapabilityAliasCanBeSharedAcrossFiles(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a_capability.hzn"), []byte(`package probes
+
+capability ExecObserve = "kernel.process.exec.observe"
+`), 0o600); err != nil {
+		t.Fatalf("WriteFile capability: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "z_program.hzn"), []byte(`package probes
+
+@capability(ExecObserve)
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    return 0
+}
+`), 0o600); err != nil {
+		t.Fatalf("WriteFile program: %v", err)
+	}
+	result, err := AnalyzePath(dir)
+	if err != nil {
+		t.Fatalf("AnalyzePath: %v", err)
+	}
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+	if got := result.Program.Capabilities[0].Name; got != "kernel.process.exec.observe" {
+		t.Fatalf("capability name = %q, want alias value", got)
+	}
+}
+
+func TestAnalyzeRejectsUnknownCapabilityAlias(t *testing.T) {
+	result := analyzeSource(t, "capability.hzn", `package probes
+
+@capability(ExecObserve)
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    return 0
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1321")
+}
+
+func TestAnalyzeRejectsEmptyCapabilityAlias(t *testing.T) {
+	result := analyzeSource(t, "capability.hzn", `package probes
+
+capability ExecObserve = ""
+
+@capability(ExecObserve)
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    return 0
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1322")
+}
+
 func TestAnalyzeRejectsDuplicateDeclarationsAcrossFiles(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "a.hzn"), []byte(`package probes

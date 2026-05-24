@@ -15,12 +15,15 @@ func FromAST(file ast.File) (Program, []diag.Diagnostic) {
 		Func Function
 	}
 	var funcs []functionDecl
+	capabilityAliases := map[string]string{}
 	for _, decl := range file.Decls {
 		switch d := decl.(type) {
 		case ast.TypeDecl:
 			program.Structs = append(program.Structs, buildStruct(d))
 		case ast.ConstDecl:
 			program.Constants = append(program.Constants, buildConst(d))
+		case ast.CapabilityDecl:
+			capabilityAliases[d.Name] = d.Value
 		case ast.MapDecl:
 			program.Maps = append(program.Maps, buildMap(d))
 		case ast.FuncDecl:
@@ -32,7 +35,7 @@ func FromAST(file ast.File) (Program, []diag.Diagnostic) {
 	}
 	for _, fn := range funcs {
 		program.Functions = append(program.Functions, fn.Func)
-		program.Capabilities = append(program.Capabilities, buildCapabilities(fn.Decl, fn.Func, program.Maps)...)
+		program.Capabilities = append(program.Capabilities, buildCapabilities(fn.Decl, fn.Func, program.Maps, capabilityAliases)...)
 	}
 	return program, diags
 }
@@ -241,13 +244,13 @@ func buildExprs(exprs []ast.Expr) []Expr {
 	return out
 }
 
-func buildCapabilities(decl ast.FuncDecl, fn Function, maps []Map) []Capability {
+func buildCapabilities(decl ast.FuncDecl, fn Function, maps []Map, capabilityAliases map[string]string) []Capability {
 	var out []Capability
 	for _, attr := range decl.Attrs {
 		if attr.Name != "capability" {
 			continue
 		}
-		name := stringArg(attr)
+		name := capabilityArg(attr, capabilityAliases)
 		access := mapAccesses(fn, maps)
 		out = append(out, Capability{
 			Name:    name,
@@ -341,6 +344,20 @@ func stringArg(attr ast.Attr) string {
 		return value.Value
 	}
 	return ""
+}
+
+func capabilityArg(attr ast.Attr, aliases map[string]string) string {
+	if len(attr.Args) == 0 {
+		return ""
+	}
+	switch value := attr.Args[0].(type) {
+	case ast.StringExpr:
+		return value.Value
+	case ast.IdentExpr:
+		return aliases[value.Name]
+	default:
+		return ""
+	}
 }
 
 type capabilityAccess struct {
