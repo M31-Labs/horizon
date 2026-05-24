@@ -12,6 +12,7 @@ import (
 	"m31labs.dev/horizon/capability"
 	hclang "m31labs.dev/horizon/clang"
 	"m31labs.dev/horizon/compiler"
+	"m31labs.dev/horizon/compiler/diag"
 	"m31labs.dev/horizon/emitc"
 )
 
@@ -23,7 +24,7 @@ func runWorkbench(args []string) error {
 	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
-	result, err := analyze(pathArg(fs))
+	result, err := compiler.AnalyzePath(pathArg(fs))
 	if err != nil {
 		return err
 	}
@@ -36,6 +37,10 @@ func runWorkbench(args []string) error {
 		return err
 	}
 	fmt.Printf("workbench %s: %d artifact(s)\n", report.Status, len(report.Artifacts))
+	if diag.HasErrors(result.Diagnostics) {
+		printDiagnostics(result.Diagnostics)
+		return errDiagnostics(len(result.Diagnostics))
+	}
 	return nil
 }
 
@@ -46,13 +51,15 @@ type workbenchOptions struct {
 }
 
 type workbenchReport struct {
-	Schema    string        `json:"schema"`
-	Package   string        `json:"package"`
-	Status    string        `json:"status"`
-	Compile   bool          `json:"compile"`
-	Artifacts []string      `json:"artifacts"`
-	Paths     artifactPaths `json:"paths"`
-	Clang     string        `json:"clang,omitempty"`
+	Schema          string            `json:"schema"`
+	Package         string            `json:"package"`
+	Status          string            `json:"status"`
+	Compile         bool              `json:"compile"`
+	Artifacts       []string          `json:"artifacts"`
+	Paths           artifactPaths     `json:"paths"`
+	Diagnostics     []diag.Diagnostic `json:"diagnostics"`
+	DiagnosticCount int               `json:"diagnostic_count"`
+	Clang           string            `json:"clang,omitempty"`
 }
 
 type artifactPaths struct {
@@ -61,6 +68,7 @@ type artifactPaths struct {
 	SourceMap    string `json:"source_map"`
 	Bindings     string `json:"bindings"`
 	Capabilities string `json:"capabilities"`
+	Diagnostics  string `json:"diagnostics"`
 	Report       string `json:"report"`
 }
 
@@ -73,14 +81,27 @@ func writeWorkbenchArtifacts(result *compiler.Result, opts workbenchOptions) (wo
 	}
 	paths := artifactPathsFor(opts.OutDir, outputBase(result))
 	report := workbenchReport{
-		Schema:  "m31labs.dev/horizon/report/v0",
-		Package: result.Program.Package,
-		Status:  "generated",
-		Compile: opts.Compile,
-		Paths:   paths,
+		Schema:          "m31labs.dev/horizon/report/v0",
+		Package:         result.Program.Package,
+		Status:          "generated",
+		Compile:         opts.Compile,
+		Paths:           paths,
+		Diagnostics:     diagnosticsForReport(result.Diagnostics),
+		DiagnosticCount: len(result.Diagnostics),
 	}
 	if !opts.Compile {
 		report.Paths.Object = ""
+	}
+	if diag.HasErrors(result.Diagnostics) {
+		report.Status = "diagnostic_error"
+		report.Artifacts = paths.diagnosticArtifacts()
+		if err := writeJSON(paths.Diagnostics, report.Diagnostics); err != nil {
+			return report, err
+		}
+		if err := writeJSON(paths.Report, report); err != nil {
+			return report, err
+		}
+		return report, nil
 	}
 
 	cOutput, err := emitc.Emit(result.Program)
@@ -106,6 +127,9 @@ func writeWorkbenchArtifacts(result *compiler.Result, opts workbenchOptions) (wo
 		return report, err
 	}
 	if err := writeJSON(paths.Capabilities, manifest); err != nil {
+		return report, err
+	}
+	if err := writeJSON(paths.Diagnostics, report.Diagnostics); err != nil {
 		return report, err
 	}
 
@@ -141,6 +165,7 @@ func artifactPathsFor(outDir string, base string) artifactPaths {
 		SourceMap:    filepath.Join(outDir, base+".hznmap.json"),
 		Bindings:     filepath.Join(outDir, base+".bindings.go"),
 		Capabilities: filepath.Join(outDir, base+".cap.json"),
+		Diagnostics:  filepath.Join(outDir, base+".diagnostics.json"),
 		Report:       filepath.Join(outDir, base+".report.json"),
 	}
 }
@@ -150,6 +175,17 @@ func (p artifactPaths) artifacts(includeObject bool) []string {
 	if includeObject {
 		out = append(out, p.Object)
 	}
-	out = append(out, p.SourceMap, p.Bindings, p.Capabilities, p.Report)
+	out = append(out, p.SourceMap, p.Bindings, p.Capabilities, p.Diagnostics, p.Report)
 	return out
+}
+
+func (p artifactPaths) diagnosticArtifacts() []string {
+	return []string{p.Diagnostics, p.Report}
+}
+
+func diagnosticsForReport(diags []diag.Diagnostic) []diag.Diagnostic {
+	if diags == nil {
+		return []diag.Diagnostic{}
+	}
+	return diags
 }

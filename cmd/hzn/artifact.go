@@ -17,12 +17,16 @@ func analyze(path string) (*compiler.Result, error) {
 		return nil, err
 	}
 	if diag.HasErrors(result.Diagnostics) {
-		for _, d := range result.Diagnostics {
-			_, _ = os.Stderr.WriteString(d.Format() + "\n")
-		}
+		printDiagnostics(result.Diagnostics)
 		return nil, errDiagnostics(len(result.Diagnostics))
 	}
 	return result, nil
+}
+
+func printDiagnostics(diags []diag.Diagnostic) {
+	for _, d := range diags {
+		_, _ = os.Stderr.WriteString(d.Format() + "\n")
+	}
 }
 
 type errDiagnostics int
