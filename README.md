@@ -364,6 +364,8 @@ Ringbuf readers close themselves on context cancellation so blocking reads
 unwind through the supplied context.
 `LoadObjects` removes the memlock limit by default; use `LoadObjectsWithOptions`
 when callers need explicit cilium collection options or custom rlimit behavior.
+`hzn check` validates default generated binding names, so collisions with loader,
+object, attach, map-helper, and reader APIs fail before artifacts are written.
 `make ci-go` typechecks generated bindings for every example so attach helpers,
 typed map helpers, and ringbuf readers stay valid against cilium/ebpf.
 CI-oriented Make targets keep green logs compact and print captured command
@@ -408,6 +410,7 @@ Horizon makes verifier-sensitive behavior explicit before clang runs:
 - struct fields must be unique, and structs are finite by-value records; recursive struct shapes are rejected before C emission
 - stored data types for structs and keyed maps must be scalars, fixed arrays, or declared Horizon structs; compiler-owned context and packet header types stay helper-only
 - package-scoped declarations cannot use compiler namespace names such as `bpf`, `xdp`, `tc`, `cgroup`, `lsm`, `kprobe`, or `tracepoint`
+- default generated Go binding names must be valid and collision-free, so public APIs are checked as part of `hzn check`
 - ringbuf maps emit typed events and must use declared struct value types, not scalars or compiler-owned packet/header structs
 - map sizing is explicit through `@max_entries(...)`; integer constants are resolved before C emission, and ringbuf sizes must be powers of two
 - map update/delete results must be checked with an explicit comparison

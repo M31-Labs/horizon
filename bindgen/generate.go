@@ -13,6 +13,7 @@ import (
 
 	"m31labs.dev/horizon/capability"
 	"m31labs.dev/horizon/compiler/diag"
+	"m31labs.dev/horizon/compiler/span"
 	"m31labs.dev/horizon/ir"
 )
 
@@ -36,6 +37,22 @@ func (e Error) Unwrap() error {
 	return e.Err
 }
 
+type IdentifierError struct {
+	Scope     string
+	Label     string
+	Previous  string
+	Generated string
+	Span      span.Span
+	Invalid   bool
+}
+
+func (e IdentifierError) Error() string {
+	if e.Invalid {
+		return fmt.Sprintf("%s %s generates invalid Go identifier %q", e.Scope, e.Label, e.Generated)
+	}
+	return fmt.Sprintf("%s %s and %s both generate Go identifier %q", e.Scope, e.Previous, e.Label, e.Generated)
+}
+
 func DiagnosticForError(err error) (diag.Diagnostic, bool) {
 	var bindErr Error
 	if !errors.As(err, &bindErr) {
@@ -45,7 +62,7 @@ func DiagnosticForError(err error) (diag.Diagnostic, bool) {
 	if bindErr.Err != nil {
 		message += ": " + bindErr.Err.Error()
 	}
-	return diag.Diagnostic{
+	d := diag.Diagnostic{
 		Code:     "HZN3200",
 		Severity: diag.SeverityError,
 		Message:  message,
@@ -53,7 +70,19 @@ func DiagnosticForError(err error) (diag.Diagnostic, bool) {
 			"Horizon generated bindings must be valid Go source.",
 		},
 		Suggest: "choose a valid generated Go package name and keep Horizon identifiers Go-bindable",
-	}, true
+	}
+	var identifierErr IdentifierError
+	if errors.As(err, &identifierErr) && !identifierErr.Span.IsZero() {
+		d.Primary = identifierErr.Span
+	}
+	return d, true
+}
+
+func Validate(program ir.Program, packageName string) error {
+	if packageName == "" {
+		packageName = "bindings"
+	}
+	return newGenerator(program, packageName).validate()
 }
 
 func Generate(program ir.Program, packageName string) (string, error) {
@@ -80,10 +109,7 @@ func newGenerator(program ir.Program, packageName string) *generator {
 }
 
 func (g *generator) generate() (string, error) {
-	if err := g.validatePackage(); err != nil {
-		return "", err
-	}
-	if err := g.validateGeneratedNames(); err != nil {
+	if err := g.validate(); err != nil {
 		return "", err
 	}
 	g.emitPackage()
@@ -97,6 +123,13 @@ func (g *generator) generate() (string, error) {
 	g.emitMapHelpers()
 	g.emitAttachHelpers()
 	return g.formatted()
+}
+
+func (g *generator) validate() error {
+	if err := g.validatePackage(); err != nil {
+		return err
+	}
+	return g.validateGeneratedNames()
 }
 
 func (g *generator) validatePackage() error {
@@ -129,7 +162,7 @@ func (g *generator) validateTopLevelNames() error {
 		names.reserve("generated "+reserved, reserved)
 	}
 	for _, decl := range g.program.Structs {
-		if err := names.add(fmt.Sprintf("struct %q", decl.Name), exported(decl.Name)); err != nil {
+		if err := names.addAt(fmt.Sprintf("struct %q", decl.Name), exported(decl.Name), decl.Span); err != nil {
 			return g.identifierError(err)
 		}
 	}
@@ -139,12 +172,12 @@ func (g *generator) validateTopLevelNames() error {
 func (g *generator) validateObjectFieldNames() error {
 	names := newGeneratedNameSet("Objects fields")
 	for _, m := range g.program.Maps {
-		if err := names.add(fmt.Sprintf("map %q", m.Name), exported(m.Name)); err != nil {
+		if err := names.addAt(fmt.Sprintf("map %q", m.Name), exported(m.Name), m.Span); err != nil {
 			return g.identifierError(err)
 		}
 	}
 	for _, fn := range g.program.Functions {
-		if err := names.add(fmt.Sprintf("program %q", fn.Name), exported(fn.Name)); err != nil {
+		if err := names.addAt(fmt.Sprintf("program %q", fn.Name), exported(fn.Name), fn.Span); err != nil {
 			return g.identifierError(err)
 		}
 	}
@@ -171,7 +204,7 @@ func (g *generator) validateStructFieldNames() error {
 	for _, decl := range g.program.Structs {
 		names := newGeneratedNameSet(fmt.Sprintf("struct %s fields", exported(decl.Name)))
 		for _, field := range decl.Fields {
-			if err := names.add(fmt.Sprintf("field %q", field.Name), exported(field.Name)); err != nil {
+			if err := names.addAt(fmt.Sprintf("field %q", field.Name), exported(field.Name), field.Span); err != nil {
 				return g.identifierError(err)
 			}
 		}
@@ -186,7 +219,7 @@ func (g *generator) identifierError(err error) error {
 func addMapMethodNames(names *generatedNameSet, m ir.Map) error {
 	field := exported(m.Name)
 	if m.Kind == ir.MapKindRingbuf && m.Val.Name != "" {
-		if err := names.add(fmt.Sprintf("ringbuf map %q reader", m.Name), "Read"+field); err != nil {
+		if err := names.addAt(fmt.Sprintf("ringbuf map %q reader", m.Name), "Read"+field, m.Span); err != nil {
 			return err
 		}
 	}
@@ -194,12 +227,12 @@ func addMapMethodNames(names *generatedNameSet, m ir.Map) error {
 		return nil
 	}
 	for _, prefix := range []string{"Lookup", "Update", "ForEach"} {
-		if err := names.add(fmt.Sprintf("map %q %s method", m.Name, prefix), prefix+field); err != nil {
+		if err := names.addAt(fmt.Sprintf("map %q %s method", m.Name, prefix), prefix+field, m.Span); err != nil {
 			return err
 		}
 	}
 	if m.Kind.IsHashLike() {
-		return names.add(fmt.Sprintf("map %q Delete method", m.Name), "Delete"+field)
+		return names.addAt(fmt.Sprintf("map %q Delete method", m.Name), "Delete"+field, m.Span)
 	}
 	return nil
 }
@@ -209,11 +242,11 @@ func addAttachMethodNames(names *generatedNameSet, fn ir.Function) error {
 		return nil
 	}
 	field := exported(fn.Name)
-	if err := names.add(fmt.Sprintf("program %q attach method", fn.Name), "Attach"+field); err != nil {
+	if err := names.addAt(fmt.Sprintf("program %q attach method", fn.Name), "Attach"+field, fn.Span); err != nil {
 		return err
 	}
 	if fn.Section.Kind == ir.ProgramXDP || fn.Section.Kind == ir.ProgramTC {
-		return names.add(fmt.Sprintf("program %q interface attach method", fn.Name), "Attach"+field+"Interface")
+		return names.addAt(fmt.Sprintf("program %q interface attach method", fn.Name), "Attach"+field+"Interface", fn.Span)
 	}
 	return nil
 }
@@ -246,11 +279,15 @@ func (s *generatedNameSet) reserve(label string, generated string) {
 }
 
 func (s *generatedNameSet) add(label string, generated string) error {
+	return s.addAt(label, generated, span.Span{})
+}
+
+func (s *generatedNameSet) addAt(label string, generated string, sp span.Span) error {
 	if !validGeneratedIdentifier(generated) {
-		return fmt.Errorf("%s %s generates invalid Go identifier %q", s.scope, label, generated)
+		return IdentifierError{Scope: s.scope, Label: label, Generated: generated, Span: sp, Invalid: true}
 	}
 	if prev, ok := s.seen[generated]; ok {
-		return fmt.Errorf("%s %s and %s both generate Go identifier %q", s.scope, prev, label, generated)
+		return IdentifierError{Scope: s.scope, Previous: prev, Label: label, Generated: generated, Span: sp}
 	}
 	s.seen[generated] = label
 	return nil

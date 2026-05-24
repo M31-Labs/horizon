@@ -103,6 +103,26 @@ type Event struct {
 	requireDiagnosticCode(t, result, "HZN1002")
 }
 
+func TestAnalyzeRejectsDefaultBindgenNameCollision(t *testing.T) {
+	result := analyzeSource(t, "bindings.hzn", `package probes
+
+type load_objects struct {
+    pid u32
+}
+
+map Events ringbuf[load_objects]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    return 0
+}
+`)
+	d := requireDiagnosticCode(t, result, "HZN3200")
+	if d.Primary.IsZero() || d.Primary.Start.Line != 3 {
+		t.Fatalf("diagnostic primary = %#v, want struct declaration on line 3", d.Primary)
+	}
+}
+
 func TestAnalyzeReportsParseDiagnostic(t *testing.T) {
 	result := analyzeSource(t, "bad.hzn", `package probes
 
@@ -2488,9 +2508,13 @@ func analyzeSource(t *testing.T, name string, source string) *Result {
 	return result
 }
 
-func requireDiagnosticCode(t *testing.T, result *Result, code string) {
+func requireDiagnosticCode(t *testing.T, result *Result, code string) diag.Diagnostic {
 	t.Helper()
-	if !slices.ContainsFunc(result.Diagnostics, func(d diag.Diagnostic) bool { return d.Code == code }) {
-		t.Fatalf("diagnostics = %#v, want %s", result.Diagnostics, code)
+	for _, d := range result.Diagnostics {
+		if d.Code == code {
+			return d
+		}
 	}
+	t.Fatalf("diagnostics = %#v, want %s", result.Diagnostics, code)
+	return diag.Diagnostic{}
 }

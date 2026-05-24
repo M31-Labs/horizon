@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"m31labs.dev/horizon/compiler/diag"
+	"m31labs.dev/horizon/compiler/span"
 	"m31labs.dev/horizon/ir"
 )
 
@@ -112,6 +113,36 @@ func TestGenerateRejectsTopLevelNameCollision(t *testing.T) {
 		}},
 	}, "bindings")
 	assertBindgenNameError(t, code, err, `top-level bindings generated LoadObjects and struct "load_objects" both generate Go identifier "LoadObjects"`)
+}
+
+func TestGenerateNameCollisionDiagnosticCarriesSourceSpan(t *testing.T) {
+	source := span.Span{
+		File: span.FileID("input.hzn"),
+		Start: span.Point{
+			Line:   3,
+			Column: 1,
+		},
+	}
+	code, err := Generate(ir.Program{
+		Structs: []ir.Struct{{
+			Name: "load_objects",
+			Span: source,
+			Fields: []ir.Field{{
+				Name: "pid",
+				Type: ir.Type{Name: "u32"},
+			}},
+		}},
+	}, "bindings")
+	if err == nil {
+		t.Fatalf("Generate succeeded, code:\n%s", code)
+	}
+	d, ok := DiagnosticForError(err)
+	if !ok {
+		t.Fatalf("DiagnosticForError(%T) = false", err)
+	}
+	if d.Primary != source {
+		t.Fatalf("diagnostic primary = %#v, want %#v", d.Primary, source)
+	}
 }
 
 func TestGenerateRejectsCapabilityManifestNameCollision(t *testing.T) {

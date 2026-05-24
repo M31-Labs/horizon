@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"m31labs.dev/horizon/ast"
+	"m31labs.dev/horizon/bindgen"
 	"m31labs.dev/horizon/compiler/diag"
 	"m31labs.dev/horizon/compiler/span"
 	"m31labs.dev/horizon/ir"
@@ -97,6 +98,15 @@ func AnalyzePath(root string) (*Result, error) {
 	result.Diagnostics = append(result.Diagnostics, lowerDiags...)
 	if !diag.HasErrors(result.Diagnostics) {
 		result.Diagnostics = append(result.Diagnostics, validate.Program(result.Program)...)
+	}
+	if !diag.HasErrors(result.Diagnostics) {
+		if err := bindgen.Validate(result.Program, "bindings"); err != nil {
+			if d, ok := bindgen.DiagnosticForError(err); ok {
+				result.Diagnostics = append(result.Diagnostics, d)
+			} else {
+				return nil, err
+			}
+		}
 	}
 	return &result, nil
 }
