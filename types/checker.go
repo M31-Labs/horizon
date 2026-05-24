@@ -548,7 +548,36 @@ func validateFuncBody(decl ast.FuncDecl, maps map[string]ast.MapDecl, structs ma
 	for _, stmt := range decl.Body {
 		checkStmt(stmt, locals)
 	}
+	if !blockAlwaysReturns(decl.Body) {
+		diags = append(diags, diag.Diagnostic{
+			Code:     "HZN1445",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("function %q must return i32 on every path", decl.Name),
+			Primary:  decl.Span,
+			Suggest:  "end the program with an explicit return, or make both branches of the final if return",
+		})
+	}
 	return diags
+}
+
+func blockAlwaysReturns(stmts []ast.Stmt) bool {
+	for _, stmt := range stmts {
+		if stmtAlwaysReturns(stmt) {
+			return true
+		}
+	}
+	return false
+}
+
+func stmtAlwaysReturns(stmt ast.Stmt) bool {
+	switch s := stmt.(type) {
+	case ast.ReturnStmt:
+		return true
+	case ast.IfStmt:
+		return blockAlwaysReturns(s.Then) && blockAlwaysReturns(s.Else)
+	default:
+		return false
+	}
 }
 
 func cloneValueTypes(in map[string]valueType) map[string]valueType {

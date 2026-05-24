@@ -201,6 +201,7 @@ Horizon makes verifier-sensitive behavior explicit before clang runs:
 - fixed array fields are address-only; pass `&event.comm` directly to helpers instead of copying arrays
 - conditions must be typed boolean expressions; integers and pointers need explicit comparison
 - integer, bitwise, comparison, and boolean operators are typed before C emission
+- every program must return an explicit `i32` on every control-flow path
 - only bounded counted loops are accepted
 - helper availability is checked against the program kind
 - packet headers returned by `xdp.eth(ctx)`, `xdp.ipv4(ctx)`, `xdp.tcp(ctx)`, and `xdp.udp(ctx)` must be nil-checked before field access

@@ -38,6 +38,7 @@ func TestAnalyzeInvalidRingbufPrograms(t *testing.T) {
 		"../testdata/invalid/unknown_event_field.hzn":        "HZN1406",
 		"../testdata/invalid/packet_unproven_read.hzn":       "HZN2600",
 		"../testdata/invalid/stack_too_large.hzn":            "HZN2700",
+		"../testdata/invalid/missing_return.hzn":             "HZN1445",
 	}
 	for path, code := range tests {
 		result, err := AnalyzePath(path)
@@ -957,6 +958,36 @@ func OnExec(ctx tracepoint.Exec) i32 {
 			requireDiagnosticCode(t, result, want[name])
 		})
 	}
+}
+
+func TestAnalyzeAllowsExhaustiveBranchReturn(t *testing.T) {
+	result := analyzeSource(t, "returns.hzn", `package probes
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    if bpf.current_pid() == 0 {
+        return 0
+    } else {
+        return 1
+    }
+}
+`)
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+}
+
+func TestAnalyzeRejectsMissingReturnOnBranchPath(t *testing.T) {
+	result := analyzeSource(t, "returns.hzn", `package probes
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    if bpf.current_pid() == 0 {
+        return 0
+    }
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1445")
 }
 
 func analyzeSource(t *testing.T, name string, source string) *Result {
