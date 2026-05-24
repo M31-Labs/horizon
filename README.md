@@ -297,6 +297,7 @@ make ci-go
 hzn workbench ./examples/execwatch -o dist
 hzn workbench ./examples/execwatch -o dist -json
 hzn workbench ./examples/execwatch -o dist -compile
+hzn workbench ./examples/execwatch -o dist -preflight
 hzn build ./examples/cgroupconnect -o dist
 sudo go run ./examples/cgroupconnect/cmd/cgroupconnect -obj dist/connect.bpf.o -cgroup /sys/fs/cgroup
 hzn build ./examples/execwatch -o dist
@@ -329,6 +330,9 @@ kinds, map kinds, capability danger levels, declared type count, and the
 minimum kernel version implied by generated capabilities. Each run removes
 stale artifacts for the target output base before writing new ones, records
 replaced paths, and includes generator/timestamp provenance in the report.
+Use `-preflight` when workbench should run the same host readiness checks as
+`hzn doctor -capabilities` against the generated manifest and include that
+result in the report.
 Invalid programs still produce
 `<name>.diagnostics.json` and `<name>.report.json`, including parser failures
 before typechecking or C emission can run. Clang failures are remapped into the

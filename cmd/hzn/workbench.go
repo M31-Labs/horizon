@@ -26,6 +26,7 @@ func runWorkbench(args []string) error {
 	outDir := fs.String("o", "dist", "output directory")
 	packageName := fs.String("package", "bindings", "generated Go package name")
 	compile := fs.Bool("compile", false, "also compile generated C to .bpf.o with clang")
+	preflight := fs.Bool("preflight", false, "run doctor checks against the generated capability manifest")
 	jsonOut := fs.Bool("json", false, "emit JSON report")
 	if err := parseFlags(fs, args); err != nil {
 		return err
@@ -38,6 +39,7 @@ func runWorkbench(args []string) error {
 		OutDir:      *outDir,
 		PackageName: *packageName,
 		Compile:     *compile,
+		Preflight:   *preflight,
 	})
 	if *jsonOut && report.Schema != "" {
 		if writeErr := writeJSON("", report); writeErr != nil {
@@ -66,9 +68,11 @@ func runWorkbench(args []string) error {
 }
 
 type workbenchOptions struct {
-	OutDir      string
-	PackageName string
-	Compile     bool
+	OutDir       string
+	PackageName  string
+	Compile      bool
+	Preflight    bool
+	DoctorConfig *doctorConfig
 }
 
 type workbenchReport struct {
@@ -87,6 +91,7 @@ type workbenchReport struct {
 	Diagnostics           []diag.Diagnostic `json:"diagnostics"`
 	DiagnosticCount       int               `json:"diagnostic_count"`
 	Clang                 string            `json:"clang,omitempty"`
+	Preflight             *doctorReport     `json:"preflight,omitempty"`
 }
 
 type sourceDetail struct {
@@ -280,6 +285,15 @@ func writeWorkbenchArtifacts(result *compiler.Result, opts workbenchOptions) (wo
 		report.Status = "ok"
 		report.Artifacts = paths.artifacts(true)
 	}
+	if err := applyWorkbenchPreflight(&report, opts, manifest); err != nil {
+		if writeErr := addArtifactDetails(&report, paths); writeErr != nil {
+			return report, writeErr
+		}
+		if writeErr := writeJSON(paths.Report, report); writeErr != nil {
+			return report, writeErr
+		}
+		return report, err
+	}
 	if err := addArtifactDetails(&report, paths); err != nil {
 		return report, err
 	}
@@ -287,6 +301,23 @@ func writeWorkbenchArtifacts(result *compiler.Result, opts workbenchOptions) (wo
 		return report, err
 	}
 	return report, nil
+}
+
+func applyWorkbenchPreflight(report *workbenchReport, opts workbenchOptions, manifest capability.Manifest) error {
+	if report == nil || !opts.Preflight {
+		return nil
+	}
+	cfg := defaultDoctorConfig()
+	if opts.DoctorConfig != nil {
+		cfg = *opts.DoctorConfig
+	}
+	preflight := runDoctorChecks(cfg, manifest)
+	report.Preflight = &preflight
+	if !preflight.Ready {
+		report.Status = "preflight_error"
+		return fmt.Errorf("eBPF workbench preflight checks are not ready")
+	}
+	return nil
 }
 
 func collectSourceDetails(files []compiler.FileResult) ([]sourceDetail, error) {

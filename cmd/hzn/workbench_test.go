@@ -129,6 +129,79 @@ func TestWorkbenchJSONOutput(t *testing.T) {
 	assertArtifactDetail(t, report, "diagnostics")
 }
 
+func TestWorkbenchPreflightReady(t *testing.T) {
+	outDir := t.TempDir()
+	input := filepath.Join("..", "..", "testdata", "golden", "exec", "input.hzn")
+	result, err := compiler.AnalyzePath(input)
+	if err != nil {
+		t.Fatalf("AnalyzePath: %v", err)
+	}
+	mask := uint64(1)<<linuxCapBPF | uint64(1)<<linuxCapPerfmon
+	cfg := doctorManifestConfig(t, mask)
+
+	report, err := writeWorkbenchArtifacts(result, workbenchOptions{
+		OutDir:       outDir,
+		Preflight:    true,
+		DoctorConfig: &cfg,
+	})
+	if err != nil {
+		t.Fatalf("writeWorkbenchArtifacts: %v", err)
+	}
+	if report.Status != "generated" {
+		t.Fatalf("status = %q, want generated", report.Status)
+	}
+	if report.Preflight == nil || !report.Preflight.Ready {
+		t.Fatalf("preflight = %#v, want ready", report.Preflight)
+	}
+	requireDoctorCheck(t, *report.Preflight, "kernel >= 5.8", "ok")
+	requireDoctorCheck(t, *report.Preflight, "permission bpf_program_load", "ok")
+	requireDoctorCheck(t, *report.Preflight, "permission perf_event_open", "ok")
+	requireDoctorCheck(t, *report.Preflight, "host feature tracefs", "ok")
+}
+
+func TestWorkbenchPreflightNotReady(t *testing.T) {
+	outDir := t.TempDir()
+	input := filepath.Join("..", "..", "testdata", "golden", "exec", "input.hzn")
+	result, err := compiler.AnalyzePath(input)
+	if err != nil {
+		t.Fatalf("AnalyzePath: %v", err)
+	}
+	cfg := doctorManifestConfig(t, 0)
+
+	report, err := writeWorkbenchArtifacts(result, workbenchOptions{
+		OutDir:       outDir,
+		Preflight:    true,
+		DoctorConfig: &cfg,
+	})
+	if err == nil {
+		t.Fatal("writeWorkbenchArtifacts succeeded, want preflight error")
+	}
+	if report.Status != "preflight_error" {
+		t.Fatalf("status = %q, want preflight_error", report.Status)
+	}
+	if report.Preflight == nil || report.Preflight.Ready {
+		t.Fatalf("preflight = %#v, want not ready", report.Preflight)
+	}
+	if report.DiagnosticCount != 0 {
+		t.Fatalf("diagnostic count = %d, want 0", report.DiagnosticCount)
+	}
+	requireDoctorCheck(t, *report.Preflight, "permission bpf_program_load", "error")
+	requireDoctorCheck(t, *report.Preflight, "permission perf_event_open", "error")
+	for _, name := range []string{
+		"input.bpf.c",
+		"input.hznmap.json",
+		"input.bindings.go",
+		"input.cap.json",
+		"input.diagnostics.json",
+		"input.report.json",
+	} {
+		if _, err := os.Stat(filepath.Join(outDir, name)); err != nil {
+			t.Fatalf("missing preflight artifact %s: %v", name, err)
+		}
+	}
+	assertArtifactDetail(t, report, "capabilities")
+}
+
 func TestWorkbenchJSONOutputForInvalidInput(t *testing.T) {
 	outDir := t.TempDir()
 	input := filepath.Join("..", "..", "testdata", "invalid", "packet_unproven_read.hzn")
