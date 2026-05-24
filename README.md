@@ -354,7 +354,10 @@ same typed hash helpers, per-CPU variants expose typed `[]Value` slices for
 lookup/update/iteration, and attachable programs get section-specific attach
 methods. The raw `*ebpf.Map` and `*ebpf.Program` fields remain available for
 advanced users, but ordinary consumers should not need to hand-roll cilium
-loader, memlock, or map-access boilerplate.
+loader, memlock, or map-access boilerplate. Bindings also embed
+`CapabilityManifestJSON` and expose `CapabilityManifest()` so applications can
+inspect the generated capability contract without manually locating the sidecar
+manifest.
 Ringbuf readers close themselves on context cancellation so blocking reads
 unwind through the supplied context.
 `LoadObjects` removes the memlock limit by default; use `LoadObjectsWithOptions`

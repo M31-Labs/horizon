@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"unsafe"
@@ -12,7 +13,18 @@ import (
 	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/ringbuf"
 	"github.com/cilium/ebpf/rlimit"
+	"m31labs.dev/horizon/capability"
 )
+
+const CapabilityManifestJSON = "{\n  \"schema\": \"m31labs.dev/horizon/capability/v0\",\n  \"package\": \"probes\",\n  \"programs\": [\n    {\n      \"name\": \"OnExec\",\n      \"kind\": \"tracepoint\",\n      \"attach\": \"sched:sched_process_exec\",\n      \"section\": \"tracepoint/sched:sched_process_exec\",\n      \"capabilities\": [\n        \"kernel.process.exec.observe\"\n      ]\n    }\n  ],\n  \"capabilities\": [\n    {\n      \"name\": \"kernel.process.exec.observe\",\n      \"kind\": \"source\",\n      \"danger\": \"observe\",\n      \"program\": \"OnExec\",\n      \"section\": \"tracepoint/sched:sched_process_exec\",\n      \"emits\": \"ExecEvent\",\n      \"maps\": {\n        \"read\": [],\n        \"write\": [],\n        \"events\": [\n          \"ExecEvents\"\n        ]\n      },\n      \"requirements\": {\n        \"min_kernel\": \"5.8\",\n        \"programs\": [\n          {\n            \"name\": \"tracepoint\",\n            \"min_kernel\": \"4.7\"\n          }\n        ],\n        \"maps\": [\n          {\n            \"name\": \"ringbuf\",\n            \"min_kernel\": \"5.8\"\n          }\n        ],\n        \"helpers\": [\n          {\n            \"name\": \"bpf_get_current_comm\",\n            \"min_kernel\": \"4.1\"\n          },\n          {\n            \"name\": \"bpf_get_current_pid_tgid\",\n            \"min_kernel\": \"4.1\"\n          },\n          {\n            \"name\": \"bpf_get_current_task\",\n            \"min_kernel\": \"4.8\"\n          },\n          {\n            \"name\": \"bpf_get_current_uid_gid\",\n            \"min_kernel\": \"4.1\"\n          },\n          {\n            \"name\": \"bpf_ktime_get_ns\",\n            \"min_kernel\": \"4.1\"\n          },\n          {\n            \"name\": \"bpf_probe_read_kernel\",\n            \"min_kernel\": \"5.5\"\n          },\n          {\n            \"name\": \"bpf_ringbuf_reserve\",\n            \"min_kernel\": \"5.8\"\n          },\n          {\n            \"name\": \"bpf_ringbuf_submit\",\n            \"min_kernel\": \"5.8\"\n          }\n        ],\n        \"permissions\": [\n          \"bpf_program_load\",\n          \"perf_event_open\"\n        ],\n        \"features\": [\n          \"tracefs\"\n        ]\n      }\n    }\n  ],\n  \"maps\": [\n    {\n      \"name\": \"ExecEvents\",\n      \"kind\": \"ringbuf\",\n      \"value\": \"ExecEvent\"\n    }\n  ],\n  \"types\": [\n    {\n      \"name\": \"ExecEvent\",\n      \"kind\": \"struct\",\n      \"size\": 40,\n      \"align\": 8,\n      \"fields\": [\n        {\n          \"name\": \"ts_ns\",\n          \"type\": \"u64\",\n          \"offset\": 0\n        },\n        {\n          \"name\": \"pid\",\n          \"type\": \"u32\",\n          \"offset\": 8\n        },\n        {\n          \"name\": \"ppid\",\n          \"type\": \"u32\",\n          \"offset\": 12\n        },\n        {\n          \"name\": \"uid\",\n          \"type\": \"u32\",\n          \"offset\": 16\n        },\n        {\n          \"name\": \"comm\",\n          \"type\": \"[16]u8\",\n          \"offset\": 20\n        }\n      ]\n    }\n  ],\n  \"requirements\": {\n    \"min_kernel\": \"5.8\",\n    \"programs\": [\n      {\n        \"name\": \"tracepoint\",\n        \"min_kernel\": \"4.7\"\n      }\n    ],\n    \"maps\": [\n      {\n        \"name\": \"ringbuf\",\n        \"min_kernel\": \"5.8\"\n      }\n    ],\n    \"helpers\": [\n      {\n        \"name\": \"bpf_get_current_comm\",\n        \"min_kernel\": \"4.1\"\n      },\n      {\n        \"name\": \"bpf_get_current_pid_tgid\",\n        \"min_kernel\": \"4.1\"\n      },\n      {\n        \"name\": \"bpf_get_current_task\",\n        \"min_kernel\": \"4.8\"\n      },\n      {\n        \"name\": \"bpf_get_current_uid_gid\",\n        \"min_kernel\": \"4.1\"\n      },\n      {\n        \"name\": \"bpf_ktime_get_ns\",\n        \"min_kernel\": \"4.1\"\n      },\n      {\n        \"name\": \"bpf_probe_read_kernel\",\n        \"min_kernel\": \"5.5\"\n      },\n      {\n        \"name\": \"bpf_ringbuf_reserve\",\n        \"min_kernel\": \"5.8\"\n      },\n      {\n        \"name\": \"bpf_ringbuf_submit\",\n        \"min_kernel\": \"5.8\"\n      }\n    ],\n    \"permissions\": [\n      \"bpf_program_load\",\n      \"perf_event_open\"\n    ],\n    \"features\": [\n      \"tracefs\"\n    ]\n  }\n}\n"
+
+func CapabilityManifest() (capability.Manifest, error) {
+	var manifest capability.Manifest
+	if err := json.Unmarshal([]byte(CapabilityManifestJSON), &manifest); err != nil {
+		return capability.Manifest{}, err
+	}
+	return manifest, nil
+}
 
 type ExecEvent struct {
 	TsNs uint64

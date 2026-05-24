@@ -23,9 +23,13 @@ func TestGenerateXDPAttachBindings(t *testing.T) {
 		t.Fatalf("Generate: %v", err)
 	}
 	for _, want := range []string{
+		`"encoding/json"`,
 		`"net"`,
 		`"github.com/cilium/ebpf/link"`,
 		`"github.com/cilium/ebpf/rlimit"`,
+		`"m31labs.dev/horizon/capability"`,
+		"const CapabilityManifestJSON =",
+		"func CapabilityManifest() (capability.Manifest, error)",
 		"type LoadOptions struct",
 		"return LoadObjectsWithOptions(path, LoadOptions{RemoveMemlock: true})",
 		"if err := rlimit.RemoveMemlock(); err != nil",
@@ -108,6 +112,63 @@ func TestGenerateRejectsTopLevelNameCollision(t *testing.T) {
 		}},
 	}, "bindings")
 	assertBindgenNameError(t, code, err, `top-level bindings generated LoadObjects and struct "load_objects" both generate Go identifier "LoadObjects"`)
+}
+
+func TestGenerateRejectsCapabilityManifestNameCollision(t *testing.T) {
+	code, err := Generate(ir.Program{
+		Structs: []ir.Struct{{
+			Name: "capability_manifest",
+			Fields: []ir.Field{{
+				Name: "value",
+				Type: ir.Type{Name: "u32"},
+			}},
+		}},
+	}, "bindings")
+	assertBindgenNameError(t, code, err, `top-level bindings generated CapabilityManifest and struct "capability_manifest" both generate Go identifier "CapabilityManifest"`)
+}
+
+func TestGenerateEmbedsCapabilityManifest(t *testing.T) {
+	code, err := Generate(ir.Program{
+		Package: "probes",
+		Functions: []ir.Function{{
+			Name: "OnExec",
+			Section: ir.Section{
+				Kind:   ir.ProgramTracepoint,
+				Attach: "sched:sched_process_exec",
+				Name:   "tracepoint/sched/sched_process_exec",
+			},
+		}},
+		Maps: []ir.Map{{
+			Name: "Events",
+			Kind: ir.MapKindRingbuf,
+			Val:  ir.Type{Name: "Event"},
+		}},
+		Capabilities: []ir.Capability{{
+			Name:    "kernel.process.exec.observe",
+			Kind:    ir.CapabilitySource,
+			Danger:  ir.DangerObserve,
+			Program: "OnExec",
+			Section: "tracepoint/sched:sched_process_exec",
+			Emits:   "Event",
+			Maps: ir.CapabilityMapAccess{
+				Events: []string{"Events"},
+			},
+		}},
+	}, "bindings")
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	for _, want := range []string{
+		"const CapabilityManifestJSON =",
+		"func CapabilityManifest() (capability.Manifest, error)",
+		"kernel.process.exec.observe",
+		`\"permissions\": [\n      \"bpf_program_load\",\n      \"perf_event_open\"\n    ]`,
+		`\"features\": [\n      \"tracefs\"\n    ]`,
+	} {
+		if !strings.Contains(code, want) {
+			t.Fatalf("generated bindings missing %q:\n%s", want, code)
+		}
+	}
 }
 
 func TestGenerateRejectsAttachMethodNameCollision(t *testing.T) {

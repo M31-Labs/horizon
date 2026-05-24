@@ -2,13 +2,16 @@ package bindgen
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"go/format"
 	"go/token"
+	"strconv"
 	"strings"
 	"unicode"
 
+	"m31labs.dev/horizon/capability"
 	"m31labs.dev/horizon/compiler/diag"
 	"m31labs.dev/horizon/ir"
 )
@@ -84,6 +87,9 @@ func (g *generator) generate() (string, error) {
 		return "", err
 	}
 	g.emitPackage()
+	if err := g.emitCapabilityManifest(); err != nil {
+		return "", err
+	}
 	g.emitTypes()
 	g.emitObjects()
 	g.emitLoadHelpers()
@@ -119,7 +125,7 @@ func (g *generator) validateGeneratedNames() error {
 
 func (g *generator) validateTopLevelNames() error {
 	names := newGeneratedNameSet("top-level bindings")
-	for _, reserved := range []string{"Objects", "LoadOptions", "LoadObjects", "LoadObjectsWithOptions"} {
+	for _, reserved := range []string{"Objects", "LoadOptions", "LoadObjects", "LoadObjectsWithOptions", "CapabilityManifestJSON", "CapabilityManifest"} {
 		names.reserve("generated "+reserved, reserved)
 	}
 	for _, decl := range g.program.Structs {
@@ -257,6 +263,25 @@ func validGeneratedIdentifier(name string) bool {
 func (g *generator) emitPackage() {
 	fmt.Fprintf(&g.b, "package %s\n\n", g.packageName)
 	emitImports(&g.b, g.program)
+}
+
+func (g *generator) emitCapabilityManifest() error {
+	data, err := json.MarshalIndent(capability.FromIR(g.program), "", "  ")
+	if err != nil {
+		return Error{Stage: "capability manifest", Package: g.packageName, Err: err}
+	}
+	data = append(data, '\n')
+	fmt.Fprintf(&g.b, "const CapabilityManifestJSON = %s\n\n", strconv.Quote(string(data)))
+	g.b.WriteString(`func CapabilityManifest() (capability.Manifest, error) {
+	var manifest capability.Manifest
+	if err := json.Unmarshal([]byte(CapabilityManifestJSON), &manifest); err != nil {
+		return capability.Manifest{}, err
+	}
+	return manifest, nil
+}
+
+`)
+	return nil
 }
 
 func (g *generator) emitTypes() {
@@ -481,7 +506,7 @@ func emitImports(b *bytes.Buffer, program ir.Program) {
 	needsRingbuf := hasRingbuf(program)
 	needsAttach := hasAttach(program)
 	needsInterfaceAttach := hasInterfaceAttach(program)
-	var std []string
+	std := []string{"encoding/json"}
 	if needsRingbuf {
 		std = append(std, "bytes", "context", "encoding/binary")
 	}
@@ -495,7 +520,7 @@ func emitImports(b *bytes.Buffer, program ir.Program) {
 	if needsStructLayoutAssertions(program) {
 		std = append(std, "unsafe")
 	}
-	thirdParty := []string{"github.com/cilium/ebpf"}
+	thirdParty := []string{"github.com/cilium/ebpf", "m31labs.dev/horizon/capability"}
 	if needsAttach {
 		thirdParty = append(thirdParty, "github.com/cilium/ebpf/link")
 	}
