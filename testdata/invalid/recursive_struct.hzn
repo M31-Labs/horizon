@@ -1,0 +1,5 @@
+package probes
+
+type Node struct {
+    next Node
+}

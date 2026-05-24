@@ -54,6 +54,50 @@ func TestEmitExecwatchUsesTypedCWrappers(t *testing.T) {
 	}
 }
 
+func TestEmitOrdersNestedStructDependencies(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "nested.hzn")
+	if err := os.WriteFile(path, []byte(`package probes
+
+type Outer struct {
+    inner Inner
+    pid u32
+}
+
+type Inner struct {
+    uid u32
+}
+
+map Events ringbuf[Outer]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    return 0
+}
+`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	result, err := compiler.AnalyzePath(dir)
+	if err != nil {
+		t.Fatalf("AnalyzePath: %v", err)
+	}
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+	out, err := Emit(result.Program)
+	if err != nil {
+		t.Fatalf("Emit: %v", err)
+	}
+	innerIndex := strings.Index(out.Code, "struct hzn_type_Inner {")
+	outerIndex := strings.Index(out.Code, "struct hzn_type_Outer {")
+	if innerIndex < 0 || outerIndex < 0 || innerIndex > outerIndex {
+		t.Fatalf("generated C did not emit Inner before Outer:\n%s", out.Code)
+	}
+	if !strings.Contains(out.Code, "struct hzn_type_Inner inner;") {
+		t.Fatalf("generated C missing nested struct field:\n%s", out.Code)
+	}
+}
+
 func TestEmitSourceMapIncludesDeclarations(t *testing.T) {
 	result, err := compiler.AnalyzePath("../testdata/golden/exec/input.hzn")
 	if err != nil {

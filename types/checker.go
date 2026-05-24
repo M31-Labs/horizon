@@ -66,9 +66,7 @@ func CheckPackage(files []ast.File) [][]diag.Diagnostic {
 		for _, decl := range file.Decls {
 			switch d := decl.(type) {
 			case ast.TypeDecl:
-				for _, field := range d.Fields {
-					diags[i] = append(diags[i], validateTypeRef(field.Type, knownTypes)...)
-				}
+				diags[i] = append(diags[i], validateTypeDecl(d, knownTypes, structs)...)
 			case ast.MapDecl:
 				diags[i] = append(diags[i], validateMapDecl(d, knownTypes, consts)...)
 			case ast.FuncDecl:
@@ -262,6 +260,72 @@ func validateMapAttrs(decl ast.MapDecl, consts map[string]ast.ConstDecl) []diag.
 		}
 	}
 	return diags
+}
+
+func validateTypeDecl(decl ast.TypeDecl, known map[string]bool, structs map[string]ast.TypeDecl) []diag.Diagnostic {
+	var diags []diag.Diagnostic
+	seenFields := map[string]span.Span{}
+	for _, field := range decl.Fields {
+		diags = append(diags, validateTypeRef(field.Type, known)...)
+		if field.Name != "" {
+			if previous, ok := seenFields[field.Name]; ok {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1107",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("duplicate field %q in struct %s", field.Name, decl.Name),
+					Primary:  field.Span,
+					Notes:    []string{fmt.Sprintf("previous field at line %d", previous.Start.Line)},
+				})
+			} else {
+				seenFields[field.Name] = field.Span
+			}
+		}
+		if typeRefContainsStruct(decl.Name, field.Type, structs, map[string]bool{}) {
+			diags = append(diags, diag.Diagnostic{
+				Code:     "HZN1108",
+				Severity: diag.SeverityError,
+				Message:  fmt.Sprintf("struct %s recursively contains itself through field %q", decl.Name, field.Name),
+				Primary:  field.Span,
+				Suggest:  "Horizon structs are finite by-value records; keep recursive relationships in keyed maps instead of embedding the same record type",
+			})
+		}
+	}
+	return diags
+}
+
+func typeRefContainsStruct(target string, ref ast.TypeRef, structs map[string]ast.TypeDecl, visiting map[string]bool) bool {
+	if ref.IsZero() || target == "" {
+		return false
+	}
+	if ref.Ptr {
+		return false
+	}
+	if ref.Elem != nil && typeRefContainsStruct(target, *ref.Elem, structs, visiting) {
+		return true
+	}
+	for _, arg := range ref.Args {
+		if typeRefContainsStruct(target, arg, structs, visiting) {
+			return true
+		}
+	}
+	if ref.Name == "" {
+		return false
+	}
+	if ref.Name == target {
+		return true
+	}
+	decl, ok := structs[ref.Name]
+	if !ok || visiting[ref.Name] {
+		return false
+	}
+	visiting[ref.Name] = true
+	defer delete(visiting, ref.Name)
+	for _, field := range decl.Fields {
+		if typeRefContainsStruct(target, field.Type, structs, visiting) {
+			return true
+		}
+	}
+	return false
 }
 
 func mapMaxEntriesValue(attr ast.Attr, consts map[string]ast.ConstDecl) (uint64, bool) {

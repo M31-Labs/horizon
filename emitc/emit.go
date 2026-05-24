@@ -2,6 +2,7 @@ package emitc
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"m31labs.dev/horizon/compiler/span"
@@ -95,7 +96,7 @@ func (e *cEmitter) emitDeclarations() {
 			emitConst(&e.b, c)
 		})
 	}
-	for _, decl := range e.program.Structs {
+	for _, decl := range orderedStructsForC(e.program.Structs) {
 		e.emitMapped(decl.Span, "struct", "", "", func() {
 			emitStruct(&e.b, decl, e.structs)
 		})
@@ -108,6 +109,68 @@ func (e *cEmitter) emitDeclarations() {
 	for _, m := range e.program.Maps {
 		emitMapWrappers(&e.b, &e.sourceMap, m, e.usage.mapMethods[m.Name], e.usage.mapMethodOrigins[m.Name])
 	}
+}
+
+func orderedStructsForC(structs []ir.Struct) []ir.Struct {
+	byName := ir.StructsByName(structs)
+	ordered := make([]ir.Struct, 0, len(structs))
+	visiting := map[string]bool{}
+	emitted := map[string]bool{}
+	var visit func(ir.Struct)
+	visit = func(decl ir.Struct) {
+		if emitted[decl.Name] || visiting[decl.Name] {
+			return
+		}
+		visiting[decl.Name] = true
+		for _, dep := range structDependencies(decl, byName) {
+			if depDecl, ok := byName[dep]; ok {
+				visit(depDecl)
+			}
+		}
+		delete(visiting, decl.Name)
+		emitted[decl.Name] = true
+		ordered = append(ordered, decl)
+	}
+	for _, decl := range structs {
+		visit(decl)
+	}
+	return ordered
+}
+
+func structDependencies(decl ir.Struct, structs map[string]ir.Struct) []string {
+	deps := map[string]bool{}
+	for _, field := range decl.Fields {
+		for _, dep := range typeStructDependencies(field.Type, structs) {
+			if dep != decl.Name {
+				deps[dep] = true
+			}
+		}
+	}
+	out := make([]string, 0, len(deps))
+	for dep := range deps {
+		out = append(out, dep)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func typeStructDependencies(typ ir.Type, structs map[string]ir.Struct) []string {
+	if typ.Ptr {
+		return nil
+	}
+	var out []string
+	if typ.Len != "" && typ.Elem != nil {
+		out = append(out, typeStructDependencies(*typ.Elem, structs)...)
+	}
+	for _, arg := range typ.Args {
+		out = append(out, typeStructDependencies(arg, structs)...)
+	}
+	if typ.Name != "" {
+		if _, ok := structs[typ.Name]; ok {
+			out = append(out, typ.Name)
+		}
+	}
+	return out
 }
 
 func (e *cEmitter) emitFunctions() error {

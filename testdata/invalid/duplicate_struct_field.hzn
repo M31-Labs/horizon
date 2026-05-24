@@ -1,0 +1,6 @@
+package probes
+
+type Event struct {
+    pid u32
+    pid u64
+}

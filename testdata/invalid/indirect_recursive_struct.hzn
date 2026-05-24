@@ -1,0 +1,9 @@
+package probes
+
+type Parent struct {
+    child Child
+}
+
+type Child struct {
+    parent Parent
+}
