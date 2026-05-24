@@ -48,6 +48,9 @@ func Validate(m Manifest) error {
 	if err := validateManifestHeader(m); err != nil {
 		return err
 	}
+	if err := validateRequirements(m.Requirements); err != nil {
+		return err
+	}
 	programs, err := indexManifestPrograms(m.Programs)
 	if err != nil {
 		return err
@@ -270,6 +273,70 @@ func validDangerLevel(danger string) bool {
 	default:
 		return false
 	}
+}
+
+func validateRequirements(reqs *Requirements) error {
+	if reqs == nil {
+		return nil
+	}
+	if reqs.MinKernel == "" {
+		if len(reqs.Programs) > 0 || len(reqs.Maps) > 0 || len(reqs.Helpers) > 0 {
+			return validationErrorf("requirements min_kernel is required when feature requirements are present")
+		}
+	} else if !validKernelVersion(reqs.MinKernel) {
+		return validationErrorf("requirements min_kernel %q must use major.minor kernel version form", reqs.MinKernel)
+	}
+	for _, group := range []struct {
+		name  string
+		items []FeatureRequirement
+		valid func(string) bool
+	}{
+		{name: "program", items: reqs.Programs, valid: validProgramKind},
+		{name: "map", items: reqs.Maps, valid: validMapKind},
+		{name: "helper", items: reqs.Helpers, valid: validHelperRequirement},
+	} {
+		if err := validateFeatureRequirements(group.name, group.items, group.valid); err != nil {
+			return err
+		}
+		for _, item := range group.items {
+			if reqs.MinKernel != "" && compareKernelVersion(reqs.MinKernel, item.MinKernel) < 0 {
+				return validationErrorf("requirements min_kernel %q is lower than %s %q requirement %q", reqs.MinKernel, group.name, item.Name, item.MinKernel)
+			}
+		}
+	}
+	return nil
+}
+
+func validateFeatureRequirements(kind string, items []FeatureRequirement, valid func(string) bool) error {
+	seen := map[string]bool{}
+	for _, item := range items {
+		if item.Name == "" {
+			return validationErrorf("%s requirement name is required", kind)
+		}
+		if !valid(item.Name) {
+			return validationErrorf("%s requirement %q is not supported", kind, item.Name)
+		}
+		if seen[item.Name] {
+			return validationErrorf("%s requirement %q is declared more than once", kind, item.Name)
+		}
+		seen[item.Name] = true
+		if item.MinKernel == "" {
+			return validationErrorf("%s requirement %q min_kernel is required", kind, item.Name)
+		}
+		if !validKernelVersion(item.MinKernel) {
+			return validationErrorf("%s requirement %q min_kernel %q must use major.minor kernel version form", kind, item.Name, item.MinKernel)
+		}
+	}
+	return nil
+}
+
+func validKernelVersion(version string) bool {
+	_, _, ok := parseKernelVersion(version)
+	return ok
+}
+
+func validHelperRequirement(name string) bool {
+	return helperMinKernel(name) != ""
 }
 
 func validateTypeRefs(typeName string, known map[string]bool) error {

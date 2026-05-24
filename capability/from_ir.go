@@ -8,6 +8,10 @@ import (
 
 func FromIR(program ir.Program) Manifest {
 	manifest := NewManifest(program.Package)
+	requirements := requirementsFromIR(program)
+	if requirements.MinKernel != "" {
+		manifest.Requirements = &requirements
+	}
 	for _, fn := range program.Functions {
 		var caps []string
 		for _, cap := range program.Capabilities {

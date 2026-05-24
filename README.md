@@ -331,8 +331,9 @@ longer matches Horizon's ABI model.
 
 Capability manifests include programs, map access, emitted event names, map key
 and value types, and struct size/align/field-offset schemas for declared
-Horizon types. Continuum consumers can inspect what a program observes or emits
-without parsing BPF C.
+Horizon types. They also include minimum kernel requirements for program types,
+map kinds, and compiler-known helpers, so Continuum consumers can inspect what a
+program observes, emits, and needs from a target host without parsing BPF C.
 
 `hzn doctor` checks the local eBPF C toolchain: clang BPF support, libbpf
 headers, bpftool/LLVM utilities, kernel BTF, and a usable `vmlinux.h`.

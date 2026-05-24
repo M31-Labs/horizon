@@ -65,5 +65,42 @@
         }
       ]
     }
-  ]
+  ],
+  "requirements": {
+    "min_kernel": "5.8",
+    "programs": [
+      {
+        "name": "tracepoint",
+        "min_kernel": "4.7"
+      }
+    ],
+    "maps": [
+      {
+        "name": "ringbuf",
+        "min_kernel": "5.8"
+      }
+    ],
+    "helpers": [
+      {
+        "name": "bpf_get_current_comm",
+        "min_kernel": "4.1"
+      },
+      {
+        "name": "bpf_get_current_pid_tgid",
+        "min_kernel": "4.1"
+      },
+      {
+        "name": "bpf_get_current_uid_gid",
+        "min_kernel": "4.1"
+      },
+      {
+        "name": "bpf_ringbuf_reserve",
+        "min_kernel": "5.8"
+      },
+      {
+        "name": "bpf_ringbuf_submit",
+        "min_kernel": "5.8"
+      }
+    ]
+  }
 }

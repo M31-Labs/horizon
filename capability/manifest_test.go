@@ -152,6 +152,88 @@ func TestFromIRIncludesMapKeyAndValueTypes(t *testing.T) {
 	}
 }
 
+func TestFromIRIncludesKernelRequirements(t *testing.T) {
+	m := FromIR(ir.Program{
+		Package: "probes",
+		Functions: []ir.Function{{
+			Name: "OnExec",
+			Section: ir.Section{
+				Kind:   ir.ProgramTracepoint,
+				Name:   "tracepoint/sched/sched_process_exec",
+				Attach: "sched:sched_process_exec",
+			},
+			Body: []ir.Block{{
+				Statements: []ir.Statement{{
+					Kind: "short_var",
+					Name: "event",
+					Value: &ir.Expr{
+						Kind: "call",
+						Func: &ir.Expr{Kind: "selector", Operand: &ir.Expr{Kind: "ident", Name: "Events"}, Field: "reserve"},
+					},
+				}, {
+					Kind: "assign",
+					Value: &ir.Expr{
+						Kind: "call",
+						Func: &ir.Expr{Kind: "selector", Operand: &ir.Expr{Kind: "ident", Name: "bpf"}, Field: "current_pid"},
+					},
+				}, {
+					Kind: "expr",
+					Expr: &ir.Expr{
+						Kind: "call",
+						Func: &ir.Expr{Kind: "selector", Operand: &ir.Expr{Kind: "ident", Name: "Events"}, Field: "submit"},
+						Args: []ir.Expr{{Kind: "ident", Name: "event"}},
+					},
+				}},
+			}},
+		}},
+		Maps: []ir.Map{{
+			Name: "Events",
+			Kind: ir.MapKindRingbuf,
+			Val:  ir.Type{Name: "Event"},
+		}, {
+			Name: "RecentByCPU",
+			Kind: ir.MapKindLRUPerCPU,
+			Key:  ir.Type{Name: "u32"},
+			Val:  ir.Type{Name: "u64"},
+		}},
+		Capabilities: []ir.Capability{{
+			Name:    "kernel.process.exec.observe",
+			Kind:    ir.CapabilitySource,
+			Danger:  ir.DangerObserve,
+			Program: "OnExec",
+			Section: "tracepoint/sched:sched_process_exec",
+		}},
+	})
+	if err := Validate(m); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+	if m.Requirements == nil {
+		t.Fatal("requirements = nil, want kernel requirements")
+	}
+	if m.Requirements.MinKernel != "5.8" {
+		t.Fatalf("min_kernel = %q, want 5.8", m.Requirements.MinKernel)
+	}
+	requireFeature(t, m.Requirements.Programs, "tracepoint", "4.7")
+	requireFeature(t, m.Requirements.Maps, "ringbuf", "5.8")
+	requireFeature(t, m.Requirements.Maps, "lru_percpu_hash", "4.10")
+	requireFeature(t, m.Requirements.Helpers, "bpf_get_current_pid_tgid", "4.1")
+	requireFeature(t, m.Requirements.Helpers, "bpf_ringbuf_reserve", "5.8")
+	requireFeature(t, m.Requirements.Helpers, "bpf_ringbuf_submit", "5.8")
+}
+
+func requireFeature(t *testing.T, items []FeatureRequirement, name string, minKernel string) {
+	t.Helper()
+	for _, item := range items {
+		if item.Name == name {
+			if item.MinKernel != minKernel {
+				t.Fatalf("%s min_kernel = %q, want %q", name, item.MinKernel, minKernel)
+			}
+			return
+		}
+	}
+	t.Fatalf("requirements missing %s in %#v", name, items)
+}
+
 func TestValidateRejectsInvalidTypeLayoutMetadata(t *testing.T) {
 	negativeSize := -1
 	zeroAlign := 0
@@ -242,6 +324,33 @@ func TestValidateRejectsUnsupportedEnumValues(t *testing.T) {
 			Schema:       SchemaV0,
 			Package:      "probes",
 			Capabilities: []Capability{{Name: "kernel.process.exec.observe", Kind: "source", Danger: "destroy", Program: "OnExec", Section: "tracepoint/sched/sched_process_exec"}},
+		},
+		"unknown helper requirement": {
+			Schema:       SchemaV0,
+			Package:      "probes",
+			Capabilities: []Capability{},
+			Requirements: &Requirements{
+				MinKernel: "5.8",
+				Helpers:   []FeatureRequirement{{Name: "bpf_unknown", MinKernel: "5.8"}},
+			},
+		},
+		"invalid requirement version": {
+			Schema:       SchemaV0,
+			Package:      "probes",
+			Capabilities: []Capability{},
+			Requirements: &Requirements{
+				MinKernel: "5.x",
+				Maps:      []FeatureRequirement{{Name: "ringbuf", MinKernel: "5.8"}},
+			},
+		},
+		"aggregate lower than feature": {
+			Schema:       SchemaV0,
+			Package:      "probes",
+			Capabilities: []Capability{},
+			Requirements: &Requirements{
+				MinKernel: "4.1",
+				Maps:      []FeatureRequirement{{Name: "ringbuf", MinKernel: "5.8"}},
+			},
 		},
 	}
 	for name, manifest := range tests {

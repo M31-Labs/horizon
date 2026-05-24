@@ -1,12 +1,13 @@
 package capability
 
 type Manifest struct {
-	Schema       string       `json:"schema"`
-	Package      string       `json:"package"`
-	Programs     []Program    `json:"programs,omitempty"`
-	Capabilities []Capability `json:"capabilities"`
-	Maps         []Map        `json:"maps,omitempty"`
-	Types        []TypeSchema `json:"types,omitempty"`
+	Schema       string        `json:"schema"`
+	Package      string        `json:"package"`
+	Programs     []Program     `json:"programs,omitempty"`
+	Capabilities []Capability  `json:"capabilities"`
+	Maps         []Map         `json:"maps,omitempty"`
+	Types        []TypeSchema  `json:"types,omitempty"`
+	Requirements *Requirements `json:"requirements,omitempty"`
 }
 
 type Program struct {
@@ -53,6 +54,18 @@ type FieldSchema struct {
 	Name   string `json:"name"`
 	Type   string `json:"type"`
 	Offset *int   `json:"offset,omitempty"`
+}
+
+type Requirements struct {
+	MinKernel string               `json:"min_kernel,omitempty"`
+	Programs  []FeatureRequirement `json:"programs,omitempty"`
+	Maps      []FeatureRequirement `json:"maps,omitempty"`
+	Helpers   []FeatureRequirement `json:"helpers,omitempty"`
+}
+
+type FeatureRequirement struct {
+	Name      string `json:"name"`
+	MinKernel string `json:"min_kernel"`
 }
 
 func NewManifest(packageName string) Manifest {
