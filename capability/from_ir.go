@@ -46,13 +46,26 @@ func FromIR(program ir.Program) Manifest {
 			Value: manifestType(m.Val),
 		})
 	}
+	structs := ir.StructsByName(program.Structs)
 	for _, typ := range program.Structs {
 		schema := TypeSchema{Name: typ.Name, Kind: "struct"}
+		offsets := map[string]int{}
+		if layout, ok := ir.StructLayout(typ, structs); ok {
+			schema.Size = intPtr(layout.Size)
+			schema.Align = intPtr(layout.Align)
+			for _, field := range layout.Fields {
+				offsets[field.Name] = field.Offset
+			}
+		}
 		for _, field := range typ.Fields {
-			schema.Fields = append(schema.Fields, FieldSchema{
+			fieldSchema := FieldSchema{
 				Name: field.Name,
 				Type: manifestType(field.Type),
-			})
+			}
+			if offset, ok := offsets[field.Name]; ok {
+				fieldSchema.Offset = intPtr(offset)
+			}
+			schema.Fields = append(schema.Fields, fieldSchema)
 		}
 		manifest.Types = append(manifest.Types, schema)
 	}
@@ -88,4 +101,8 @@ func manifestType(typ ir.Type) string {
 		return typ.Name
 	}
 	return ""
+}
+
+func intPtr(value int) *int {
+	return &value
 }

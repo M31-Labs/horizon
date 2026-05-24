@@ -80,11 +80,23 @@ func TestFromIRIncludesTypedEventSchemas(t *testing.T) {
 	if typ.Name != "ExecEvent" || typ.Kind != "struct" || len(typ.Fields) != 2 {
 		t.Fatalf("type schema = %#v, want ExecEvent struct with two fields", typ)
 	}
+	if typ.Size == nil || *typ.Size != 20 {
+		t.Fatalf("type size = %#v, want 20", typ.Size)
+	}
+	if typ.Align == nil || *typ.Align != 4 {
+		t.Fatalf("type align = %#v, want 4", typ.Align)
+	}
 	if typ.Fields[0].Name != "pid" || typ.Fields[0].Type != "u32" {
 		t.Fatalf("first field = %#v, want pid u32", typ.Fields[0])
 	}
+	if typ.Fields[0].Offset == nil || *typ.Fields[0].Offset != 0 {
+		t.Fatalf("first field offset = %#v, want 0", typ.Fields[0].Offset)
+	}
 	if typ.Fields[1].Name != "comm" || typ.Fields[1].Type != "[16]u8" {
 		t.Fatalf("second field = %#v, want comm [16]u8", typ.Fields[1])
+	}
+	if typ.Fields[1].Offset == nil || *typ.Fields[1].Offset != 4 {
+		t.Fatalf("second field offset = %#v, want 4", typ.Fields[1].Offset)
 	}
 	if len(m.Maps) != 1 || m.Maps[0].Value != "ExecEvent" {
 		t.Fatalf("maps = %#v, want ExecEvents value ExecEvent", m.Maps)
@@ -132,6 +144,55 @@ func TestFromIRIncludesMapKeyAndValueTypes(t *testing.T) {
 	}
 	if len(m.Maps) != 1 || m.Maps[0].Key != "u32" || m.Maps[0].Value != "Count" {
 		t.Fatalf("maps = %#v, want Counts hash[u32, Count]", m.Maps)
+	}
+}
+
+func TestValidateRejectsInvalidTypeLayoutMetadata(t *testing.T) {
+	negativeSize := -1
+	zeroAlign := 0
+	negativeOffset := -1
+	tooLargeOffset := 12
+	tests := map[string]Manifest{
+		"negative size": {
+			Schema:       SchemaV0,
+			Package:      "probes",
+			Capabilities: []Capability{},
+			Types:        []TypeSchema{{Name: "Event", Kind: "struct", Size: &negativeSize}},
+		},
+		"zero align": {
+			Schema:       SchemaV0,
+			Package:      "probes",
+			Capabilities: []Capability{},
+			Types:        []TypeSchema{{Name: "Event", Kind: "struct", Align: &zeroAlign}},
+		},
+		"negative offset": {
+			Schema:       SchemaV0,
+			Package:      "probes",
+			Capabilities: []Capability{},
+			Types: []TypeSchema{{
+				Name:   "Event",
+				Kind:   "struct",
+				Fields: []FieldSchema{{Name: "pid", Type: "u32", Offset: &negativeOffset}},
+			}},
+		},
+		"offset exceeds size": {
+			Schema:       SchemaV0,
+			Package:      "probes",
+			Capabilities: []Capability{},
+			Types: []TypeSchema{{
+				Name:   "Event",
+				Kind:   "struct",
+				Size:   intPtr(8),
+				Fields: []FieldSchema{{Name: "pid", Type: "u32", Offset: &tooLargeOffset}},
+			}},
+		},
+	}
+	for name, manifest := range tests {
+		t.Run(name, func(t *testing.T) {
+			if err := Validate(manifest); err == nil {
+				t.Fatal("Validate succeeded, want layout metadata error")
+			}
+		})
 	}
 }
 

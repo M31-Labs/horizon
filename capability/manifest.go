@@ -43,12 +43,15 @@ type Map struct {
 type TypeSchema struct {
 	Name   string        `json:"name"`
 	Kind   string        `json:"kind"`
+	Size   *int          `json:"size,omitempty"`
+	Align  *int          `json:"align,omitempty"`
 	Fields []FieldSchema `json:"fields,omitempty"`
 }
 
 type FieldSchema struct {
-	Name string `json:"name"`
-	Type string `json:"type"`
+	Name   string `json:"name"`
+	Type   string `json:"type"`
+	Offset *int   `json:"offset,omitempty"`
 }
 
 func NewManifest(packageName string) Manifest {

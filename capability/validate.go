@@ -49,6 +49,12 @@ func Validate(m Manifest) error {
 		if typ.Kind == "" {
 			return fmt.Errorf("capability manifest type %q kind is required", typ.Name)
 		}
+		if typ.Size != nil && *typ.Size < 0 {
+			return fmt.Errorf("capability manifest type %q size must be non-negative", typ.Name)
+		}
+		if typ.Align != nil && *typ.Align <= 0 {
+			return fmt.Errorf("capability manifest type %q align must be positive", typ.Name)
+		}
 		types[typ.Name] = true
 	}
 	for _, typ := range m.Types {
@@ -58,6 +64,14 @@ func Validate(m Manifest) error {
 			}
 			if field.Type == "" {
 				return fmt.Errorf("capability manifest type %q field %q type is required", typ.Name, field.Name)
+			}
+			if field.Offset != nil {
+				if *field.Offset < 0 {
+					return fmt.Errorf("capability manifest type %q field %q offset must be non-negative", typ.Name, field.Name)
+				}
+				if typ.Size != nil && *field.Offset > *typ.Size {
+					return fmt.Errorf("capability manifest type %q field %q offset exceeds type size", typ.Name, field.Name)
+				}
 			}
 			if err := validateTypeRefs(field.Type, types); err != nil {
 				return err

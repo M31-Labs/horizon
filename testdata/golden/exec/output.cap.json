@@ -40,22 +40,28 @@
     {
       "name": "ExecEvent",
       "kind": "struct",
+      "size": 28,
+      "align": 4,
       "fields": [
         {
           "name": "pid",
-          "type": "u32"
+          "type": "u32",
+          "offset": 0
         },
         {
           "name": "ppid",
-          "type": "u32"
+          "type": "u32",
+          "offset": 4
         },
         {
           "name": "uid",
-          "type": "u32"
+          "type": "u32",
+          "offset": 8
         },
         {
           "name": "comm",
-          "type": "[16]u8"
+          "type": "[16]u8",
+          "offset": 12
         }
       ]
     }

@@ -178,8 +178,9 @@ field offset assertions, so clang or `go test` fails early if an emitted type no
 longer matches Horizon's ABI model.
 
 Capability manifests include programs, map access, emitted event names, map key
-and value types, and struct field schemas for declared Horizon types. Continuum
-consumers can inspect what a program observes or emits without parsing BPF C.
+and value types, and struct size/align/field-offset schemas for declared
+Horizon types. Continuum consumers can inspect what a program observes or emits
+without parsing BPF C.
 
 `hzn doctor` checks the local eBPF C toolchain: clang BPF support, libbpf
 headers, bpftool/LLVM utilities, kernel BTF, and a usable `vmlinux.h`.
