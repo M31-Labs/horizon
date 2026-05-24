@@ -21,12 +21,12 @@ func TestEmitExecwatchUsesTypedCWrappers(t *testing.T) {
 	}
 	for _, want := range []string{
 		`_Static_assert(sizeof(__u32) == 4, "horizon: __u32 width mismatch");`,
-		"static __always_inline struct ExecEvent *ExecEvents_reserve(void)",
-		"static __always_inline void ExecEvents_submit(struct ExecEvent *value)",
-		`_Static_assert(sizeof(struct ExecEvent) == 28, "horizon: struct ExecEvent size mismatch");`,
-		`_Static_assert(__builtin_offsetof(struct ExecEvent, comm) == 12, "horizon: struct ExecEvent.comm offset mismatch");`,
+		"static __always_inline struct hzn_type_ExecEvent *ExecEvents_reserve(void)",
+		"static __always_inline void ExecEvents_submit(struct hzn_type_ExecEvent *value)",
+		`_Static_assert(sizeof(struct hzn_type_ExecEvent) == 28, "horizon: struct ExecEvent size mismatch");`,
+		`_Static_assert(__builtin_offsetof(struct hzn_type_ExecEvent, comm) == 12, "horizon: struct ExecEvent.comm offset mismatch");`,
 		"(void)ctx;",
-		"struct ExecEvent *event = ExecEvents_reserve();",
+		"struct hzn_type_ExecEvent *event = ExecEvents_reserve();",
 		"event->pid = hzn_current_pid();",
 		"hzn_current_comm(&event->comm, sizeof(event->comm));",
 		"ExecEvents_submit(event);",
@@ -202,11 +202,11 @@ func OnExec(ctx tracepoint.Exec) i32 {
 		t.Fatalf("Emit: %v", err)
 	}
 	for _, want := range []string{
-		"struct Count {",
-		`_Static_assert(sizeof(struct Count) == 4, "horizon: struct Count size mismatch");`,
-		`_Static_assert(__builtin_offsetof(struct Count, seen) == 0, "horizon: struct Count.seen offset mismatch");`,
-		"static __always_inline long Counts_update(__u32 key, struct Count value)",
-		"struct Count state = (struct Count){ .seen = pid };",
+		"struct hzn_type_Count {",
+		`_Static_assert(sizeof(struct hzn_type_Count) == 4, "horizon: struct Count size mismatch");`,
+		`_Static_assert(__builtin_offsetof(struct hzn_type_Count, seen) == 0, "horizon: struct Count.seen offset mismatch");`,
+		"static __always_inline long Counts_update(__u32 key, struct hzn_type_Count value)",
+		"struct hzn_type_Count state = (struct hzn_type_Count){ .seen = pid };",
 		"state.seen = hzn_current_pid();",
 		"__u32 seen = state.seen;",
 		"if (Counts_update(pid, state) != 0) {",
@@ -261,10 +261,10 @@ func OnExec(ctx tracepoint.Exec) i32 {
 		t.Fatalf("Emit: %v", err)
 	}
 	for _, want := range []string{
-		`_Static_assert(sizeof(struct LayoutEvent) == 16, "horizon: struct LayoutEvent size mismatch");`,
-		`_Static_assert(__builtin_offsetof(struct LayoutEvent, tag) == 0, "horizon: struct LayoutEvent.tag offset mismatch");`,
-		`_Static_assert(__builtin_offsetof(struct LayoutEvent, pid) == 4, "horizon: struct LayoutEvent.pid offset mismatch");`,
-		`_Static_assert(__builtin_offsetof(struct LayoutEvent, ports) == 8, "horizon: struct LayoutEvent.ports offset mismatch");`,
+		`_Static_assert(sizeof(struct hzn_type_LayoutEvent) == 16, "horizon: struct LayoutEvent size mismatch");`,
+		`_Static_assert(__builtin_offsetof(struct hzn_type_LayoutEvent, tag) == 0, "horizon: struct LayoutEvent.tag offset mismatch");`,
+		`_Static_assert(__builtin_offsetof(struct hzn_type_LayoutEvent, pid) == 4, "horizon: struct LayoutEvent.pid offset mismatch");`,
+		`_Static_assert(__builtin_offsetof(struct hzn_type_LayoutEvent, ports) == 8, "horizon: struct LayoutEvent.ports offset mismatch");`,
 	} {
 		if !strings.Contains(out.Code, want) {
 			t.Fatalf("generated C missing %q:\n%s", want, out.Code)
@@ -352,7 +352,7 @@ func OnExec(ctx tracepoint.Exec) i32 {
 		"static const bool hzn_const_ShouldTrace = true;",
 		"bool active = true;",
 		"if ((hzn_const_ShouldTrace && !false) && active) {",
-		"if (FlagsByPID_update(pid, (struct Flags){ .active = active }) != 0) {",
+		"if (FlagsByPID_update(pid, (struct hzn_type_Flags){ .active = active }) != 0) {",
 	} {
 		if !strings.Contains(out.Code, want) {
 			t.Fatalf("generated C missing %q:\n%s", want, out.Code)
@@ -439,7 +439,7 @@ func OnExec(ctx tracepoint.Exec) i32 {
 		t.Fatalf("Emit: %v", err)
 	}
 	for _, want := range []string{
-		"struct Count *count = Counts_lookup(pid);",
+		"struct hzn_type_Count *count = Counts_lookup(pid);",
 		"__u32 seen = count->seen;",
 		"count->seen = pid;",
 	} {

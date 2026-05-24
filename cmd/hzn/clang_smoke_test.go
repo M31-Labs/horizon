@@ -129,3 +129,47 @@ func OnExec(ctx tracepoint.Exec) i32 {
 		t.Fatalf("generated C missing mangled constant name:\n%s", data)
 	}
 }
+
+func TestStructSymbolCollisionCompileSmoke(t *testing.T) {
+	if _, err := os.Stat("/usr/local/include/vmlinux.h"); err != nil {
+		t.Skipf("vmlinux.h not available: %v", err)
+	}
+	if err := run([]string{"doctor"}); err != nil {
+		t.Fatalf("doctor: %v", err)
+	}
+	srcDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(srcDir, "file.hzn"), []byte(`package probes
+
+type file struct {
+    pid u32
+}
+
+map Files hash[u32, file]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    pid := bpf.current_pid()
+    if Files.update(pid, file{pid: pid}) != 0 {
+        return 0
+    }
+    return 0
+}
+`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	outDir := t.TempDir()
+	if err := run([]string{"workbench", srcDir, "-o", outDir, "-compile"}); err != nil {
+		t.Fatalf("workbench -compile: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(outDir, "file.bpf.c"))
+	if err != nil {
+		t.Fatalf("read generated C: %v", err)
+	}
+	code := string(data)
+	if !strings.Contains(code, "struct hzn_type_file") {
+		t.Fatalf("generated C missing mangled struct name:\n%s", data)
+	}
+	if strings.Contains(code, "struct file {") {
+		t.Fatalf("generated C emitted colliding struct tag:\n%s", data)
+	}
+}

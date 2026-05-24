@@ -585,7 +585,7 @@ _Static_assert(sizeof(__s64) == 8, "horizon: __s64 width mismatch");
 }
 
 func emitStruct(b *strings.Builder, decl ir.Struct, structs map[string]ir.Struct) {
-	fmt.Fprintf(b, "\nstruct %s {\n", decl.Name)
+	fmt.Fprintf(b, "\nstruct %s {\n", cStructName(decl.Name))
 	for _, field := range decl.Fields {
 		if field.Type.Len != "" && field.Type.Elem != nil {
 			fmt.Fprintf(b, "    %s %s[%s];\n", cType(*field.Type.Elem), field.Name, field.Type.Len)
@@ -602,9 +602,10 @@ func emitStructLayoutAssertions(b *strings.Builder, decl ir.Struct, structs map[
 	if !ok {
 		return
 	}
-	fmt.Fprintf(b, "_Static_assert(sizeof(struct %s) == %d, \"horizon: struct %s size mismatch\");\n", decl.Name, layout.Size, decl.Name)
+	cName := cStructName(decl.Name)
+	fmt.Fprintf(b, "_Static_assert(sizeof(struct %s) == %d, \"horizon: struct %s size mismatch\");\n", cName, layout.Size, decl.Name)
 	for _, field := range layout.Fields {
-		fmt.Fprintf(b, "_Static_assert(__builtin_offsetof(struct %s, %s) == %d, \"horizon: struct %s.%s offset mismatch\");\n", decl.Name, field.Name, field.Offset, decl.Name, field.Name)
+		fmt.Fprintf(b, "_Static_assert(__builtin_offsetof(struct %s, %s) == %d, \"horizon: struct %s.%s offset mismatch\");\n", cName, field.Name, field.Offset, decl.Name, field.Name)
 	}
 }
 
@@ -649,7 +650,7 @@ func emitRingbufWrappers(b *strings.Builder, m ir.Map, methods map[string]bool) 
 	if m.Val.Name == "" {
 		return
 	}
-	typ := "struct " + m.Val.Name
+	typ := cType(m.Val)
 	if methods["reserve"] {
 		fmt.Fprintf(b, `
 static __always_inline %s *%s_reserve(void) {
@@ -749,8 +750,12 @@ func cStructType(name string) string {
 	case "xdp.UDP":
 		return "struct hzn_xdp_udp"
 	default:
-		return "struct " + name
+		return "struct " + cStructName(name)
 	}
+}
+
+func cStructName(name string) string {
+	return "hzn_type_" + cIdent(name)
 }
 
 func cDecl(t ir.Type, name string) string {
@@ -886,7 +891,7 @@ func emitStatement(b *strings.Builder, stmt ir.Statement, program ir.Program, de
 func reserveType(mapName string, maps []ir.Map) string {
 	for _, m := range maps {
 		if m.Name == mapName && m.Val.Name != "" {
-			return "struct " + m.Val.Name
+			return cType(m.Val)
 		}
 	}
 	return "void"
