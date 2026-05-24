@@ -71,17 +71,20 @@ type workbenchOptions struct {
 }
 
 type workbenchReport struct {
-	Schema          string            `json:"schema"`
-	Package         string            `json:"package"`
-	Sources         []sourceDetail    `json:"sources,omitempty"`
-	Status          string            `json:"status"`
-	Compile         bool              `json:"compile"`
-	Artifacts       []string          `json:"artifacts"`
-	ArtifactDetails []artifactDetail  `json:"artifact_details,omitempty"`
-	Paths           artifactPaths     `json:"paths"`
-	Diagnostics     []diag.Diagnostic `json:"diagnostics"`
-	DiagnosticCount int               `json:"diagnostic_count"`
-	Clang           string            `json:"clang,omitempty"`
+	Schema                string            `json:"schema"`
+	Generator             string            `json:"generator"`
+	GeneratedAt           string            `json:"generated_at"`
+	Package               string            `json:"package"`
+	Sources               []sourceDetail    `json:"sources,omitempty"`
+	Status                string            `json:"status"`
+	Compile               bool              `json:"compile"`
+	Artifacts             []string          `json:"artifacts"`
+	ArtifactDetails       []artifactDetail  `json:"artifact_details,omitempty"`
+	RemovedStaleArtifacts []string          `json:"removed_stale_artifacts,omitempty"`
+	Paths                 artifactPaths     `json:"paths"`
+	Diagnostics           []diag.Diagnostic `json:"diagnostics"`
+	DiagnosticCount       int               `json:"diagnostic_count"`
+	Clang                 string            `json:"clang,omitempty"`
 }
 
 type sourceDetail struct {
@@ -121,18 +124,22 @@ func writeWorkbenchArtifacts(result *compiler.Result, opts workbenchOptions) (wo
 		return workbenchReport{}, err
 	}
 	report := workbenchReport{
-		Schema:          "m31labs.dev/horizon/report/v0",
-		Package:         result.Program.Package,
-		Sources:         sources,
-		Status:          "generated",
-		Compile:         opts.Compile,
-		Paths:           paths,
-		Diagnostics:     diagnosticsForReport(result.Diagnostics),
-		DiagnosticCount: len(result.Diagnostics),
+		Schema:      "m31labs.dev/horizon/report/v0",
+		Generator:   "hzn workbench",
+		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
+		Package:     result.Program.Package,
+		Sources:     sources,
+		Status:      "generated",
+		Compile:     opts.Compile,
+		Paths:       paths,
+		Diagnostics: diagnosticsForReport(result.Diagnostics),
 	}
-	if err := removeFileIfExists(paths.Object); err != nil {
+	report.DiagnosticCount = len(report.Diagnostics)
+	removed, err := removeStaleArtifacts(paths)
+	if err != nil {
 		return report, err
 	}
+	report.RemovedStaleArtifacts = removed
 	if !opts.Compile {
 		report.Paths.Object = ""
 	}
@@ -305,6 +312,10 @@ func (p artifactPaths) diagnosticArtifacts() []string {
 	return []string{p.Diagnostics, p.Report}
 }
 
+func (p artifactPaths) allArtifacts() []string {
+	return p.artifacts(true)
+}
+
 func addArtifactDetails(report *workbenchReport, paths artifactPaths) error {
 	details, err := collectArtifactDetails(report.Artifacts, paths)
 	if err != nil {
@@ -354,14 +365,21 @@ func artifactKind(path string, paths artifactPaths) string {
 	}
 }
 
-func removeFileIfExists(path string) error {
-	if path == "" {
-		return nil
+func removeStaleArtifacts(paths artifactPaths) ([]string, error) {
+	var removed []string
+	for _, path := range paths.allArtifacts() {
+		if path == "" {
+			continue
+		}
+		if err := os.Remove(path); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			return removed, err
+		}
+		removed = append(removed, path)
 	}
-	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	return nil
+	return removed, nil
 }
 
 func diagnosticsForReport(diags []diag.Diagnostic) []diag.Diagnostic {

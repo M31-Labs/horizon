@@ -155,11 +155,13 @@ hzn diagnose dist/exec.verifier.log --map dist/exec.hznmap.json
 `hzn workbench` is the authoring path: it validates source and writes readable
 BPF C, a source map, typed Go bindings, a capability manifest, diagnostics, and
 a report with source file hashes plus artifact kinds, byte sizes, and SHA-256
-hashes. Invalid programs still produce `<name>.diagnostics.json` and
-`<name>.report.json`, and clang failures are remapped into the same diagnostics
-artifact, so editors and automation can show actionable feedback without
-scraping terminal output. Use `-compile` or `hzn build` when the local clang/BPF
-C toolchain should also produce a `.bpf.o`.
+hashes. Each run removes stale artifacts for the target output base before
+writing new ones, records replaced paths, and includes generator/timestamp
+provenance in the report. Invalid programs still produce
+`<name>.diagnostics.json` and `<name>.report.json`, and clang failures are
+remapped into the same diagnostics artifact, so editors and automation can show
+actionable feedback without scraping terminal output. Use `-compile` or
+`hzn build` when the local clang/BPF C toolchain should also produce a `.bpf.o`.
 
 Generated Go bindings expose typed helpers around the loaded objects: ringbuf
 maps get `Read<Name>(context.Context, func(Event) error)`, hash maps get

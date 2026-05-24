@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"m31labs.dev/horizon/compiler"
 	"m31labs.dev/horizon/compiler/diag"
@@ -51,6 +52,7 @@ func TestWorkbenchWritesAuthoringArtifactsWithoutObject(t *testing.T) {
 	if report.Status != "generated" {
 		t.Fatalf("status = %q, want generated", report.Status)
 	}
+	assertReportProvenance(t, report)
 	if report.Compile {
 		t.Fatal("compile = true, want false")
 	}
@@ -76,6 +78,7 @@ func TestWorkbenchWritesAuthoringArtifactsWithoutObject(t *testing.T) {
 	if _, ok := artifactDetailByKind(report.ArtifactDetails, "report"); ok {
 		t.Fatalf("artifact details should not include self-referential report: %#v", report.ArtifactDetails)
 	}
+	assertRemovedStaleArtifacts(t, report, []string{filepath.Join(outDir, "input.bpf.o")})
 
 	var diagnostics []struct {
 		Code string `json:"code"`
@@ -112,6 +115,7 @@ func TestWorkbenchJSONOutput(t *testing.T) {
 	if report.Status != "generated" {
 		t.Fatalf("status = %q, want generated", report.Status)
 	}
+	assertReportProvenance(t, report)
 	if report.DiagnosticCount != 0 {
 		t.Fatalf("diagnostic count = %d, want 0", report.DiagnosticCount)
 	}
@@ -140,6 +144,7 @@ func TestWorkbenchJSONOutputForInvalidInput(t *testing.T) {
 	if report.Status != "diagnostic_error" {
 		t.Fatalf("status = %q, want diagnostic_error", report.Status)
 	}
+	assertReportProvenance(t, report)
 	if report.DiagnosticCount == 0 {
 		t.Fatal("diagnostic count = 0, want at least one")
 	}
@@ -198,9 +203,7 @@ func TestWorkbenchGeneratesTypedMapBindingsForExecCount(t *testing.T) {
 func TestWorkbenchWritesDiagnosticReportForInvalidInput(t *testing.T) {
 	outDir := t.TempDir()
 	input := filepath.Join("..", "..", "testdata", "invalid", "packet_unproven_read.hzn")
-	if err := os.WriteFile(filepath.Join(outDir, "packet_unproven_read.bpf.o"), []byte("stale"), 0o644); err != nil {
-		t.Fatalf("write stale object: %v", err)
-	}
+	stale := writeStaleArtifacts(t, artifactPathsFor(outDir, "packet_unproven_read").allArtifacts()...)
 	if err := run([]string{"workbench", input, "-o", outDir}); err == nil {
 		t.Fatal("run workbench succeeded, want diagnostics error")
 	}
@@ -236,6 +239,8 @@ func TestWorkbenchWritesDiagnosticReportForInvalidInput(t *testing.T) {
 	if report.Status != "diagnostic_error" {
 		t.Fatalf("status = %q, want diagnostic_error", report.Status)
 	}
+	assertReportProvenance(t, report)
+	assertRemovedStaleArtifacts(t, report, stale)
 	if report.DiagnosticCount == 0 {
 		t.Fatal("diagnostic count = 0, want at least one")
 	}
@@ -332,6 +337,11 @@ func TestWorkbenchReportsEmitterDiagnostics(t *testing.T) {
 func TestWorkbenchReportsBindgenDiagnostics(t *testing.T) {
 	outDir := t.TempDir()
 	input := filepath.Join("..", "..", "testdata", "golden", "exec", "input.hzn")
+	stale := writeStaleArtifacts(t,
+		filepath.Join(outDir, "input.bindings.go"),
+		filepath.Join(outDir, "input.cap.json"),
+		filepath.Join(outDir, "input.bpf.o"),
+	)
 	stdout, err := captureStdout(t, func() error {
 		return run([]string{"workbench", input, "-o", outDir, "-package", "bad-name", "-json"})
 	})
@@ -346,6 +356,8 @@ func TestWorkbenchReportsBindgenDiagnostics(t *testing.T) {
 	if report.Status != "bindgen_error" {
 		t.Fatalf("status = %q, want bindgen_error", report.Status)
 	}
+	assertReportProvenance(t, report)
+	assertRemovedStaleArtifacts(t, report, stale)
 	if report.DiagnosticCount != 1 || !hasDiagnosticCode(report.Diagnostics, "HZN3200") {
 		t.Fatalf("diagnostics = %#v, want HZN3200", report.Diagnostics)
 	}
@@ -382,6 +394,10 @@ func TestWorkbenchReportsCapabilityDiagnostics(t *testing.T) {
 	if err := os.WriteFile(sourcePath, []byte("package probes\n"), 0o600); err != nil {
 		t.Fatalf("write source: %v", err)
 	}
+	stale := writeStaleArtifacts(t,
+		filepath.Join(outDir, "badcap.cap.json"),
+		filepath.Join(outDir, "badcap.bpf.o"),
+	)
 	result := &compiler.Result{
 		Files: []compiler.FileResult{{Path: sourcePath, Package: "probes"}},
 		Program: ir.Program{
@@ -410,6 +426,8 @@ func TestWorkbenchReportsCapabilityDiagnostics(t *testing.T) {
 	if report.Status != "capability_error" {
 		t.Fatalf("status = %q, want capability_error", report.Status)
 	}
+	assertReportProvenance(t, report)
+	assertRemovedStaleArtifacts(t, report, stale)
 	if report.DiagnosticCount != 1 || !hasDiagnosticCode(report.Diagnostics, "HZN3300") {
 		t.Fatalf("diagnostics = %#v, want HZN3300", report.Diagnostics)
 	}
@@ -474,6 +492,8 @@ func TestWorkbenchReportsClangDiagnostics(t *testing.T) {
 	if report.Status != "clang_error" {
 		t.Fatalf("status = %q, want clang_error", report.Status)
 	}
+	assertReportProvenance(t, report)
+	assertRemovedStaleArtifacts(t, report, []string{filepath.Join(outDir, "input.bpf.o")})
 	if report.Clang == "" {
 		t.Fatal("clang output is empty")
 	}
@@ -554,6 +574,48 @@ func assertSourceDetail(t *testing.T, report workbenchReport, path string) {
 			t.Fatalf("source %s sha256 = %q, want lowercase hex", path, detail.SHA256)
 		}
 	}
+}
+
+func assertReportProvenance(t *testing.T, report workbenchReport) {
+	t.Helper()
+	if report.Generator != "hzn workbench" {
+		t.Fatalf("generator = %q, want hzn workbench", report.Generator)
+	}
+	if report.GeneratedAt == "" {
+		t.Fatal("generated_at is empty")
+	}
+	ts, err := time.Parse(time.RFC3339, report.GeneratedAt)
+	if err != nil {
+		t.Fatalf("generated_at = %q, want RFC3339 timestamp: %v", report.GeneratedAt, err)
+	}
+	if ts.IsZero() {
+		t.Fatalf("generated_at = %q, want non-zero timestamp", report.GeneratedAt)
+	}
+}
+
+func assertRemovedStaleArtifacts(t *testing.T, report workbenchReport, paths []string) {
+	t.Helper()
+	if len(report.RemovedStaleArtifacts) != len(paths) {
+		t.Fatalf("removed stale artifacts = %#v, want exactly %#v", report.RemovedStaleArtifacts, paths)
+	}
+	for _, path := range paths {
+		if !artifactsContain(report.RemovedStaleArtifacts, path) {
+			t.Fatalf("removed stale artifacts = %#v, missing %q", report.RemovedStaleArtifacts, path)
+		}
+	}
+}
+
+func writeStaleArtifacts(t *testing.T, paths ...string) []string {
+	t.Helper()
+	for _, path := range paths {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("create artifact dir for %s: %v", path, err)
+		}
+		if err := os.WriteFile(path, []byte("stale"), 0o644); err != nil {
+			t.Fatalf("write stale artifact %s: %v", path, err)
+		}
+	}
+	return paths
 }
 
 func artifactDetailByKind(details []artifactDetail, kind string) (artifactDetail, bool) {
