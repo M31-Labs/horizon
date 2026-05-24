@@ -12,79 +12,139 @@ func Emit(program ir.Program) (Output, error) {
 	if err := validateEmittable(program); err != nil {
 		return Output{}, err
 	}
+	emitter := newCEmitter(program)
+	if err := emitter.emit(); err != nil {
+		return Output{}, err
+	}
+	return emitter.output(), nil
+}
 
-	var b strings.Builder
-	usage := analyzeUsage(program)
-	sourceMap := ir.SourceMap{
+type cEmitter struct {
+	program   ir.Program
+	usage     cUsage
+	sourceMap ir.SourceMap
+	b         strings.Builder
+	structs   map[string]ir.Struct
+}
+
+func newCEmitter(program ir.Program) *cEmitter {
+	return &cEmitter{
+		program:   program,
+		usage:     analyzeUsage(program),
+		sourceMap: newSourceMap(),
+		structs:   ir.StructsByName(program.Structs),
+	}
+}
+
+func (e *cEmitter) emit() error {
+	e.emitPreamble()
+	e.emitDeclarations()
+	if err := e.emitFunctions(); err != nil {
+		return err
+	}
+	e.sourceMap.Sources = sourceMapSources(e.sourceMap.Mappings)
+	return nil
+}
+
+func (e *cEmitter) output() Output {
+	return Output{Code: e.b.String(), SourceMap: e.sourceMap}
+}
+
+func (e *cEmitter) emitPreamble() {
+	e.b.WriteString("#include \"vmlinux.h\"\n")
+	if e.usage.hasBool() {
+		e.b.WriteString("#include <stdbool.h>\n")
+	}
+	e.b.WriteString("#include <bpf/bpf_helpers.h>\n\n")
+	e.b.WriteString("#include <bpf/bpf_tracing.h>\n\n")
+	if e.usage.hasEndianHelpers() {
+		e.b.WriteString("#include <bpf/bpf_endian.h>\n\n")
+	}
+	if programHasXDP(e.program) {
+		emitXDPActionFallbacks(&e.b)
+	}
+	if programHasTC(e.program) {
+		emitTCActionFallbacks(&e.b)
+	}
+	if programHasCgroup(e.program) {
+		emitCgroupActionFallbacks(&e.b)
+	}
+	if programHasLSM(e.program) {
+		emitLSMActionFallbacks(&e.b)
+	}
+	e.b.WriteString("char LICENSE[] SEC(\"license\") = \"GPL\";\n")
+	emitScalarABIAssertions(&e.b)
+	emitHelperWrappers(&e.b, e.usage)
+	if e.usage.hasXDPPacketHelpers() {
+		emitXDPPacketHelpers(&e.b, e.usage)
+	}
+}
+
+func (e *cEmitter) emitDeclarations() {
+	for _, c := range e.program.Constants {
+		e.emitMapped(c.Span, "const", "", "", func() {
+			emitConst(&e.b, c)
+		})
+	}
+	for _, decl := range e.program.Structs {
+		e.emitMapped(decl.Span, "struct", "", "", func() {
+			emitStruct(&e.b, decl, e.structs)
+		})
+	}
+	for _, m := range e.program.Maps {
+		e.emitMapped(m.Span, "map", "", "", func() {
+			emitMap(&e.b, m)
+		})
+	}
+	for _, m := range e.program.Maps {
+		e.emitMapped(m.Span, "map_wrapper", "", "", func() {
+			emitMapWrappers(&e.b, m, e.usage.mapMethods[m.Name])
+		})
+	}
+}
+
+func (e *cEmitter) emitFunctions() error {
+	for _, fn := range e.program.Functions {
+		if err := e.emitFunction(fn); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (e *cEmitter) emitFunction(fn ir.Function) error {
+	env := newCEnv(e.program)
+	for _, param := range fn.Params {
+		env.setLocal(param.Name, param.Type)
+	}
+	startLine := generatedLine(&e.b)
+	fmt.Fprintf(&e.b, "\nSEC(%q)\nint %s(%s) {\n", fn.Section.Name, fn.Name, cContext(fn))
+	e.b.WriteString("    (void)ctx;\n")
+	statements := cStatementEmitter{
+		b:         &e.b,
+		program:   e.program,
+		sourceMap: &e.sourceMap,
+		fn:        fn,
+	}
+	for _, stmt := range functionStatements(fn) {
+		if err := statements.emit(stmt, 1, env); err != nil {
+			return err
+		}
+	}
+	e.b.WriteString("}\n")
+	addSourceMapping(&e.sourceMap, fn.Span, "function", fn.Name, fn.Section.Name, startLine, generatedLine(&e.b))
+	return nil
+}
+
+func (e *cEmitter) emitMapped(source span.Span, node string, function string, section string, emit func()) {
+	emitMapped(&e.b, &e.sourceMap, source, node, function, section, emit)
+}
+
+func newSourceMap() ir.SourceMap {
+	return ir.SourceMap{
 		Schema:    "m31labs.dev/horizon/sourcemap/v0",
 		Generated: ir.GeneratedSource{Language: "c"},
 	}
-	b.WriteString("#include \"vmlinux.h\"\n")
-	if usage.hasBool() {
-		b.WriteString("#include <stdbool.h>\n")
-	}
-	b.WriteString("#include <bpf/bpf_helpers.h>\n\n")
-	b.WriteString("#include <bpf/bpf_tracing.h>\n\n")
-	if usage.hasEndianHelpers() {
-		b.WriteString("#include <bpf/bpf_endian.h>\n\n")
-	}
-	if programHasXDP(program) {
-		emitXDPActionFallbacks(&b)
-	}
-	if programHasTC(program) {
-		emitTCActionFallbacks(&b)
-	}
-	if programHasCgroup(program) {
-		emitCgroupActionFallbacks(&b)
-	}
-	if programHasLSM(program) {
-		emitLSMActionFallbacks(&b)
-	}
-	b.WriteString("char LICENSE[] SEC(\"license\") = \"GPL\";\n")
-	emitScalarABIAssertions(&b)
-	emitHelperWrappers(&b, usage)
-	if usage.hasXDPPacketHelpers() {
-		emitXDPPacketHelpers(&b, usage)
-	}
-	for _, c := range program.Constants {
-		emitMapped(&b, &sourceMap, c.Span, "const", "", "", func() {
-			emitConst(&b, c)
-		})
-	}
-	structs := ir.StructsByName(program.Structs)
-	for _, decl := range program.Structs {
-		emitMapped(&b, &sourceMap, decl.Span, "struct", "", "", func() {
-			emitStruct(&b, decl, structs)
-		})
-	}
-	for _, m := range program.Maps {
-		emitMapped(&b, &sourceMap, m.Span, "map", "", "", func() {
-			emitMap(&b, m)
-		})
-	}
-	for _, m := range program.Maps {
-		emitMapped(&b, &sourceMap, m.Span, "map_wrapper", "", "", func() {
-			emitMapWrappers(&b, m, usage.mapMethods[m.Name])
-		})
-	}
-	for _, fn := range program.Functions {
-		env := newCEnv(program)
-		for _, param := range fn.Params {
-			env.setLocal(param.Name, param.Type)
-		}
-		startLine := generatedLine(&b)
-		fmt.Fprintf(&b, "\nSEC(%q)\nint %s(%s) {\n", fn.Section.Name, fn.Name, cContext(fn))
-		b.WriteString("    (void)ctx;\n")
-		for _, stmt := range functionStatements(fn) {
-			if err := emitStatement(&b, stmt, program, 1, &sourceMap, fn, env); err != nil {
-				return Output{}, err
-			}
-		}
-		b.WriteString("}\n")
-		addSourceMapping(&sourceMap, fn.Span, "function", fn.Name, fn.Section.Name, startLine, generatedLine(&b))
-	}
-	sourceMap.Sources = sourceMapSources(sourceMap.Mappings)
-	return Output{Code: b.String(), SourceMap: sourceMap}, nil
 }
 
 func emitMapped(b *strings.Builder, sourceMap *ir.SourceMap, source span.Span, node string, function string, section string, emit func()) {
@@ -917,91 +977,150 @@ func cConstName(name string) string {
 	return "hzn_const_" + cIdent(name)
 }
 
-func emitStatement(b *strings.Builder, stmt ir.Statement, program ir.Program, depth int, sourceMap *ir.SourceMap, fn ir.Function, env *cEnv) error {
-	startLine := strings.Count(b.String(), "\n") + 1
-	indent := strings.Repeat("    ", depth)
+type cStatementEmitter struct {
+	b         *strings.Builder
+	program   ir.Program
+	sourceMap *ir.SourceMap
+	fn        ir.Function
+}
+
+func (e cStatementEmitter) emit(stmt ir.Statement, depth int, env *cEnv) error {
+	startLine := generatedLine(e.b)
+	if err := e.emitKind(stmt, depth, env); err != nil {
+		return err
+	}
+	e.addMapping(stmt, startLine)
+	return nil
+}
+
+func (e cStatementEmitter) emitKind(stmt ir.Statement, depth int, env *cEnv) error {
 	switch stmt.Kind {
 	case "short_var":
-		if mapName, ok := reserveCall(stmt.Value); ok {
-			fmt.Fprintf(b, "%s%s *%s = %s_reserve();\n", indent, reserveType(mapName, program.Maps), stmt.Name, mapName)
-			env.setLocal(stmt.Name, ptrToMapValue(mapName, env))
-		} else if mapName, ok := lookupCall(stmt.Value); ok {
-			fmt.Fprintf(b, "%s%s *%s = %s;\n", indent, mapValueType(mapName, program.Maps), stmt.Name, cExpr(stmt.Value, env))
-			env.setLocal(stmt.Name, ptrToMapValue(mapName, env))
-		} else {
-			typ := inferredExprType(stmt.Value, env)
-			fmt.Fprintf(b, "%s%s = %s;\n", indent, cDecl(typ, stmt.Name), cExpr(stmt.Value, env))
-			env.setLocal(stmt.Name, typ)
-		}
+		e.emitShortVar(stmt, depth, env)
 	case "assign":
-		fmt.Fprintf(b, "%s%s = %s;\n", indent, cExpr(stmt.Target, env), cExpr(stmt.Value, env))
-		if stmt.Target != nil && stmt.Target.Kind == "ident" {
-			env.setLocal(stmt.Target.Name, inferredExprType(stmt.Value, env))
-		}
+		e.emitAssign(stmt, depth, env)
 	case "expr":
-		if mapName, op, varName, ok := consumeCall(stmt.Expr); ok {
-			fmt.Fprintf(b, "%s%s_%s(%s);\n", indent, mapName, op, varName)
-		} else {
-			fmt.Fprintf(b, "%s%s;\n", indent, cExpr(stmt.Expr, env))
-		}
+		e.emitExprStatement(stmt, depth, env)
 	case "return":
-		fmt.Fprintf(b, "%sreturn %s;\n", indent, cExpr(stmt.Value, env))
+		e.emitReturn(stmt, depth, env)
 	case "if":
-		fmt.Fprintf(b, "%sif (%s) {\n", indent, cExpr(stmt.Cond, env))
-		thenEnv := env.child()
-		for _, child := range stmt.Then {
-			if err := emitStatement(b, child, program, depth+1, sourceMap, fn, thenEnv); err != nil {
-				return err
-			}
-		}
-		if len(stmt.Else) > 0 {
-			fmt.Fprintf(b, "%s} else {\n", indent)
-			elseEnv := env.child()
-			for _, child := range stmt.Else {
-				if err := emitStatement(b, child, program, depth+1, sourceMap, fn, elseEnv); err != nil {
-					return err
-				}
-			}
-			fmt.Fprintf(b, "%s}\n", indent)
-			break
-		}
-		fmt.Fprintf(b, "%s}\n", indent)
+		return e.emitIf(stmt, depth, env)
 	case "for":
-		loopEnv := env.child()
-		if stmt.Init != nil || stmt.Post != nil {
-			fmt.Fprintf(b, "%sfor (%s; %s; %s) {\n", indent, cForInit(stmt.Init, loopEnv, loopIndexType(stmt, loopEnv)), cExpr(stmt.Cond, loopEnv), cForPost(stmt.Post))
-		} else if stmt.Cond == nil || stmt.Cond.Kind == "" {
-			fmt.Fprintf(b, "%sfor (;;) {\n", indent)
-		} else {
-			fmt.Fprintf(b, "%sfor (; %s; ) {\n", indent, cExpr(stmt.Cond, loopEnv))
-		}
-		bodyEnv := loopEnv.child()
-		for _, child := range stmt.Body {
-			if err := emitStatement(b, child, program, depth+1, sourceMap, fn, bodyEnv); err != nil {
-				return err
-			}
-		}
-		fmt.Fprintf(b, "%s}\n", indent)
+		return e.emitFor(stmt, depth, env)
 	case "inc":
-		fmt.Fprintf(b, "%s%s%s;\n", indent, stmt.Name, stmt.Op)
+		e.emitInc(stmt, depth)
 	case "raw":
 		return unsupportedStatement(stmt, "raw")
 	default:
 		return unsupportedStatement(stmt, stmt.Kind)
 	}
-	if sourceMap != nil && !stmt.Span.IsZero() {
-		sourceMap.Mappings = append(sourceMap.Mappings, ir.SourceMapping{
-			Source:   stmt.Span,
-			Function: fn.Name,
-			Section:  fn.Section.Name,
-			Node:     stmt.Kind,
-			Generated: span.Span{
-				Start: span.Point{Line: startLine, Column: 1},
-				End:   span.Point{Line: strings.Count(b.String(), "\n") + 1, Column: 1},
-			},
-		})
+	return nil
+}
+
+func (e cStatementEmitter) emitShortVar(stmt ir.Statement, depth int, env *cEnv) {
+	indent := indent(depth)
+	if mapName, ok := reserveCall(stmt.Value); ok {
+		fmt.Fprintf(e.b, "%s%s *%s = %s_reserve();\n", indent, reserveType(mapName, e.program.Maps), stmt.Name, mapName)
+		env.setLocal(stmt.Name, ptrToMapValue(mapName, env))
+		return
+	}
+	if mapName, ok := lookupCall(stmt.Value); ok {
+		fmt.Fprintf(e.b, "%s%s *%s = %s;\n", indent, mapValueType(mapName, e.program.Maps), stmt.Name, cExpr(stmt.Value, env))
+		env.setLocal(stmt.Name, ptrToMapValue(mapName, env))
+		return
+	}
+	typ := inferredExprType(stmt.Value, env)
+	fmt.Fprintf(e.b, "%s%s = %s;\n", indent, cDecl(typ, stmt.Name), cExpr(stmt.Value, env))
+	env.setLocal(stmt.Name, typ)
+}
+
+func (e cStatementEmitter) emitAssign(stmt ir.Statement, depth int, env *cEnv) {
+	fmt.Fprintf(e.b, "%s%s = %s;\n", indent(depth), cExpr(stmt.Target, env), cExpr(stmt.Value, env))
+	if stmt.Target != nil && stmt.Target.Kind == "ident" {
+		env.setLocal(stmt.Target.Name, inferredExprType(stmt.Value, env))
+	}
+}
+
+func (e cStatementEmitter) emitExprStatement(stmt ir.Statement, depth int, env *cEnv) {
+	indent := indent(depth)
+	if mapName, op, varName, ok := consumeCall(stmt.Expr); ok {
+		fmt.Fprintf(e.b, "%s%s_%s(%s);\n", indent, mapName, op, varName)
+		return
+	}
+	fmt.Fprintf(e.b, "%s%s;\n", indent, cExpr(stmt.Expr, env))
+}
+
+func (e cStatementEmitter) emitReturn(stmt ir.Statement, depth int, env *cEnv) {
+	fmt.Fprintf(e.b, "%sreturn %s;\n", indent(depth), cExpr(stmt.Value, env))
+}
+
+func (e cStatementEmitter) emitIf(stmt ir.Statement, depth int, env *cEnv) error {
+	indent := indent(depth)
+	fmt.Fprintf(e.b, "%sif (%s) {\n", indent, cExpr(stmt.Cond, env))
+	if err := e.emitChildren(stmt.Then, depth+1, env.child()); err != nil {
+		return err
+	}
+	if len(stmt.Else) == 0 {
+		fmt.Fprintf(e.b, "%s}\n", indent)
+		return nil
+	}
+	fmt.Fprintf(e.b, "%s} else {\n", indent)
+	if err := e.emitChildren(stmt.Else, depth+1, env.child()); err != nil {
+		return err
+	}
+	fmt.Fprintf(e.b, "%s}\n", indent)
+	return nil
+}
+
+func (e cStatementEmitter) emitFor(stmt ir.Statement, depth int, env *cEnv) error {
+	indent := indent(depth)
+	loopEnv := env.child()
+	switch {
+	case stmt.Init != nil || stmt.Post != nil:
+		fmt.Fprintf(e.b, "%sfor (%s; %s; %s) {\n", indent, cForInit(stmt.Init, loopEnv, loopIndexType(stmt, loopEnv)), cExpr(stmt.Cond, loopEnv), cForPost(stmt.Post))
+	case stmt.Cond == nil || stmt.Cond.Kind == "":
+		fmt.Fprintf(e.b, "%sfor (;;) {\n", indent)
+	default:
+		fmt.Fprintf(e.b, "%sfor (; %s; ) {\n", indent, cExpr(stmt.Cond, loopEnv))
+	}
+	if err := e.emitChildren(stmt.Body, depth+1, loopEnv.child()); err != nil {
+		return err
+	}
+	fmt.Fprintf(e.b, "%s}\n", indent)
+	return nil
+}
+
+func (e cStatementEmitter) emitInc(stmt ir.Statement, depth int) {
+	fmt.Fprintf(e.b, "%s%s%s;\n", indent(depth), stmt.Name, stmt.Op)
+}
+
+func (e cStatementEmitter) emitChildren(stmts []ir.Statement, depth int, env *cEnv) error {
+	for _, child := range stmts {
+		if err := e.emit(child, depth, env); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+func (e cStatementEmitter) addMapping(stmt ir.Statement, startLine int) {
+	if e.sourceMap == nil || stmt.Span.IsZero() {
+		return
+	}
+	e.sourceMap.Mappings = append(e.sourceMap.Mappings, ir.SourceMapping{
+		Source:   stmt.Span,
+		Function: e.fn.Name,
+		Section:  e.fn.Section.Name,
+		Node:     stmt.Kind,
+		Generated: span.Span{
+			Start: span.Point{Line: startLine, Column: 1},
+			End:   span.Point{Line: generatedLine(e.b), Column: 1},
+		},
+	})
+}
+
+func indent(depth int) string {
+	return strings.Repeat("    ", depth)
 }
 
 func reserveType(mapName string, maps []ir.Map) string {
