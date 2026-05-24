@@ -1,6 +1,10 @@
 package capability
 
-import "m31labs.dev/horizon/ir"
+import (
+	"fmt"
+
+	"m31labs.dev/horizon/ir"
+)
 
 func FromIR(program ir.Program) Manifest {
 	manifest := NewManifest(program.Package)
@@ -38,8 +42,19 @@ func FromIR(program ir.Program) Manifest {
 		manifest.Maps = append(manifest.Maps, Map{
 			Name:  m.Name,
 			Kind:  string(m.Kind),
-			Value: m.Val.Name,
+			Key:   manifestType(m.Key),
+			Value: manifestType(m.Val),
 		})
+	}
+	for _, typ := range program.Structs {
+		schema := TypeSchema{Name: typ.Name, Kind: "struct"}
+		for _, field := range typ.Fields {
+			schema.Fields = append(schema.Fields, FieldSchema{
+				Name: field.Name,
+				Type: manifestType(field.Type),
+			})
+		}
+		manifest.Types = append(manifest.Types, schema)
 	}
 	return manifest
 }
@@ -55,4 +70,22 @@ func manifestSection(section ir.Section) string {
 		return string(section.Kind) + "/" + section.Attach
 	}
 	return section.Name
+}
+
+func manifestType(typ ir.Type) string {
+	if typ.Ptr {
+		if typ.Elem != nil {
+			return "*" + manifestType(*typ.Elem)
+		}
+		if typ.Name != "" {
+			return "*" + typ.Name
+		}
+	}
+	if typ.Len != "" && typ.Elem != nil {
+		return fmt.Sprintf("[%s]%s", typ.Len, manifestType(*typ.Elem))
+	}
+	if typ.Name != "" {
+		return typ.Name
+	}
+	return ""
 }

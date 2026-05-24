@@ -35,5 +35,29 @@
       "kind": "ringbuf",
       "value": "ExecEvent"
     }
+  ],
+  "types": [
+    {
+      "name": "ExecEvent",
+      "kind": "struct",
+      "fields": [
+        {
+          "name": "pid",
+          "type": "u32"
+        },
+        {
+          "name": "ppid",
+          "type": "u32"
+        },
+        {
+          "name": "uid",
+          "type": "u32"
+        },
+        {
+          "name": "comm",
+          "type": "[16]u8"
+        }
+      ]
+    }
   ]
 }

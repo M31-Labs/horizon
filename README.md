@@ -166,6 +166,10 @@ attach methods. The raw `*ebpf.Map` and `*ebpf.Program` fields remain available
 for advanced users, but ordinary consumers should not need to hand-roll cilium
 loader or map-access boilerplate.
 
+Capability manifests include programs, map access, emitted event names, map key
+and value types, and struct field schemas for declared Horizon types. Continuum
+consumers can inspect what a program observes or emits without parsing BPF C.
+
 `hzn doctor` checks the local eBPF C toolchain: clang BPF support, libbpf
 headers, bpftool/LLVM utilities, kernel BTF, and a usable `vmlinux.h`.
 Use `make setup-vmlinux` on BTF-enabled Linux hosts to generate

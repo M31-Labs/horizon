@@ -6,6 +6,7 @@ type Manifest struct {
 	Programs     []Program    `json:"programs,omitempty"`
 	Capabilities []Capability `json:"capabilities"`
 	Maps         []Map        `json:"maps,omitempty"`
+	Types        []TypeSchema `json:"types,omitempty"`
 }
 
 type Program struct {
@@ -35,7 +36,19 @@ type MapAccess struct {
 type Map struct {
 	Name  string `json:"name"`
 	Kind  string `json:"kind"`
+	Key   string `json:"key,omitempty"`
 	Value string `json:"value,omitempty"`
+}
+
+type TypeSchema struct {
+	Name   string        `json:"name"`
+	Kind   string        `json:"kind"`
+	Fields []FieldSchema `json:"fields,omitempty"`
+}
+
+type FieldSchema struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
 }
 
 func NewManifest(packageName string) Manifest {
