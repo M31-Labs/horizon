@@ -639,10 +639,59 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	}
 }
 
+func TestAnalyzeAllowsTypedIntegerConstInExpressions(t *testing.T) {
+	result := analyzeSource(t, "counts.hzn", `package probes
+
+const FirstSeen u64 = 1
+const BucketMask u32 = 0x0f
+
+type Count struct {
+    seen u64
+}
+
+map Counts hash[u32, Count]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    pid := bpf.current_pid()
+    bucket := pid & BucketMask
+    if Counts.update(bucket, Count{seen: FirstSeen}) != 0 {
+        return 0
+    }
+    return 0
+}
+`)
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+	if len(result.Program.Constants) != 2 || result.Program.Constants[0].Type.Name != "u64" || result.Program.Constants[1].Type.Name != "u32" {
+		t.Fatalf("constants = %#v, want typed FirstSeen u64 and BucketMask u32", result.Program.Constants)
+	}
+}
+
+func TestAnalyzeUsesTypedConstWidth(t *testing.T) {
+	result := analyzeSource(t, "counts.hzn", `package probes
+
+const Wide u64 = 1
+
+map Counts hash[u32, u32]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    pid := bpf.current_pid()
+    if Counts.update(pid, Wide) != 0 {
+        return 0
+    }
+    return 0
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1422")
+}
+
 func TestAnalyzeAllowsBoolLiteralsAndConsts(t *testing.T) {
 	result := analyzeSource(t, "flags.hzn", `package probes
 
-const ShouldTrace = true
+const ShouldTrace bool = true
 
 type Flags struct {
     active bool
@@ -668,6 +717,32 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	if len(result.Program.Constants) != 1 || result.Program.Constants[0].Value.Kind != "bool" {
 		t.Fatalf("constants = %#v, want bool ShouldTrace", result.Program.Constants)
 	}
+}
+
+func TestAnalyzeRejectsTypedConstValueMismatch(t *testing.T) {
+	result := analyzeSource(t, "const.hzn", `package probes
+
+const ShouldTrace bool = 1
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    return 0
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1105")
+}
+
+func TestAnalyzeRejectsNonScalarConstType(t *testing.T) {
+	result := analyzeSource(t, "const.hzn", `package probes
+
+const Bad [4]u8 = 1
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    return 0
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1104")
 }
 
 func TestAnalyzeRejectsNonIntegerConst(t *testing.T) {

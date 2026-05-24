@@ -14,6 +14,7 @@ type Program struct {
 
 type Const struct {
 	Name  string
+	Type  Type
 	Value Expr
 	Span  span.Span
 }

@@ -350,7 +350,7 @@ func TestEmitIntegerConst(t *testing.T) {
 
 import bpf "m31labs.dev/horizon/runtime/kernel"
 
-const FirstSeen = 1
+const FirstSeen u32 = 1
 
 map Counts hash[u32, u32]
 
@@ -374,7 +374,7 @@ func OnExec(ctx tracepoint.Exec) i32 {
 		t.Fatalf("Emit: %v", err)
 	}
 	for _, want := range []string{
-		"static const __u64 hzn_const_FirstSeen = 1;",
+		"static const __u32 hzn_const_FirstSeen = 1;",
 		"if (Counts_update(pid, hzn_const_FirstSeen) != 0) {",
 	} {
 		if !strings.Contains(out.Code, want) {
@@ -388,7 +388,7 @@ func TestEmitBoolLiteralsAndConsts(t *testing.T) {
 	path := filepath.Join(dir, "flags.hzn")
 	if err := os.WriteFile(path, []byte(`package probes
 
-const ShouldTrace = true
+const ShouldTrace bool = true
 
 type Flags struct {
     active bool

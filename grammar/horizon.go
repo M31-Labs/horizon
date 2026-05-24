@@ -89,6 +89,7 @@ func HorizonGrammar() *grammargen.Grammar {
 	g.Define("const_declaration", grammargen.Seq(
 		grammargen.Str("const"),
 		grammargen.Field("name", grammargen.Sym("identifier")),
+		grammargen.Optional(grammargen.Field("type", grammargen.Sym("type_ref"))),
 		grammargen.Str("="),
 		grammargen.Field("value", grammargen.Sym("expression")),
 	))

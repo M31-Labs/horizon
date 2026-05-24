@@ -143,7 +143,7 @@ func F(ctx tracepoint.Exec) i32 {
 func TestParseConstBeforeFunction(t *testing.T) {
 	src := SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
 
-const HTTPS = 443
+const HTTPS u16 = 443
 
 @xdp
 func F(ctx xdp.Context) i32 {

@@ -16,12 +16,13 @@ It keeps the kernel-side language deliberately small:
 - typed structs and fixed arrays
 - boolean literals and typed boolean expressions
 - package-scoped declarations across multiple `.hzn` files
-- integer constants
+- integer constants with optional scalar widths
 - ringbuf event output
 - hash and array maps
 - nil-checked map lookups
 - bounded counted loops
 - explicit integer scalar conversions such as `u64(pid)`
+- explicitly typed constants such as `const Port u16 = 443`
 - compiler-known kernel helpers
 - readable generated BPF C
 - source maps with declaration and function/section context for diagnostics
@@ -71,7 +72,7 @@ Stateful programs can use typed maps. Lookup results are nullable and must be
 checked before dereference.
 
 ```go
-const FirstSeen = 1
+const FirstSeen u32 = 1
 
 type Count struct {
     seen u32
@@ -263,6 +264,7 @@ Horizon makes verifier-sensitive behavior explicit before clang runs:
 - parser failures are surfaced as stable diagnostics and never produce generated C
 - integer, bitwise, comparison, and boolean operators are typed before C emission
 - integer width changes are explicit; write `u64(pid)` or `u16(port)` instead of relying on implicit C coercions
+- constants can carry scalar widths, and generated C preserves those widths
 - every program must return an explicit `i32` on every control-flow path
 - only bounded counted loops are accepted
 - helper availability is checked against the program kind

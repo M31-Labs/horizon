@@ -83,6 +83,7 @@ func refreshCapabilityAccesses(program Program) []Capability {
 func buildConst(decl ast.ConstDecl) Const {
 	return Const{
 		Name:  decl.Name,
+		Type:  buildType(decl.Type),
 		Value: buildExpr(decl.Value),
 		Span:  decl.Span,
 	}

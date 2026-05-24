@@ -51,6 +51,7 @@ func (d MapDecl) GetSpan() span.Span {
 
 type ConstDecl struct {
 	Name  string
+	Type  TypeRef
 	Value Expr
 	Span  span.Span
 }

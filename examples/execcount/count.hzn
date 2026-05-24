@@ -2,7 +2,7 @@ package probes
 
 import bpf "m31labs.dev/horizon/runtime/kernel"
 
-const FirstSeen = 1
+const FirstSeen u64 = 1
 
 type Count struct {
     seen u64

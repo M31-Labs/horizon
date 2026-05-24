@@ -72,7 +72,7 @@ func CheckPackage(files []ast.File) [][]diag.Diagnostic {
 			case ast.FuncDecl:
 				diags[i] = append(diags[i], validateFuncDecl(d, knownTypes, maps, structs, consts)...)
 			case ast.ConstDecl:
-				diags[i] = append(diags[i], validateConstDecl(d)...)
+				diags[i] = append(diags[i], validateConstDecl(d, knownTypes)...)
 			}
 		}
 	}
@@ -212,25 +212,52 @@ func validateMapDecl(decl ast.MapDecl, known map[string]bool) []diag.Diagnostic 
 	return diags
 }
 
-func validateConstDecl(decl ast.ConstDecl) []diag.Diagnostic {
+func validateConstDecl(decl ast.ConstDecl, known map[string]bool) []diag.Diagnostic {
+	var diags []diag.Diagnostic
+	constTypeValid := true
+	if !decl.Type.IsZero() {
+		diags = append(diags, validateTypeRef(decl.Type, known)...)
+		if decl.Type.Ptr || decl.Type.Elem != nil || len(decl.Type.Args) > 0 || !isScalar(decl.Type.Name) {
+			constTypeValid = false
+			diags = append(diags, diag.Diagnostic{
+				Code:     "HZN1104",
+				Severity: diag.SeverityError,
+				Message:  fmt.Sprintf("const %q must use a scalar integer or bool type in Horizon v0", decl.Name),
+				Primary:  decl.Type.Span,
+				Suggest:  "use an explicit scalar type such as `u32`, `u64`, or `bool`",
+			})
+		}
+	}
 	if decl.Value == nil {
-		return []diag.Diagnostic{{
+		return append(diags, diag.Diagnostic{
 			Code:     "HZN1101",
 			Severity: diag.SeverityError,
 			Message:  fmt.Sprintf("const %q is missing a value", decl.Name),
 			Primary:  decl.Span,
-		}}
+		})
 	}
-	if _, ok := constValueType(decl.Value); !ok {
-		return []diag.Diagnostic{{
+	value, ok := constValueType(decl.Value)
+	if !ok {
+		return append(diags, diag.Diagnostic{
 			Code:     "HZN1103",
 			Severity: diag.SeverityError,
 			Message:  fmt.Sprintf("const %q must be an integer or bool literal in Horizon v0", decl.Name),
 			Primary:  decl.Value.GetSpan(),
 			Suggest:  "keep constants simple and explicit, for example `const Port = 443` or `const Enabled = true`",
-		}}
+		})
 	}
-	return nil
+	if !decl.Type.IsZero() && constTypeValid {
+		target := valueType{Name: decl.Type.Name, Ref: decl.Type, Ptr: decl.Type.Ptr}
+		if !assignable(target, value) {
+			diags = append(diags, diag.Diagnostic{
+				Code:     "HZN1105",
+				Severity: diag.SeverityError,
+				Message:  fmt.Sprintf("cannot assign %s to const %q of type %s", typeName(value), decl.Name, typeName(target)),
+				Primary:  decl.Value.GetSpan(),
+			})
+		}
+	}
+	return diags
 }
 
 func constValueType(expr ast.Expr) (valueType, bool) {
@@ -242,6 +269,13 @@ func constValueType(expr ast.Expr) (valueType, bool) {
 	default:
 		return valueType{}, false
 	}
+}
+
+func constDeclType(decl ast.ConstDecl) (valueType, bool) {
+	if !decl.Type.IsZero() && !decl.Type.Ptr && decl.Type.Elem == nil && len(decl.Type.Args) == 0 && isScalar(decl.Type.Name) {
+		return valueType{Name: decl.Type.Name, Ref: decl.Type}, true
+	}
+	return constValueType(decl.Value)
 }
 
 func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]ast.MapDecl, structs map[string]ast.TypeDecl, consts map[string]ast.ConstDecl) []diag.Diagnostic {
@@ -496,7 +530,7 @@ type valueType struct {
 func validateFuncBody(decl ast.FuncDecl, maps map[string]ast.MapDecl, structs map[string]ast.TypeDecl, consts map[string]ast.ConstDecl, sections []sectionSpec) []diag.Diagnostic {
 	locals := map[string]valueType{}
 	for name, constant := range consts {
-		if typ, ok := constValueType(constant.Value); ok {
+		if typ, ok := constDeclType(constant); ok {
 			locals[name] = typ
 		}
 	}

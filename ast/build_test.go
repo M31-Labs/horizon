@@ -205,7 +205,7 @@ func F(ctx tracepoint.Exec) i32 {
 func TestBuildConstDeclaration(t *testing.T) {
 	parsed, err := parser.ParseSource(parser.SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
 
-const HTTPS = 443
+const HTTPS u16 = 443
 `)})
 	if err != nil {
 		t.Fatalf("ParseSource: %v", err)
@@ -225,8 +225,8 @@ const HTTPS = 443
 	if !ok {
 		t.Fatalf("const value = %T, want IntExpr", decl.Value)
 	}
-	if decl.Name != "HTTPS" || value.Value != "443" {
-		t.Fatalf("const decl = %#v value=%#v, want HTTPS = 443", decl, value)
+	if decl.Name != "HTTPS" || decl.Type.Name != "u16" || value.Value != "443" {
+		t.Fatalf("const decl = %#v value=%#v, want HTTPS u16 = 443", decl, value)
 	}
 }
 

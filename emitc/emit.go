@@ -670,6 +670,9 @@ func emitConst(b *strings.Builder, c ir.Const) {
 }
 
 func constType(c ir.Const) ir.Type {
+	if c.Type.Name != "" || c.Type.Elem != nil || c.Type.Len != "" || c.Type.Ptr || len(c.Type.Args) > 0 {
+		return c.Type
+	}
 	switch c.Value.Kind {
 	case "bool":
 		return ir.Type{Name: "bool"}
