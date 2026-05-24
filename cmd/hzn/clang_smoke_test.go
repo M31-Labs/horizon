@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -81,5 +82,50 @@ func OnOpen(ctx kprobe.Context) i32 {
 		if _, err := os.Stat(filepath.Join(outDir, name)); err != nil {
 			t.Fatalf("missing compiled artifact %s: %v", name, err)
 		}
+	}
+}
+
+func TestConstantSymbolCollisionCompileSmoke(t *testing.T) {
+	if _, err := os.Stat("/usr/local/include/vmlinux.h"); err != nil {
+		t.Skipf("vmlinux.h not available: %v", err)
+	}
+	if err := run([]string{"doctor"}); err != nil {
+		t.Fatalf("doctor: %v", err)
+	}
+	srcDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(srcDir, "flags.hzn"), []byte(`package probes
+
+const Enabled = true
+
+type Flags struct {
+    active bool
+}
+
+map FlagsByPID hash[u32, Flags]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    pid := bpf.current_pid()
+    active := true
+    if Enabled && active {
+        if FlagsByPID.update(pid, Flags{active: active}) != 0 {
+            return 0
+        }
+    }
+    return 0
+}
+`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	outDir := t.TempDir()
+	if err := run([]string{"workbench", srcDir, "-o", outDir, "-compile"}); err != nil {
+		t.Fatalf("workbench -compile: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(outDir, "flags.bpf.c"))
+	if err != nil {
+		t.Fatalf("read generated C: %v", err)
+	}
+	if !strings.Contains(string(data), "hzn_const_Enabled") {
+		t.Fatalf("generated C missing mangled constant name:\n%s", data)
 	}
 }

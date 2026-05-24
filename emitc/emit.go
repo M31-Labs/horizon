@@ -559,7 +559,7 @@ func emitConst(b *strings.Builder, c ir.Const) {
 	if c.Name == "" {
 		return
 	}
-	fmt.Fprintf(b, "\nstatic const %s %s = %s;\n", cType(constType(c)), c.Name, cExpr(&c.Value, nil))
+	fmt.Fprintf(b, "\nstatic const %s %s = %s;\n", cType(constType(c)), cConstName(c.Name), cExpr(&c.Value, nil))
 }
 
 func constType(c ir.Const) ir.Type {
@@ -790,6 +790,10 @@ func cIdent(s string) string {
 		}
 	}
 	return b.String()
+}
+
+func cConstName(name string) string {
+	return "hzn_const_" + cIdent(name)
 }
 
 func emitStatement(b *strings.Builder, stmt ir.Statement, program ir.Program, depth int, sourceMap *ir.SourceMap, fn ir.Function, env *cEnv) error {
@@ -1095,6 +1099,11 @@ func cExpr(expr *ir.Expr, env *cEnv) string {
 	}
 	switch expr.Kind {
 	case "ident":
+		if env != nil {
+			if _, ok := env.constants[expr.Name]; ok {
+				return cConstName(expr.Name)
+			}
+		}
 		return expr.Name
 	case "int":
 		return expr.Value

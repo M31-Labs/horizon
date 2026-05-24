@@ -215,6 +215,7 @@ Horizon makes verifier-sensitive behavior explicit before clang runs:
 - generated C emits only the helper and map wrappers the program actually uses
 - generated BPF C is compiled with clang warnings treated as errors
 - generated C stays readable so clang and verifier logs remain inspectable
+- internal generated C constants are prefixed to avoid collisions with kernel headers
 
 ## Status
 

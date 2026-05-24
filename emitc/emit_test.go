@@ -303,8 +303,8 @@ func OnExec(ctx tracepoint.Exec) i32 {
 		t.Fatalf("Emit: %v", err)
 	}
 	for _, want := range []string{
-		"static const __u64 FirstSeen = 1;",
-		"if (Counts_update(pid, FirstSeen) != 0) {",
+		"static const __u64 hzn_const_FirstSeen = 1;",
+		"if (Counts_update(pid, hzn_const_FirstSeen) != 0) {",
 	} {
 		if !strings.Contains(out.Code, want) {
 			t.Fatalf("generated C missing %q:\n%s", want, out.Code)
@@ -349,9 +349,9 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	}
 	for _, want := range []string{
 		"#include <stdbool.h>",
-		"static const bool ShouldTrace = true;",
+		"static const bool hzn_const_ShouldTrace = true;",
 		"bool active = true;",
-		"if ((ShouldTrace && !false) && active) {",
+		"if ((hzn_const_ShouldTrace && !false) && active) {",
 		"if (FlagsByPID_update(pid, (struct Flags){ .active = active }) != 0) {",
 	} {
 		if !strings.Contains(out.Code, want) {
@@ -394,8 +394,8 @@ func OnExec(ctx tracepoint.Exec) i32 {
 		t.Fatalf("Emit: %v", err)
 	}
 	for _, want := range []string{
-		"static const __u64 Mask = 0x0f;",
-		"__u32 bucket = (pid & Mask) + 1;",
+		"static const __u64 hzn_const_Mask = 0x0f;",
+		"__u32 bucket = (pid & hzn_const_Mask) + 1;",
 		"if ((bucket != 0) && (pid > 0)) {",
 		"if (Counts_update(bucket, pid) != 0) {",
 	} {
