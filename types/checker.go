@@ -318,22 +318,23 @@ func validateConstDecl(decl ast.ConstDecl, known map[string]bool) []diag.Diagnos
 	}
 	if !decl.Type.IsZero() && constTypeValid {
 		target := valueType{Name: decl.Type.Name, Ref: decl.Type, Ptr: decl.Type.Ptr}
-		if !assignable(target, value) {
-			diags = append(diags, diag.Diagnostic{
-				Code:     "HZN1105",
-				Severity: diag.SeverityError,
-				Message:  fmt.Sprintf("cannot assign %s to const %q of type %s", typeName(value), decl.Name, typeName(target)),
-				Primary:  decl.Value.GetSpan(),
-			})
+		if d, ok := assignabilityDiagnostic(
+			"HZN1105",
+			fmt.Sprintf("cannot assign %s to const %q of type %s", typeName(value), decl.Name, typeName(target)),
+			target,
+			value,
+			decl.Value.GetSpan(),
+		); ok {
+			diags = append(diags, d)
 		}
 	}
 	return diags
 }
 
 func constValueType(expr ast.Expr) (valueType, bool) {
-	switch expr.(type) {
+	switch e := expr.(type) {
 	case ast.IntExpr:
-		return valueType{Name: "untyped_int"}, true
+		return valueType{Name: "untyped_int", IntLiteral: e.Value}, true
 	case ast.BoolExpr:
 		return valueType{Name: "bool"}, true
 	default:
@@ -590,6 +591,7 @@ type valueType struct {
 	Resource     bool
 	MaybeNil     bool
 	Fallible     string
+	IntLiteral   string
 	Void         bool
 	XDPAction    bool
 	TCAction     bool
@@ -777,7 +779,15 @@ func (c *funcBodyChecker) validateAssignableTarget(s ast.AssignStmt, target valu
 	case isFixedArray(value):
 		c.add(fixedArrayValueDiagnostic(s.Span))
 	case !assignable(target, value):
-		c.add(diag.Diagnostic{Code: "HZN1402", Severity: diag.SeverityError, Message: fmt.Sprintf("cannot assign %s to %s", typeName(value), typeName(target)), Primary: s.Span})
+		if d, ok := assignabilityDiagnostic(
+			"HZN1402",
+			fmt.Sprintf("cannot assign %s to %s", typeName(value), typeName(target)),
+			target,
+			value,
+			s.Value.GetSpan(),
+		); ok {
+			c.add(d)
+		}
 	}
 }
 
@@ -792,7 +802,11 @@ func (c *funcBodyChecker) checkExprStmt(s ast.ExprStmt, locals map[string]valueT
 func (c *funcBodyChecker) checkReturn(s ast.ReturnStmt, locals map[string]valueType) {
 	value, exprDiags := c.typeOf(s.Value, locals)
 	c.add(exprDiags...)
-	if d, ok := returnDiagnostic(c.programSection, value, s.Value != nil, s.Span); ok {
+	primary := s.Span
+	if s.Value != nil {
+		primary = s.Value.GetSpan()
+	}
+	if d, ok := returnDiagnostic(c.programSection, value, s.Value != nil, primary); ok {
 		c.add(d)
 	}
 }
@@ -814,6 +828,9 @@ func returnDiagnostic(programSection string, value valueType, hasValue bool, pri
 		return d, true
 	}
 	if hasValue && !assignable(valueType{Name: "i32"}, value) {
+		if d, ok := integerLiteralRangeDiagnostic(valueType{Name: "i32"}, value, primary); ok {
+			return d, true
+		}
 		return diag.Diagnostic{Code: "HZN1403", Severity: diag.SeverityError, Message: fmt.Sprintf("cannot return %s from i32 program", typeName(value)), Primary: primary}, true
 	}
 	return diag.Diagnostic{}, false
@@ -933,7 +950,7 @@ func (t exprTyper) typeOf(expr ast.Expr) (valueType, []diag.Diagnostic) {
 	case ast.IdentExpr:
 		return t.ident(e)
 	case ast.IntExpr:
-		return valueType{Name: "untyped_int"}, nil
+		return valueType{Name: "untyped_int", IntLiteral: e.Value}, nil
 	case ast.BoolExpr:
 		return valueType{Name: "bool"}, nil
 	case ast.NilExpr:
@@ -1141,6 +1158,9 @@ func typeOfBinaryExpr(expr ast.BinaryExpr, left valueType, right valueType) (val
 		}}
 	case isEqualityOp(expr.Op):
 		if comparable(left, right) {
+			if d, ok := integerOperandRangeDiagnostic(expr, left, right); ok {
+				return valueType{Name: "bool"}, []diag.Diagnostic{d}
+			}
 			return valueType{Name: "bool"}, nil
 		}
 		return valueType{Name: "bool"}, []diag.Diagnostic{{
@@ -1151,6 +1171,9 @@ func typeOfBinaryExpr(expr ast.BinaryExpr, left valueType, right valueType) (val
 		}}
 	case isComparisonOp(expr.Op):
 		if integerOperand(left) && integerOperand(right) && compatibleIntegerOperands(left, right) {
+			if d, ok := integerOperandRangeDiagnostic(expr, left, right); ok {
+				return valueType{Name: "bool"}, []diag.Diagnostic{d}
+			}
 			return valueType{Name: "bool"}, nil
 		}
 		return valueType{Name: "bool"}, []diag.Diagnostic{{
@@ -1165,6 +1188,9 @@ func typeOfBinaryExpr(expr ast.BinaryExpr, left valueType, right valueType) (val
 		}
 	case isIntegerBinaryOp(expr.Op):
 		if integerOperand(left) && integerOperand(right) && compatibleIntegerOperands(left, right) {
+			if d, ok := integerOperandRangeDiagnostic(expr, left, right); ok {
+				return integerResult(left, right), []diag.Diagnostic{d}
+			}
 			return integerResult(left, right), nil
 		}
 	}
@@ -1202,8 +1228,10 @@ func comparable(left valueType, right valueType) bool {
 
 func integerResult(left valueType, right valueType) valueType {
 	if left.Name != "untyped_int" {
+		left.IntLiteral = ""
 		return left
 	}
+	right.IntLiteral = ""
 	return right
 }
 
@@ -1312,12 +1340,15 @@ func (t exprTyper) structLiteral(lit ast.StructLiteralExpr) (valueType, []diag.D
 			continue
 		}
 		if !assignable(fieldType, value) {
-			diags = append(diags, diag.Diagnostic{
-				Code:     "HZN1428",
-				Severity: diag.SeverityError,
-				Message:  fmt.Sprintf("cannot assign %s to field %s.%s (%s)", typeName(value), structDecl.Name, field.Name, typeName(fieldType)),
-				Primary:  field.Span,
-			})
+			if d, ok := assignabilityDiagnostic(
+				"HZN1428",
+				fmt.Sprintf("cannot assign %s to field %s.%s (%s)", typeName(value), structDecl.Name, field.Name, typeName(fieldType)),
+				fieldType,
+				value,
+				field.Value.GetSpan(),
+			); ok {
+				diags = append(diags, d)
+			}
 		}
 	}
 	return valueType{Name: structDecl.Name, Ref: lit.Type}, diags
@@ -1387,13 +1418,15 @@ func (t exprTyper) call(call ast.CallExpr) (valueType, []diag.Diagnostic) {
 			}
 			arg, argDiags := t.typeOf(call.Args[0])
 			diags = append(diags, argDiags...)
-			if !assignable(valueType{Name: m.Key.Name, Ref: m.Key}, arg) {
-				diags = append(diags, diag.Diagnostic{
-					Code:     "HZN1419",
-					Severity: diag.SeverityError,
-					Message:  fmt.Sprintf("%s.lookup expects key %s, got %s", root, typeName(valueType{Name: m.Key.Name, Ref: m.Key}), typeName(arg)),
-					Primary:  call.Span,
-				})
+			keyType := valueType{Name: m.Key.Name, Ref: m.Key}
+			if d, ok := assignabilityDiagnostic(
+				"HZN1419",
+				fmt.Sprintf("%s.lookup expects key %s, got %s", root, typeName(keyType), typeName(arg)),
+				keyType,
+				arg,
+				call.Args[0].GetSpan(),
+			); ok {
+				diags = append(diags, d)
 			}
 			return valueType{Name: m.Val.Name, Ref: m.Val, Ptr: true, MaybeNil: true}, diags
 		case "update":
@@ -1413,21 +1446,25 @@ func (t exprTyper) call(call ast.CallExpr) (valueType, []diag.Diagnostic) {
 			val, valDiags := t.typeOf(call.Args[1])
 			diags = append(diags, keyDiags...)
 			diags = append(diags, valDiags...)
-			if !assignable(valueType{Name: m.Key.Name, Ref: m.Key}, key) {
-				diags = append(diags, diag.Diagnostic{
-					Code:     "HZN1421",
-					Severity: diag.SeverityError,
-					Message:  fmt.Sprintf("%s.update expects key %s, got %s", root, typeName(valueType{Name: m.Key.Name, Ref: m.Key}), typeName(key)),
-					Primary:  call.Span,
-				})
+			keyType := valueType{Name: m.Key.Name, Ref: m.Key}
+			if d, ok := assignabilityDiagnostic(
+				"HZN1421",
+				fmt.Sprintf("%s.update expects key %s, got %s", root, typeName(keyType), typeName(key)),
+				keyType,
+				key,
+				call.Args[0].GetSpan(),
+			); ok {
+				diags = append(diags, d)
 			}
-			if !assignable(valueType{Name: m.Val.Name, Ref: m.Val}, val) {
-				diags = append(diags, diag.Diagnostic{
-					Code:     "HZN1422",
-					Severity: diag.SeverityError,
-					Message:  fmt.Sprintf("%s.update expects value %s, got %s", root, typeName(valueType{Name: m.Val.Name, Ref: m.Val}), typeName(val)),
-					Primary:  call.Span,
-				})
+			valType := valueType{Name: m.Val.Name, Ref: m.Val}
+			if d, ok := assignabilityDiagnostic(
+				"HZN1422",
+				fmt.Sprintf("%s.update expects value %s, got %s", root, typeName(valType), typeName(val)),
+				valType,
+				val,
+				call.Args[1].GetSpan(),
+			); ok {
+				diags = append(diags, d)
 			}
 			return valueType{Name: "i64", Fallible: root + ".update"}, diags
 		case "delete":
@@ -1445,13 +1482,15 @@ func (t exprTyper) call(call ast.CallExpr) (valueType, []diag.Diagnostic) {
 			}
 			key, keyDiags := t.typeOf(call.Args[0])
 			diags = append(diags, keyDiags...)
-			if !assignable(valueType{Name: m.Key.Name, Ref: m.Key}, key) {
-				diags = append(diags, diag.Diagnostic{
-					Code:     "HZN1424",
-					Severity: diag.SeverityError,
-					Message:  fmt.Sprintf("%s.delete expects key %s, got %s", root, typeName(valueType{Name: m.Key.Name, Ref: m.Key}), typeName(key)),
-					Primary:  call.Span,
-				})
+			keyType := valueType{Name: m.Key.Name, Ref: m.Key}
+			if d, ok := assignabilityDiagnostic(
+				"HZN1424",
+				fmt.Sprintf("%s.delete expects key %s, got %s", root, typeName(keyType), typeName(key)),
+				keyType,
+				key,
+				call.Args[0].GetSpan(),
+			); ok {
+				diags = append(diags, d)
 			}
 			return valueType{Name: "i64", Fallible: root + ".delete"}, diags
 		case "reserve":
@@ -1513,6 +1552,10 @@ func (t exprTyper) scalarConversion(name string, call ast.CallExpr) (valueType, 
 			Primary:  call.Span,
 			Suggest:  "explicit conversions only work between integer scalar values, for example `u64(pid)`",
 		})
+		return valueType{Name: name}, diags
+	}
+	if d, ok := integerLiteralRangeDiagnostic(valueType{Name: name}, arg, call.Args[0].GetSpan()); ok {
+		diags = append(diags, d)
 	}
 	return valueType{Name: name}, diags
 }
@@ -1549,13 +1592,15 @@ func (t exprTyper) xdpCall(name string, call ast.CallExpr) (valueType, []diag.Di
 			return valueType{Name: "u16"}, []diag.Diagnostic{argCountDiagnostic(call.Span, "xdp.ntohs", 1, len(call.Args))}
 		}
 		arg, diags := t.typeOf(call.Args[0])
-		if !assignable(valueType{Name: "u16"}, arg) {
-			diags = append(diags, diag.Diagnostic{
-				Code:     "HZN1437",
-				Severity: diag.SeverityError,
-				Message:  fmt.Sprintf("xdp.ntohs expects u16, got %s", typeName(arg)),
-				Primary:  call.Span,
-			})
+		target := valueType{Name: "u16"}
+		if d, ok := assignabilityDiagnostic(
+			"HZN1437",
+			fmt.Sprintf("xdp.ntohs expects u16, got %s", typeName(arg)),
+			target,
+			arg,
+			call.Args[0].GetSpan(),
+		); ok {
+			diags = append(diags, d)
 		}
 		return valueType{Name: "u16"}, diags
 	default:
@@ -1613,6 +1658,10 @@ func (t exprTyper) cgroupIP4Call(call ast.CallExpr) (valueType, []diag.Diagnosti
 		arg, argDiags := t.typeOf(argExpr)
 		diags = append(diags, argDiags...)
 		if !assignable(valueType{Name: "u8"}, arg) {
+			if d, ok := cgroupIP4OctetRangeDiagnostic(arg, argExpr.GetSpan()); ok {
+				diags = append(diags, d)
+				continue
+			}
 			diags = append(diags, diag.Diagnostic{
 				Code:     "HZN1468",
 				Severity: diag.SeverityError,
@@ -1620,17 +1669,6 @@ func (t exprTyper) cgroupIP4Call(call ast.CallExpr) (valueType, []diag.Diagnosti
 				Primary:  argExpr.GetSpan(),
 			})
 			continue
-		}
-		if lit, ok := argExpr.(ast.IntExpr); ok {
-			value, err := strconv.ParseUint(lit.Value, 0, 16)
-			if err != nil || value > 255 {
-				diags = append(diags, diag.Diagnostic{
-					Code:     "HZN1469",
-					Severity: diag.SeverityError,
-					Message:  fmt.Sprintf("cgroup.ip4 octet %q is outside 0..255", lit.Value),
-					Primary:  lit.Span,
-				})
-			}
 		}
 	}
 	return valueType{Name: "u32"}, diags
@@ -1748,7 +1786,7 @@ func findField(structDecl ast.TypeDecl, name string) (ast.Field, bool) {
 
 func assignable(dst, src valueType) bool {
 	if src.Name == "untyped_int" {
-		return isIntegerScalar(dst.Name)
+		return isIntegerScalar(dst.Name) && (src.IntLiteral == "" || integerLiteralFitsScalar(src.IntLiteral, dst.Name))
 	}
 	if src.Name == "nil" {
 		return dst.Ptr || dst.MaybeNil
@@ -1760,6 +1798,114 @@ func assignable(dst, src valueType) bool {
 		return false
 	}
 	return dst.Name == src.Name
+}
+
+func assignabilityDiagnostic(code string, message string, dst valueType, src valueType, primary span.Span) (diag.Diagnostic, bool) {
+	if assignable(dst, src) {
+		return diag.Diagnostic{}, false
+	}
+	if d, ok := integerLiteralRangeDiagnostic(dst, src, primary); ok {
+		return d, true
+	}
+	return diag.Diagnostic{
+		Code:     code,
+		Severity: diag.SeverityError,
+		Message:  message,
+		Primary:  primary,
+	}, true
+}
+
+func integerOperandRangeDiagnostic(expr ast.BinaryExpr, left valueType, right valueType) (diag.Diagnostic, bool) {
+	if left.Name != "untyped_int" && right.Name == "untyped_int" {
+		return integerLiteralRangeDiagnostic(left, right, expr.Right.GetSpan())
+	}
+	if right.Name != "untyped_int" && left.Name == "untyped_int" {
+		return integerLiteralRangeDiagnostic(right, left, expr.Left.GetSpan())
+	}
+	return diag.Diagnostic{}, false
+}
+
+func integerLiteralRangeDiagnostic(dst valueType, src valueType, primary span.Span) (diag.Diagnostic, bool) {
+	if src.Name != "untyped_int" || src.IntLiteral == "" || !isIntegerScalar(dst.Name) || integerLiteralFitsScalar(src.IntLiteral, dst.Name) {
+		return diag.Diagnostic{}, false
+	}
+	return diag.Diagnostic{
+		Code:     "HZN1470",
+		Severity: diag.SeverityError,
+		Message:  fmt.Sprintf("integer literal %s is outside range for %s", src.IntLiteral, dst.Name),
+		Primary:  primary,
+		Suggest:  fmt.Sprintf("use a literal in %s or choose a wider scalar type", integerScalarBounds(dst.Name)),
+	}, true
+}
+
+func cgroupIP4OctetRangeDiagnostic(src valueType, primary span.Span) (diag.Diagnostic, bool) {
+	if src.Name != "untyped_int" || src.IntLiteral == "" || integerLiteralFitsScalar(src.IntLiteral, "u8") {
+		return diag.Diagnostic{}, false
+	}
+	return diag.Diagnostic{
+		Code:     "HZN1469",
+		Severity: diag.SeverityError,
+		Message:  fmt.Sprintf("cgroup.ip4 octet %q is outside 0..255", src.IntLiteral),
+		Primary:  primary,
+	}, true
+}
+
+func integerLiteralFitsScalar(lit string, scalar string) bool {
+	max, ok := integerScalarMax(scalar)
+	if !ok {
+		return false
+	}
+	value, err := strconv.ParseUint(lit, 0, 64)
+	if err != nil {
+		return false
+	}
+	return value <= max
+}
+
+func integerScalarMax(scalar string) (uint64, bool) {
+	switch scalar {
+	case "u8":
+		return 255, true
+	case "u16":
+		return 65535, true
+	case "u32":
+		return 4294967295, true
+	case "u64":
+		return ^uint64(0), true
+	case "i8":
+		return 127, true
+	case "i16":
+		return 32767, true
+	case "i32":
+		return 2147483647, true
+	case "i64":
+		return 9223372036854775807, true
+	default:
+		return 0, false
+	}
+}
+
+func integerScalarBounds(scalar string) string {
+	switch scalar {
+	case "u8":
+		return "0..255"
+	case "u16":
+		return "0..65535"
+	case "u32":
+		return "0..4294967295"
+	case "u64":
+		return "0..18446744073709551615"
+	case "i8":
+		return "0..127"
+	case "i16":
+		return "0..32767"
+	case "i32":
+		return "0..2147483647"
+	case "i64":
+		return "0..9223372036854775807"
+	default:
+		return "the scalar range"
+	}
 }
 
 func isFixedArray(t valueType) bool {

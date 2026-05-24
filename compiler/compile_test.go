@@ -946,6 +946,120 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	requireDiagnosticCode(t, result, "HZN1422")
 }
 
+func TestAnalyzeAllowsIntegerLiteralBoundaries(t *testing.T) {
+	result := analyzeSource(t, "counts.hzn", `package probes
+
+const MaxPort u16 = 65535
+
+map Counts hash[u8, u16]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    if Counts.update(255, MaxPort) != 0 {
+        return 0
+    }
+    return 2147483647
+}
+`)
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+}
+
+func TestAnalyzeRejectsTypedConstIntegerLiteralOverflow(t *testing.T) {
+	result := analyzeSource(t, "const.hzn", `package probes
+
+const BadPort u16 = 70000
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    return 0
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1470")
+}
+
+func TestAnalyzeRejectsStructLiteralIntegerOverflow(t *testing.T) {
+	result := analyzeSource(t, "counts.hzn", `package probes
+
+type Count struct {
+    port u16
+}
+
+map Counts hash[u32, Count]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    pid := bpf.current_pid()
+    if Counts.update(pid, Count{port: 70000}) != 0 {
+        return 0
+    }
+    return 0
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1470")
+}
+
+func TestAnalyzeRejectsMapKeyIntegerOverflow(t *testing.T) {
+	result := analyzeSource(t, "counts.hzn", `package probes
+
+map Counts hash[u8, u32]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    if Counts.update(300, 1) != 0 {
+        return 0
+    }
+    return 0
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1470")
+}
+
+func TestAnalyzeRejectsUntypedConstIntegerOverflow(t *testing.T) {
+	result := analyzeSource(t, "counts.hzn", `package probes
+
+const BadKey = 300
+
+map Counts hash[u8, u32]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    if Counts.update(BadKey, 1) != 0 {
+        return 0
+    }
+    return 0
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1470")
+}
+
+func TestAnalyzeRejectsReturnIntegerOverflow(t *testing.T) {
+	result := analyzeSource(t, "returns.hzn", `package probes
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    return 2147483648
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1470")
+}
+
+func TestAnalyzeRejectsIntegerLiteralComparisonOverflow(t *testing.T) {
+	result := analyzeSource(t, "compare.hzn", `package probes
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    port := u16(bpf.current_pid())
+    if port == 70000 {
+        return 0
+    }
+    return 0
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1470")
+}
+
 func TestAnalyzeAllowsBoolLiteralsAndConsts(t *testing.T) {
 	result := analyzeSource(t, "flags.hzn", `package probes
 
@@ -1102,6 +1216,21 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	if diag.HasErrors(result.Diagnostics) {
 		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
 	}
+}
+
+func TestAnalyzeRejectsScalarConversionIntegerOverflow(t *testing.T) {
+	result := analyzeSource(t, "counts.hzn", `package probes
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    port := u16(70000)
+    if port != 0 {
+        return 0
+    }
+    return 0
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1470")
 }
 
 func TestAnalyzeRejectsNonIntegerScalarConversions(t *testing.T) {

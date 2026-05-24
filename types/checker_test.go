@@ -83,6 +83,25 @@ func BlockSMTP(ctx cgroup.Connect) i32 {
 	}
 }
 
+func TestCheckRejectsInvalidCgroupIP4ConstOctet(t *testing.T) {
+	file := parseTestFile(t, `package probes
+
+const LoopbackOctet = 300
+
+@cgroup("connect4")
+func BlockSMTP(ctx cgroup.Connect) i32 {
+    if cgroup.dst_ip4(ctx) == cgroup.ip4(127, 0, 0, LoopbackOctet) {
+        return cgroup.Deny
+    }
+    return cgroup.Allow
+}
+`)
+	diags := Check(file)
+	if !slices.ContainsFunc(diags, func(d diag.Diagnostic) bool { return d.Code == "HZN1469" }) {
+		t.Fatalf("diagnostics = %#v, want HZN1469", diags)
+	}
+}
+
 func parseTestFile(t *testing.T, source string) ast.File {
 	t.Helper()
 	parsed, err := parser.ParseSource(parser.SourceFile{Path: "inline.hzn", Bytes: []byte(source)})
