@@ -153,6 +153,9 @@ func TestWorkbenchJSONOutputForInvalidInput(t *testing.T) {
 	if !hasDiagnosticCode(report.Diagnostics, "HZN2600") {
 		t.Fatalf("report diagnostics = %#v, want HZN2600", report.Diagnostics)
 	}
+	if report.Diagnostics[0].Source == nil || !strings.Contains(report.Diagnostics[0].Source.Text, "ip.protocol") {
+		t.Fatalf("diagnostic source = %#v, want packet source context", report.Diagnostics[0].Source)
+	}
 	assertSourceDetail(t, report, input)
 	if len(report.Artifacts) != 2 {
 		t.Fatalf("artifacts = %d, want 2", len(report.Artifacts))
@@ -196,6 +199,9 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	assertRemovedStaleArtifacts(t, report, stale)
 	if report.DiagnosticCount != 1 || !hasDiagnosticCode(report.Diagnostics, "HZN0100") {
 		t.Fatalf("diagnostics = %#v, want one HZN0100", report.Diagnostics)
+	}
+	if report.Diagnostics[0].Source == nil || !strings.Contains(report.Diagnostics[0].Source.Text, "return 0") {
+		t.Fatalf("diagnostic source = %#v, want syntax source context", report.Diagnostics[0].Source)
 	}
 	if report.Diagnostics[0].Primary.File != "syntax_error.hzn" && string(report.Diagnostics[0].Primary.File) != sourcePath {
 		t.Fatalf("primary file = %q, want source path", report.Diagnostics[0].Primary.File)
@@ -314,6 +320,9 @@ func TestWorkbenchWritesDiagnosticReportForInvalidInput(t *testing.T) {
 	}
 	if !hasDiagnosticCode(report.Diagnostics, "HZN2600") {
 		t.Fatalf("report diagnostics = %#v, want HZN2600", report.Diagnostics)
+	}
+	if report.Diagnostics[0].Source == nil || !strings.Contains(report.Diagnostics[0].Source.Text, "ip.protocol") {
+		t.Fatalf("diagnostic source = %#v, want packet source context", report.Diagnostics[0].Source)
 	}
 	assertSourceDetail(t, report, input)
 	if len(report.Artifacts) != 2 {

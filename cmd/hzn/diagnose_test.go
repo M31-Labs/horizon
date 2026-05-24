@@ -69,6 +69,9 @@ func TestDiagnoseLoadsGeneratedSourceBesideSourceMap(t *testing.T) {
 
 	sourceMap := diagnoseTestSourceMap(sourcePath, "input.bpf.c", 2)
 	writeDiagnoseSourceMap(t, mapPath, sourceMap)
+	if err := os.WriteFile(sourcePath, []byte("package probes\n\nfunc OnExec(ctx tracepoint.Exec) i32 {\n    event := ExecEvents.reserve()\n    if event == nil {\n        return 0\n    bad_access()\n}\n"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
 	if err := os.WriteFile(cPath, []byte("int OnExec(void *ctx) {\n    bad_access();\n}\n"), 0o644); err != nil {
 		t.Fatalf("write generated C: %v", err)
 	}
@@ -98,6 +101,9 @@ func TestDiagnoseLoadsGeneratedSourceBesideSourceMap(t *testing.T) {
 	}
 	if !strings.Contains(diagnostics[0].Suggest, "nil-check") {
 		t.Fatalf("suggest = %q, want pointer safety nil-check guidance", diagnostics[0].Suggest)
+	}
+	if diagnostics[0].Source == nil || diagnostics[0].Source.Line != 7 || !strings.Contains(diagnostics[0].Source.Text, "bad_access") {
+		t.Fatalf("source context = %#v, want authored source line", diagnostics[0].Source)
 	}
 }
 

@@ -21,7 +21,7 @@ func runBindgen(args []string) error {
 	code, err := bindgen.Generate(result.Program, *packageName)
 	if err != nil {
 		if d, ok := bindgen.DiagnosticForError(err); ok {
-			printDiagnostics([]diag.Diagnostic{d})
+			printDiagnostics(diagnosticsWithSourceContext([]diag.Diagnostic{d}, result.Files))
 			return errDiagnostics(1)
 		}
 		return err

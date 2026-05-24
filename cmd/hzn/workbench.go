@@ -147,7 +147,7 @@ func writeWorkbenchArtifacts(result *compiler.Result, opts workbenchOptions) (wo
 		Summary:     workbenchSummaryFor(result, sources),
 		Compile:     opts.Compile,
 		Paths:       paths,
-		Diagnostics: diagnosticsForReport(result.Diagnostics),
+		Diagnostics: diagnosticsForReport(result.Diagnostics, result.Files),
 	}
 	report.DiagnosticCount = len(report.Diagnostics)
 	removed, err := removeStaleArtifacts(paths)
@@ -179,7 +179,7 @@ func writeWorkbenchArtifacts(result *compiler.Result, opts workbenchOptions) (wo
 		report.Summary.applyManifest(capability.FromIR(result.Program))
 		if d, ok := emitc.DiagnosticForError(err); ok {
 			report.Status = "emit_error"
-			report.Diagnostics = append(report.Diagnostics, d)
+			report.Diagnostics = append(report.Diagnostics, diagnosticsWithSourceContext([]diag.Diagnostic{d}, result.Files)...)
 			report.DiagnosticCount = len(report.Diagnostics)
 			report.Artifacts = paths.diagnosticArtifacts()
 			if writeErr := writeJSON(paths.Diagnostics, report.Diagnostics); writeErr != nil {
@@ -207,7 +207,7 @@ func writeWorkbenchArtifacts(result *compiler.Result, opts workbenchOptions) (wo
 	if err != nil {
 		if d, ok := bindgen.DiagnosticForError(err); ok {
 			report.Status = "bindgen_error"
-			report.Diagnostics = append(report.Diagnostics, d)
+			report.Diagnostics = append(report.Diagnostics, diagnosticsWithSourceContext([]diag.Diagnostic{d}, result.Files)...)
 			report.DiagnosticCount = len(report.Diagnostics)
 			report.Artifacts = []string{paths.C, paths.SourceMap, paths.Diagnostics, paths.Report}
 			if writeErr := writeJSON(paths.Diagnostics, report.Diagnostics); writeErr != nil {
@@ -228,7 +228,7 @@ func writeWorkbenchArtifacts(result *compiler.Result, opts workbenchOptions) (wo
 	if err := capability.Validate(manifest); err != nil {
 		if d, ok := capability.DiagnosticForError(err); ok {
 			report.Status = "capability_error"
-			report.Diagnostics = append(report.Diagnostics, d)
+			report.Diagnostics = append(report.Diagnostics, diagnosticsWithSourceContext([]diag.Diagnostic{d}, result.Files)...)
 			report.DiagnosticCount = len(report.Diagnostics)
 			report.Artifacts = []string{paths.C, paths.SourceMap, paths.Bindings, paths.Diagnostics, paths.Report}
 			if writeErr := writeJSON(paths.Diagnostics, report.Diagnostics); writeErr != nil {
@@ -262,7 +262,7 @@ func writeWorkbenchArtifacts(result *compiler.Result, opts workbenchOptions) (wo
 			} else {
 				report.Clang = err.Error()
 			}
-			report.Diagnostics = append(report.Diagnostics, clangDiagnostics(report.Clang, cOutput.SourceMap, []byte(cOutput.Code))...)
+			report.Diagnostics = append(report.Diagnostics, diagnosticsWithSourceContext(clangDiagnostics(report.Clang, cOutput.SourceMap, []byte(cOutput.Code)), result.Files)...)
 			report.DiagnosticCount = len(report.Diagnostics)
 			if writeErr := writeJSON(paths.Diagnostics, report.Diagnostics); writeErr != nil {
 				return report, writeErr
@@ -451,11 +451,11 @@ func removeStaleArtifacts(paths artifactPaths) ([]string, error) {
 	return removed, nil
 }
 
-func diagnosticsForReport(diags []diag.Diagnostic) []diag.Diagnostic {
+func diagnosticsForReport(diags []diag.Diagnostic, files []compiler.FileResult) []diag.Diagnostic {
 	if diags == nil {
 		return []diag.Diagnostic{}
 	}
-	return diags
+	return diagnosticsWithSourceContext(diags, files)
 }
 
 func clangDiagnostics(raw string, sourceMap ir.SourceMap, generated []byte) []diag.Diagnostic {

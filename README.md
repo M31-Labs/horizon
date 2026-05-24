@@ -315,7 +315,8 @@ Invalid programs still produce
 `<name>.diagnostics.json` and `<name>.report.json`, including parser failures
 before typechecking or C emission can run. Clang failures are remapped into the
 same diagnostics artifact, so editors and automation can show actionable
-feedback without scraping terminal output. Remapped diagnostics keep
+feedback without scraping terminal output. Diagnostics include source-line
+context and markers when the authored file is available. Remapped diagnostics keep
 the generated BPF C location plus source-map metadata such as Horizon function,
 section, and AST node. Common verifier failures also carry Horizon-specific
 remediation hints for nil checks, ringbuf lifetimes, bounded loops, helper

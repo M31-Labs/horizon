@@ -43,7 +43,7 @@ func runDiagnose(args []string) error {
 	if err != nil {
 		return err
 	}
-	diagnostics := diagnosticsFromVerifierLog(string(raw), sourceMap, generated)
+	diagnostics := diagnosticsWithPrimarySourceContext(diagnosticsFromVerifierLog(string(raw), sourceMap, generated))
 	if *jsonOut {
 		data, err := json.MarshalIndent(diagnostics, "", "  ")
 		if err != nil {

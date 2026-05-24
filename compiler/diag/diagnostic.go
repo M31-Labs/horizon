@@ -28,6 +28,15 @@ type Diagnostic struct {
 	Labels   []Label   `json:"labels,omitempty"`
 	Notes    []string  `json:"notes,omitempty"`
 	Suggest  string    `json:"suggest,omitempty"`
+	Source   *Source   `json:"source,omitempty"`
+}
+
+type Source struct {
+	Line      int    `json:"line"`
+	Column    int    `json:"column"`
+	EndColumn int    `json:"end_column,omitempty"`
+	Text      string `json:"text"`
+	Marker    string `json:"marker,omitempty"`
 }
 
 func (d Diagnostic) HasPrimary() bool {
@@ -46,6 +55,12 @@ func (d Diagnostic) Format() string {
 	}
 	if d.HasPrimary() {
 		fmt.Fprintf(&b, " --> %s:%d:%d", d.Primary.File, d.Primary.Start.Line, d.Primary.Start.Column)
+	}
+	if d.Source != nil && d.Source.Text != "" {
+		fmt.Fprintf(&b, "\n  %4d | %s", d.Source.Line, d.Source.Text)
+		if d.Source.Marker != "" {
+			fmt.Fprintf(&b, "\n       | %s", d.Source.Marker)
+		}
 	}
 	for _, note := range d.Notes {
 		if note != "" {

@@ -20,8 +20,8 @@ func runCheck(args []string) error {
 	if err != nil {
 		return err
 	}
+	diagnostics := diagnosticsWithSourceContext(result.Diagnostics, result.Files)
 	if *jsonOut {
-		diagnostics := result.Diagnostics
 		if diagnostics == nil {
 			diagnostics = []diag.Diagnostic{}
 		}
@@ -33,16 +33,16 @@ func runCheck(args []string) error {
 		if _, err := os.Stdout.Write(data); err != nil {
 			return err
 		}
-		if diag.HasErrors(result.Diagnostics) {
-			return fmt.Errorf("%d diagnostic(s)", len(result.Diagnostics))
+		if diag.HasErrors(diagnostics) {
+			return fmt.Errorf("%d diagnostic(s)", len(diagnostics))
 		}
 		return nil
 	}
-	for _, d := range result.Diagnostics {
+	for _, d := range diagnostics {
 		fmt.Println(d.Format())
 	}
-	if diag.HasErrors(result.Diagnostics) {
-		return fmt.Errorf("%d diagnostic(s)", len(result.Diagnostics))
+	if diag.HasErrors(diagnostics) {
+		return fmt.Errorf("%d diagnostic(s)", len(diagnostics))
 	}
 	fmt.Printf("check passed: %d file(s)\n", len(result.Files))
 	return nil

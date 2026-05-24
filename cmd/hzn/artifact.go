@@ -16,9 +16,10 @@ func analyze(path string) (*compiler.Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	if diag.HasErrors(result.Diagnostics) {
-		printDiagnostics(result.Diagnostics)
-		return nil, errDiagnostics(len(result.Diagnostics))
+	diagnostics := diagnosticsWithSourceContext(result.Diagnostics, result.Files)
+	if diag.HasErrors(diagnostics) {
+		printDiagnostics(diagnostics)
+		return nil, errDiagnostics(len(diagnostics))
 	}
 	return result, nil
 }

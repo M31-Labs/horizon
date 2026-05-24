@@ -20,7 +20,7 @@ func runCapabilities(args []string) error {
 	manifest := capability.FromIR(result.Program)
 	if err := capability.Validate(manifest); err != nil {
 		if d, ok := capability.DiagnosticForError(err); ok {
-			printDiagnostics([]diag.Diagnostic{d})
+			printDiagnostics(diagnosticsWithSourceContext([]diag.Diagnostic{d}, result.Files))
 			return errDiagnostics(1)
 		}
 		return err
