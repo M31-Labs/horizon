@@ -81,10 +81,10 @@ func (e *cEmitter) emitPreamble() {
 	}
 	e.b.WriteString("char LICENSE[] SEC(\"license\") = \"GPL\";\n")
 	emitScalarABIAssertions(&e.b)
-	emitHelperWrappers(&e.b, e.usage)
-	emitProbeContextHelpers(&e.b, e.usage)
+	emitHelperWrappers(&e.b, &e.sourceMap, e.usage)
+	emitProbeContextHelpers(&e.b, &e.sourceMap, e.usage)
 	if e.usage.hasXDPPacketHelpers() {
-		emitXDPPacketHelpers(&e.b, e.usage)
+		emitXDPPacketHelpers(&e.b, &e.sourceMap, e.usage)
 	}
 }
 
@@ -326,13 +326,24 @@ func (e *cEnv) hasLocal(name string) bool {
 
 type cUsage struct {
 	helpers       map[string]bool
+	helperOrigins map[string]cUsageOrigin
 	mapMethods    map[string]map[string]bool
 	xdpHelpers    map[string]bool
+	xdpOrigins    map[string]cUsageOrigin
 	cgroupHelpers map[string]bool
+	cgroupOrigins map[string]cUsageOrigin
 	kprobeHelpers map[string]bool
+	kprobeOrigins map[string]cUsageOrigin
 	kretHelpers   map[string]bool
+	kretOrigins   map[string]cUsageOrigin
 	maps          map[string]ir.Map
 	boolTypes     bool
+}
+
+type cUsageOrigin struct {
+	Span     span.Span
+	Function string
+	Section  string
 }
 
 func analyzeUsage(program ir.Program) cUsage {
@@ -345,11 +356,16 @@ func analyzeUsage(program ir.Program) cUsage {
 func newCUsage() cUsage {
 	return cUsage{
 		helpers:       map[string]bool{},
+		helperOrigins: map[string]cUsageOrigin{},
 		mapMethods:    map[string]map[string]bool{},
 		xdpHelpers:    map[string]bool{},
+		xdpOrigins:    map[string]cUsageOrigin{},
 		cgroupHelpers: map[string]bool{},
+		cgroupOrigins: map[string]cUsageOrigin{},
 		kprobeHelpers: map[string]bool{},
+		kprobeOrigins: map[string]cUsageOrigin{},
 		kretHelpers:   map[string]bool{},
+		kretOrigins:   map[string]cUsageOrigin{},
 		maps:          map[string]ir.Map{},
 	}
 }
@@ -399,94 +415,134 @@ func (u *cUsage) walkFunction(fn ir.Function) {
 			u.boolTypes = true
 		}
 	}
-	u.walkStatements(functionStatements(fn))
+	origin := cUsageOrigin{Function: fn.Name, Section: fn.Section.Name}
+	u.walkStatements(functionStatements(fn), origin)
 }
 
-func (u *cUsage) walkStatement(stmt ir.Statement) {
+func (u *cUsage) walkStatement(stmt ir.Statement, origin cUsageOrigin) {
 	switch stmt.Kind {
 	case "short_var":
-		u.walkExpr(stmt.Value)
+		u.walkExpr(stmt.Value, origin)
 	case "assign":
-		u.walkExpr(stmt.Target)
-		u.walkExpr(stmt.Value)
+		u.walkExpr(stmt.Target, origin)
+		u.walkExpr(stmt.Value, origin)
 	case "expr":
-		u.walkExpr(stmt.Expr)
+		u.walkExpr(stmt.Expr, origin)
 	case "return":
-		u.walkExpr(stmt.Value)
+		u.walkExpr(stmt.Value, origin)
 	case "if":
-		u.walkBranch(stmt)
+		u.walkBranch(stmt, origin)
 	case "for":
-		u.walkFor(stmt)
+		u.walkFor(stmt, origin)
 	case "raw":
-		u.walkExpr(stmt.Value)
+		u.walkExpr(stmt.Value, origin)
 	}
 }
 
-func (u *cUsage) walkBranch(stmt ir.Statement) {
-	u.walkExpr(stmt.Cond)
-	u.walkStatements(stmt.Then)
-	u.walkStatements(stmt.Else)
+func (u *cUsage) walkBranch(stmt ir.Statement, origin cUsageOrigin) {
+	u.walkExpr(stmt.Cond, origin)
+	u.walkStatements(stmt.Then, origin)
+	u.walkStatements(stmt.Else, origin)
 }
 
-func (u *cUsage) walkFor(stmt ir.Statement) {
+func (u *cUsage) walkFor(stmt ir.Statement, origin cUsageOrigin) {
 	if stmt.Init != nil {
-		u.walkStatement(*stmt.Init)
+		u.walkStatement(*stmt.Init, origin)
 	}
-	u.walkExpr(stmt.Cond)
+	u.walkExpr(stmt.Cond, origin)
 	if stmt.Post != nil {
-		u.walkStatement(*stmt.Post)
+		u.walkStatement(*stmt.Post, origin)
 	}
-	u.walkStatements(stmt.Body)
+	u.walkStatements(stmt.Body, origin)
 }
 
-func (u *cUsage) walkStatements(stmts []ir.Statement) {
+func (u *cUsage) walkStatements(stmts []ir.Statement, origin cUsageOrigin) {
 	for _, stmt := range stmts {
-		u.walkStatement(stmt)
+		u.walkStatement(stmt, origin)
 	}
 }
 
-func (u *cUsage) walkExpr(expr *ir.Expr) {
+func (u *cUsage) walkExpr(expr *ir.Expr, origin cUsageOrigin) {
 	if expr == nil {
 		return
 	}
-	u.observeExpr(expr)
-	u.walkExprChildren(expr)
+	exprOrigin := origin
+	if !expr.Span.IsZero() {
+		exprOrigin.Span = expr.Span
+	}
+	u.observeExpr(expr, exprOrigin)
+	u.walkExprChildren(expr, origin)
 }
 
-func (u *cUsage) observeExpr(expr *ir.Expr) {
+func (u *cUsage) observeExpr(expr *ir.Expr, origin cUsageOrigin) {
 	if expr.Kind == "bool" {
 		u.boolTypes = true
 	}
 	if helper, ok := helperWrapperCall(expr); ok {
-		u.helpers[helper] = true
+		u.addHelper(helper, origin)
 	}
 	if mapName, method, ok := wrapperMethodCall(expr); ok {
 		u.addMapMethod(mapName, method)
 	}
 	if helper, ok := xdpPacketCall(expr); ok {
-		u.xdpHelpers[helper] = true
+		u.addXDPHelper(helper, origin)
 	}
 	if helper, ok := cgroupHelperCall(expr); ok {
-		u.cgroupHelpers[helper] = true
+		u.addCgroupHelper(helper, origin)
 	}
 	if helper, ok := kprobeContextCall(expr); ok {
-		u.kprobeHelpers[helper] = true
+		u.addKprobeHelper(helper, origin)
 	}
 	if helper, ok := kretprobeContextCall(expr); ok {
-		u.kretHelpers[helper] = true
+		u.addKretHelper(helper, origin)
 	}
 }
 
-func (u *cUsage) walkExprChildren(expr *ir.Expr) {
-	u.walkExpr(expr.Operand)
-	u.walkExpr(expr.Left)
-	u.walkExpr(expr.Right)
-	u.walkExpr(expr.Func)
+func (u *cUsage) walkExprChildren(expr *ir.Expr, origin cUsageOrigin) {
+	u.walkExpr(expr.Operand, origin)
+	u.walkExpr(expr.Left, origin)
+	u.walkExpr(expr.Right, origin)
+	u.walkExpr(expr.Func, origin)
 	for i := range expr.Args {
-		u.walkExpr(&expr.Args[i])
+		u.walkExpr(&expr.Args[i], origin)
 	}
 	for i := range expr.Fields {
-		u.walkExpr(&expr.Fields[i].Value)
+		u.walkExpr(&expr.Fields[i].Value, origin)
+	}
+}
+
+func (u *cUsage) addHelper(name string, origin cUsageOrigin) {
+	u.helpers[name] = true
+	if _, ok := u.helperOrigins[name]; !ok && !origin.Span.IsZero() {
+		u.helperOrigins[name] = origin
+	}
+}
+
+func (u *cUsage) addXDPHelper(name string, origin cUsageOrigin) {
+	u.xdpHelpers[name] = true
+	if _, ok := u.xdpOrigins[name]; !ok && !origin.Span.IsZero() {
+		u.xdpOrigins[name] = origin
+	}
+}
+
+func (u *cUsage) addCgroupHelper(name string, origin cUsageOrigin) {
+	u.cgroupHelpers[name] = true
+	if _, ok := u.cgroupOrigins[name]; !ok && !origin.Span.IsZero() {
+		u.cgroupOrigins[name] = origin
+	}
+}
+
+func (u *cUsage) addKprobeHelper(name string, origin cUsageOrigin) {
+	u.kprobeHelpers[name] = true
+	if _, ok := u.kprobeOrigins[name]; !ok && !origin.Span.IsZero() {
+		u.kprobeOrigins[name] = origin
+	}
+}
+
+func (u *cUsage) addKretHelper(name string, origin cUsageOrigin) {
+	u.kretHelpers[name] = true
+	if _, ok := u.kretOrigins[name]; !ok && !origin.Span.IsZero() {
+		u.kretOrigins[name] = origin
 	}
 }
 
@@ -537,26 +593,33 @@ func typeUsesBool(typ ir.Type) bool {
 
 func (u *cUsage) expandXDPPacketDependencies() {
 	if u.xdpHelpers["udp"] || u.xdpHelpers["tcp"] {
-		u.xdpHelpers["l4_offset"] = true
-		u.xdpHelpers["ipv4"] = true
-		u.xdpHelpers["eth"] = true
+		origin := u.xdpOrigins["tcp"]
+		if origin.Span.IsZero() {
+			origin = u.xdpOrigins["udp"]
+		}
+		u.addXDPHelper("l4_offset", origin)
+		u.addXDPHelper("ipv4", origin)
+		u.addXDPHelper("eth", origin)
 	}
 	if u.xdpHelpers["ipv4"] {
-		u.xdpHelpers["eth"] = true
+		u.addXDPHelper("eth", u.xdpOrigins["ipv4"])
 	}
 }
 
-func emitHelperWrappers(b *strings.Builder, usage cUsage) {
+func emitHelperWrappers(b *strings.Builder, sourceMap *ir.SourceMap, usage cUsage) {
 	if usage.helpers["current_pid"] {
-		b.WriteString(`
+		emitUsageMapped(b, sourceMap, usage.helperOrigins["current_pid"], "helper_wrapper", func() {
+			b.WriteString(`
 static __always_inline __u32 hzn_current_pid(void) {
     return (__u32)(bpf_get_current_pid_tgid() >> 32);
 }
 `)
+		})
 	}
 
 	if usage.helpers["current_ppid"] {
-		b.WriteString(`
+		emitUsageMapped(b, sourceMap, usage.helperOrigins["current_ppid"], "helper_wrapper", func() {
+			b.WriteString(`
 static __always_inline __u32 hzn_current_ppid(void) {
     struct task_struct *task = (struct task_struct *)bpf_get_current_task();
     struct task_struct *parent = 0;
@@ -571,42 +634,51 @@ static __always_inline __u32 hzn_current_ppid(void) {
     return ppid;
 }
 `)
+		})
 	}
 
 	if usage.helpers["current_uid"] {
-		b.WriteString(`
+		emitUsageMapped(b, sourceMap, usage.helperOrigins["current_uid"], "helper_wrapper", func() {
+			b.WriteString(`
 static __always_inline __u32 hzn_current_uid(void) {
     return (__u32)bpf_get_current_uid_gid();
 }
 `)
+		})
 	}
 
 	if usage.helpers["ktime_get_ns"] {
-		b.WriteString(`
+		emitUsageMapped(b, sourceMap, usage.helperOrigins["ktime_get_ns"], "helper_wrapper", func() {
+			b.WriteString(`
 static __always_inline __u64 hzn_ktime_get_ns(void) {
     return bpf_ktime_get_ns();
 }
 `)
+		})
 	}
 
 	if usage.helpers["current_comm"] {
-		b.WriteString(`
+		emitUsageMapped(b, sourceMap, usage.helperOrigins["current_comm"], "helper_wrapper", func() {
+			b.WriteString(`
 static __always_inline long hzn_current_comm(void *dst, __u32 size) {
     return bpf_get_current_comm(dst, size);
 }
 `)
+		})
 	}
 
 	if usage.helpers["probe_read_user_str"] {
-		b.WriteString(`
+		emitUsageMapped(b, sourceMap, usage.helperOrigins["probe_read_user_str"], "helper_wrapper", func() {
+			b.WriteString(`
 static __always_inline long hzn_probe_read_user_str(void *dst, __u32 size, const void *unsafe_ptr) {
     return bpf_probe_read_user_str(dst, size, unsafe_ptr);
 }
 `)
+		})
 	}
 }
 
-func emitProbeContextHelpers(b *strings.Builder, usage cUsage) {
+func emitProbeContextHelpers(b *strings.Builder, sourceMap *ir.SourceMap, usage cUsage) {
 	if !usage.hasProbeContextHelpers() {
 		return
 	}
@@ -624,19 +696,31 @@ func emitProbeContextHelpers(b *strings.Builder, usage cUsage) {
 		if !usage.kprobeHelpers[arg.Name] {
 			continue
 		}
-		fmt.Fprintf(b, `
+		emitUsageMapped(b, sourceMap, usage.kprobeOrigins[arg.Name], "probe_context_wrapper", func() {
+			fmt.Fprintf(b, `
 static __always_inline __u64 hzn_kprobe_%s(struct pt_regs *ctx) {
     return (__u64)%s(ctx);
 }
 `, arg.Name, arg.Macro)
+		})
 	}
 	if usage.kretHelpers["ret"] {
-		b.WriteString(`
+		emitUsageMapped(b, sourceMap, usage.kretOrigins["ret"], "probe_context_wrapper", func() {
+			b.WriteString(`
 static __always_inline __s64 hzn_kretprobe_ret(struct pt_regs *ctx) {
     return (__s64)PT_REGS_RC(ctx);
 }
 `)
+		})
 	}
+}
+
+func emitUsageMapped(b *strings.Builder, sourceMap *ir.SourceMap, origin cUsageOrigin, node string, emit func()) {
+	if origin.Span.IsZero() {
+		emit()
+		return
+	}
+	emitMapped(b, sourceMap, origin.Span, node, origin.Function, origin.Section, emit)
 }
 
 func emitXDPActionFallbacks(b *strings.Builder) {
@@ -729,7 +813,7 @@ func programHasLSM(program ir.Program) bool {
 	return false
 }
 
-func emitXDPPacketHelpers(b *strings.Builder, usage cUsage) {
+func emitXDPPacketHelpers(b *strings.Builder, sourceMap *ir.SourceMap, usage cUsage) {
 	b.WriteString(`
 struct hzn_xdp_eth {
     __u8 dst[6];
@@ -771,7 +855,8 @@ struct hzn_xdp_udp {
 `)
 
 	if usage.xdpHelpers["eth"] {
-		b.WriteString(`
+		emitUsageMapped(b, sourceMap, usage.xdpOrigins["eth"], "xdp_helper_wrapper", func() {
+			b.WriteString(`
 static __always_inline struct hzn_xdp_eth *hzn_xdp_eth(struct xdp_md *ctx) {
     void *data = (void *)(long)ctx->data;
     void *data_end = (void *)(long)ctx->data_end;
@@ -782,10 +867,12 @@ static __always_inline struct hzn_xdp_eth *hzn_xdp_eth(struct xdp_md *ctx) {
     return data;
 }
 `)
+		})
 	}
 
 	if usage.xdpHelpers["ipv4"] {
-		b.WriteString(`
+		emitUsageMapped(b, sourceMap, usage.xdpOrigins["ipv4"], "xdp_helper_wrapper", func() {
+			b.WriteString(`
 static __always_inline struct hzn_xdp_ipv4 *hzn_xdp_ipv4(struct xdp_md *ctx) {
     void *data = (void *)(long)ctx->data;
     void *data_end = (void *)(long)ctx->data_end;
@@ -802,10 +889,12 @@ static __always_inline struct hzn_xdp_ipv4 *hzn_xdp_ipv4(struct xdp_md *ctx) {
     return ip;
 }
 `)
+		})
 	}
 
 	if usage.xdpHelpers["l4_offset"] {
-		b.WriteString(`
+		emitUsageMapped(b, sourceMap, usage.xdpOrigins["l4_offset"], "xdp_helper_wrapper", func() {
+			b.WriteString(`
 static __always_inline __u64 hzn_xdp_l4_offset(struct xdp_md *ctx, __u8 protocol) {
     struct hzn_xdp_ipv4 *ip = hzn_xdp_ipv4(ctx);
 
@@ -820,10 +909,12 @@ static __always_inline __u64 hzn_xdp_l4_offset(struct xdp_md *ctx, __u8 protocol
     return sizeof(struct hzn_xdp_eth) + ((__u64)ihl * 4);
 }
 `)
+		})
 	}
 
 	if usage.xdpHelpers["tcp"] {
-		b.WriteString(`
+		emitUsageMapped(b, sourceMap, usage.xdpOrigins["tcp"], "xdp_helper_wrapper", func() {
+			b.WriteString(`
 static __always_inline struct hzn_xdp_tcp *hzn_xdp_tcp(struct xdp_md *ctx) {
     void *data = (void *)(long)ctx->data;
     void *data_end = (void *)(long)ctx->data_end;
@@ -835,10 +926,12 @@ static __always_inline struct hzn_xdp_tcp *hzn_xdp_tcp(struct xdp_md *ctx) {
     return data + off;
 }
 `)
+		})
 	}
 
 	if usage.xdpHelpers["udp"] {
-		b.WriteString(`
+		emitUsageMapped(b, sourceMap, usage.xdpOrigins["udp"], "xdp_helper_wrapper", func() {
+			b.WriteString(`
 static __always_inline struct hzn_xdp_udp *hzn_xdp_udp(struct xdp_md *ctx) {
     void *data = (void *)(long)ctx->data;
     void *data_end = (void *)(long)ctx->data_end;
@@ -850,6 +943,7 @@ static __always_inline struct hzn_xdp_udp *hzn_xdp_udp(struct xdp_md *ctx) {
     return data + off;
 }
 `)
+		})
 	}
 }
 

@@ -8,8 +8,10 @@ import (
 	"strings"
 	"testing"
 
+	"m31labs.dev/horizon/compiler"
 	"m31labs.dev/horizon/compiler/diag"
 	"m31labs.dev/horizon/compiler/span"
+	"m31labs.dev/horizon/emitc"
 	"m31labs.dev/horizon/ir"
 )
 
@@ -142,6 +144,55 @@ func TestDiagnoseGeneratedFlagTakesValue(t *testing.T) {
 	}
 }
 
+func TestDiagnoseMapsHelperWrapperDiagnosticToAuthoredCall(t *testing.T) {
+	dir := t.TempDir()
+	cPath := filepath.Join(dir, "open.bpf.c")
+	mapPath := filepath.Join(dir, "open.hznmap.json")
+	logPath := filepath.Join(dir, "clang.log")
+
+	result, err := compiler.AnalyzePath("../../examples/openwatch")
+	if err != nil {
+		t.Fatalf("AnalyzePath: %v", err)
+	}
+	out, err := emitc.Emit(result.Program)
+	if err != nil {
+		t.Fatalf("Emit: %v", err)
+	}
+	out.SourceMap.Generated.Path = cPath
+	if err := os.WriteFile(cPath, []byte(out.Code), 0o644); err != nil {
+		t.Fatalf("write generated C: %v", err)
+	}
+	writeDiagnoseSourceMap(t, mapPath, out.SourceMap)
+	line := diagnoseLineContaining(t, out.Code, "return bpf_probe_read_user_str")
+	if err := os.WriteFile(logPath, []byte(fmt.Sprintf("%s:%d:12: error: use of undeclared identifier 'bpf_probe_read_user_str'\n", cPath, line)), 0o644); err != nil {
+		t.Fatalf("write log: %v", err)
+	}
+
+	stdout, err := captureStdout(t, func() error {
+		return run([]string{"diagnose", logPath, "-map", mapPath, "-json"})
+	})
+	if err != nil {
+		t.Fatalf("run diagnose -json: %v", err)
+	}
+
+	var diagnostics []diag.Diagnostic
+	if err := json.Unmarshal([]byte(stdout), &diagnostics); err != nil {
+		t.Fatalf("unmarshal diagnostics: %v\n%s", err, stdout)
+	}
+	if len(diagnostics) != 1 {
+		t.Fatalf("diagnostics = %d, want 1", len(diagnostics))
+	}
+	if got, want := diagnostics[0].Primary.Start.Line, 24; got != want {
+		t.Fatalf("primary line = %d, want %d; diagnostic = %#v", got, want, diagnostics[0])
+	}
+	if diagnostics[0].Source == nil || !strings.Contains(diagnostics[0].Source.Text, "bpf.probe_read_user_str") {
+		t.Fatalf("source context = %#v, want authored helper call", diagnostics[0].Source)
+	}
+	if !hasNoteContaining(diagnostics[0], "source map: function OnOpen, section kprobe/do_sys_openat2, node helper_wrapper") {
+		t.Fatalf("notes = %#v, want helper wrapper source map metadata", diagnostics[0].Notes)
+	}
+}
+
 func TestDiagnoseAddsVerifierSpecificSuggestions(t *testing.T) {
 	tests := map[string]string{
 		"unreleased reference id=3 alloc_insn=8": "ringbuf reservation",
@@ -160,6 +211,17 @@ func TestDiagnoseAddsVerifierSpecificSuggestions(t *testing.T) {
 			t.Fatalf("suggest for %q = %q, want containing %q", raw, diagnostics[0].Suggest, want)
 		}
 	}
+}
+
+func diagnoseLineContaining(t *testing.T, text string, needle string) int {
+	t.Helper()
+	for i, line := range strings.Split(text, "\n") {
+		if strings.Contains(line, needle) {
+			return i + 1
+		}
+	}
+	t.Fatalf("missing %q in:\n%s", needle, text)
+	return 0
 }
 
 func diagnoseTestSourceMap(sourcePath string, generatedPath string, generatedLine int) ir.SourceMap {

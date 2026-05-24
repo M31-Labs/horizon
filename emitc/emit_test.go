@@ -66,6 +66,8 @@ func TestEmitSourceMapIncludesDeclarations(t *testing.T) {
 
 	assertSourceMapLine(t, out, "struct hzn_type_ExecEvent {", "struct", 5)
 	assertSourceMapLine(t, out, `} ExecEvents SEC(".maps");`, "map", 13)
+	assertSourceMapLine(t, out, "static __always_inline __u32 hzn_current_ppid(void)", "helper_wrapper", 24)
+	assertSourceMapLine(t, out, "static __always_inline long hzn_current_comm(void *dst, __u32 size)", "helper_wrapper", 26)
 	assertSourceMapLine(t, out, "static __always_inline struct hzn_type_ExecEvent *ExecEvents_reserve(void)", "map_wrapper", 13)
 	assertSourceMapLine(t, out, "int OnExec(struct trace_event_raw_sched_process_exec *ctx)", "function", 15)
 
@@ -78,6 +80,30 @@ func TestEmitSourceMapIncludesDeclarations(t *testing.T) {
 		t.Fatalf("Emit execcount: %v", err)
 	}
 	assertSourceMapLine(t, out, "static const __u64 hzn_const_FirstSeen = 1;", "const", 5)
+}
+
+func TestEmitSourceMapIncludesGeneratedHelperWrappers(t *testing.T) {
+	result, err := compiler.AnalyzePath("../examples/openwatch")
+	if err != nil {
+		t.Fatalf("AnalyzePath openwatch: %v", err)
+	}
+	out, err := Emit(result.Program)
+	if err != nil {
+		t.Fatalf("Emit openwatch: %v", err)
+	}
+	assertSourceMapLine(t, out, "static __always_inline long hzn_probe_read_user_str", "helper_wrapper", 24)
+	assertSourceMapLine(t, out, "static __always_inline __u64 hzn_kprobe_arg2", "probe_context_wrapper", 24)
+
+	result, err = compiler.AnalyzePath("../examples/xdpdrop")
+	if err != nil {
+		t.Fatalf("AnalyzePath xdpdrop: %v", err)
+	}
+	out, err = Emit(result.Program)
+	if err != nil {
+		t.Fatalf("Emit xdpdrop: %v", err)
+	}
+	assertSourceMapLine(t, out, "static __always_inline __u64 hzn_xdp_l4_offset", "xdp_helper_wrapper", 6)
+	assertSourceMapLine(t, out, "static __always_inline struct hzn_xdp_tcp *hzn_xdp_tcp", "xdp_helper_wrapper", 6)
 }
 
 func TestEmitBoundedForClause(t *testing.T) {
