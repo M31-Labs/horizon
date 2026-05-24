@@ -319,10 +319,16 @@ func OnExec(ctx tracepoint.Exec) i32 {
 func TestAnalyzeMapMaxEntriesPassesAndLowersToIR(t *testing.T) {
 	result := analyzeSource(t, "maps.hzn", `package probes
 
+const CountEntries u32 = 4096
+const RingbufBytes = 262144
+
 @max_entries(4096)
 map Counts hash[u32, u32]
 
-@max_entries(262144)
+@max_entries(CountEntries)
+map ConstCounts hash[u32, u32]
+
+@max_entries(RingbufBytes)
 map Events ringbuf[u32]
 
 @tracepoint("sched:sched_process_exec")
@@ -333,10 +339,10 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	if diag.HasErrors(result.Diagnostics) {
 		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
 	}
-	if len(result.Program.Maps) != 2 {
-		t.Fatalf("maps = %#v, want two", result.Program.Maps)
+	if len(result.Program.Maps) != 3 {
+		t.Fatalf("maps = %#v, want three", result.Program.Maps)
 	}
-	if result.Program.Maps[0].MaxEntries != "4096" || result.Program.Maps[1].MaxEntries != "262144" {
+	if result.Program.Maps[0].MaxEntries != "4096" || result.Program.Maps[1].MaxEntries != "4096" || result.Program.Maps[2].MaxEntries != "262144" {
 		t.Fatalf("maps = %#v, want configured max entries", result.Program.Maps)
 	}
 }
@@ -500,6 +506,28 @@ func OnExec(ctx tracepoint.Exec) i32 {
     return 0
 }
 `,
+		"unknown const": `package probes
+
+@max_entries(CountEntries)
+map Counts hash[u32, u32]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    return 0
+}
+`,
+		"bool const": `package probes
+
+const CountEntries = true
+
+@max_entries(CountEntries)
+map Counts hash[u32, u32]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    return 0
+}
+`,
 		"ringbuf non power of two": `package probes
 
 @max_entries(3000)
@@ -535,6 +563,8 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	want := map[string]string{
 		"string value":             "HZN1206",
 		"zero value":               "HZN1206",
+		"unknown const":            "HZN1206",
+		"bool const":               "HZN1206",
 		"ringbuf non power of two": "HZN1207",
 		"unknown attribute":        "HZN1205",
 		"duplicate attribute":      "HZN1208",
@@ -545,6 +575,19 @@ func OnExec(ctx tracepoint.Exec) i32 {
 			requireDiagnosticCode(t, result, want[name])
 		})
 	}
+}
+
+func TestAnalyzeRejectsNonStringSectionAttributeValue(t *testing.T) {
+	result := analyzeSource(t, "section.hzn", `package probes
+
+const Section = 1
+
+@tracepoint(Section)
+func OnExec(ctx tracepoint.Exec) i32 {
+    return 0
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1302")
 }
 
 func TestAnalyzeRejectsHashLookupDereferenceWithoutNilCheck(t *testing.T) {

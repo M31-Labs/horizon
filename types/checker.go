@@ -69,7 +69,7 @@ func CheckPackage(files []ast.File) [][]diag.Diagnostic {
 					diags[i] = append(diags[i], validateTypeRef(field.Type, knownTypes)...)
 				}
 			case ast.MapDecl:
-				diags[i] = append(diags[i], validateMapDecl(d, knownTypes)...)
+				diags[i] = append(diags[i], validateMapDecl(d, knownTypes, consts)...)
 			case ast.FuncDecl:
 				diags[i] = append(diags[i], validateFuncDecl(d, knownTypes, maps, structs, consts)...)
 			case ast.ConstDecl:
@@ -169,9 +169,9 @@ func fixedArrayType(elem string, len string) ast.TypeRef {
 	return ast.TypeRef{Len: len, Elem: &ast.TypeRef{Name: elem}}
 }
 
-func validateMapDecl(decl ast.MapDecl, known map[string]bool) []diag.Diagnostic {
+func validateMapDecl(decl ast.MapDecl, known map[string]bool, consts map[string]ast.ConstDecl) []diag.Diagnostic {
 	var diags []diag.Diagnostic
-	diags = append(diags, validateMapAttrs(decl)...)
+	diags = append(diags, validateMapAttrs(decl, consts)...)
 	switch decl.Kind {
 	case ast.MapKindRingbuf:
 		if decl.Val.IsZero() {
@@ -214,7 +214,7 @@ func validateMapDecl(decl ast.MapDecl, known map[string]bool) []diag.Diagnostic 
 	return diags
 }
 
-func validateMapAttrs(decl ast.MapDecl) []diag.Diagnostic {
+func validateMapAttrs(decl ast.MapDecl, consts map[string]ast.ConstDecl) []diag.Diagnostic {
 	var diags []diag.Diagnostic
 	seenMaxEntries := false
 	for _, attr := range decl.Attrs {
@@ -230,14 +230,14 @@ func validateMapAttrs(decl ast.MapDecl) []diag.Diagnostic {
 				continue
 			}
 			seenMaxEntries = true
-			value, ok := mapMaxEntriesValue(attr)
+			value, ok := mapMaxEntriesValue(attr, consts)
 			if !ok {
 				diags = append(diags, diag.Diagnostic{
 					Code:     "HZN1206",
 					Severity: diag.SeverityError,
-					Message:  "@max_entries requires one positive integer literal",
+					Message:  "@max_entries requires one positive integer literal or integer const",
 					Primary:  attr.Span,
-					Suggest:  "write `@max_entries(4096)` above the map declaration",
+					Suggest:  "write `@max_entries(4096)` or `@max_entries(MapEntries)` above the map declaration",
 				})
 				continue
 			}
@@ -263,15 +263,30 @@ func validateMapAttrs(decl ast.MapDecl) []diag.Diagnostic {
 	return diags
 }
 
-func mapMaxEntriesValue(attr ast.Attr) (uint64, bool) {
+func mapMaxEntriesValue(attr ast.Attr, consts map[string]ast.ConstDecl) (uint64, bool) {
 	if len(attr.Args) != 1 {
 		return 0, false
 	}
-	value, ok := attr.Args[0].(ast.IntExpr)
-	if !ok {
+	switch value := attr.Args[0].(type) {
+	case ast.IntExpr:
+		return parseMapMaxEntriesLiteral(value.Value)
+	case ast.IdentExpr:
+		constant, ok := consts[value.Name]
+		if !ok {
+			return 0, false
+		}
+		lit, ok := constant.Value.(ast.IntExpr)
+		if !ok {
+			return 0, false
+		}
+		return parseMapMaxEntriesLiteral(lit.Value)
+	default:
 		return 0, false
 	}
-	parsed, err := strconv.ParseUint(value.Value, 0, 32)
+}
+
+func parseMapMaxEntriesLiteral(lit string) (uint64, bool) {
+	parsed, err := strconv.ParseUint(lit, 0, 32)
 	if err != nil || parsed == 0 {
 		return 0, false
 	}
@@ -372,7 +387,7 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 	for _, attr := range decl.Attrs {
 		switch attr.Name {
 		case "tracepoint":
-			if len(attr.Args) != 1 {
+			if !attrHasStringArg(attr) {
 				diags = append(diags, diag.Diagnostic{
 					Code:     "HZN1302",
 					Severity: diag.SeverityError,
@@ -390,7 +405,7 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 				})
 			}
 		case "tc":
-			if len(attr.Args) != 1 {
+			if !attrHasStringArg(attr) {
 				diags = append(diags, diag.Diagnostic{
 					Code:     "HZN1312",
 					Severity: diag.SeverityError,
@@ -410,7 +425,7 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 				})
 			}
 		case "cgroup":
-			if len(attr.Args) != 1 {
+			if !attrHasStringArg(attr) {
 				diags = append(diags, diag.Diagnostic{
 					Code:     "HZN1314",
 					Severity: diag.SeverityError,
@@ -430,7 +445,7 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 				})
 			}
 		case "lsm":
-			if len(attr.Args) != 1 {
+			if !attrHasStringArg(attr) {
 				diags = append(diags, diag.Diagnostic{
 					Code:     "HZN1316",
 					Severity: diag.SeverityError,
@@ -449,7 +464,7 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 				})
 			}
 		case "kprobe":
-			if len(attr.Args) != 1 {
+			if !attrHasStringArg(attr) {
 				diags = append(diags, diag.Diagnostic{
 					Code:     "HZN1310",
 					Severity: diag.SeverityError,
@@ -458,7 +473,7 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 				})
 			}
 		case "kretprobe":
-			if len(attr.Args) != 1 {
+			if !attrHasStringArg(attr) {
 				diags = append(diags, diag.Diagnostic{
 					Code:     "HZN1311",
 					Severity: diag.SeverityError,
@@ -467,7 +482,7 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 				})
 			}
 		case "capability":
-			if len(attr.Args) != 1 {
+			if !attrHasStringArg(attr) {
 				diags = append(diags, diag.Diagnostic{
 					Code:     "HZN1302",
 					Severity: diag.SeverityError,
@@ -2123,6 +2138,14 @@ func attrStringArg(attr ast.Attr) string {
 		return value.Value
 	}
 	return ""
+}
+
+func attrHasStringArg(attr ast.Attr) bool {
+	if len(attr.Args) != 1 {
+		return false
+	}
+	_, ok := attr.Args[0].(ast.StringExpr)
+	return ok
 }
 
 func argCountDiagnostic(primary span.Span, name string, want, got int) diag.Diagnostic {

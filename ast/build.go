@@ -69,8 +69,11 @@ func buildMapDecl(parsed *parser.File, n *gotreesitter.Node) MapDecl {
 			attr := buildAttr(parsed, child)
 			decl.Attrs = append(decl.Attrs, attr)
 			if attr.Name == "max_entries" && len(attr.Args) == 1 {
-				if value, ok := attr.Args[0].(IntExpr); ok {
+				switch value := attr.Args[0].(type) {
+				case IntExpr:
 					decl.MaxEntries = value.Value
+				case IdentExpr:
+					decl.MaxEntries = value.Name
 				}
 			}
 		}

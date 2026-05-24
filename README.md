@@ -100,13 +100,18 @@ func OnExec(ctx tracepoint.Exec) i32 {
 ```
 
 Maps can be sized deliberately with `@max_entries(...)`. Ringbuf sizes are byte
-sizes and must be powers of two; hash and array sizes are entry counts.
+sizes and must be powers of two; hash and array sizes are entry counts. Use a
+literal or an integer constant; Horizon resolves constants before emitting C map
+definitions.
 
 ```go
-@max_entries(4096)
+const CountEntries u32 = 4096
+const EventBytes u32 = 262144
+
+@max_entries(CountEntries)
 map Counts hash[u32, Count]
 
-@max_entries(262144)
+@max_entries(EventBytes)
 map ExecEvents ringbuf[ExecEvent]
 ```
 
@@ -360,13 +365,14 @@ Horizon makes verifier-sensitive behavior explicit before clang runs:
 - writes after ringbuf submit/discard are rejected
 - map lookup results must be nil-checked before field access
 - nullable map, packet, and ringbuf resource pointers cannot be copied or aliased
-- map sizing is explicit through `@max_entries(...)`; ringbuf sizes must be powers of two
+- map sizing is explicit through `@max_entries(...)`; integer constants are resolved before C emission, and ringbuf sizes must be powers of two
 - map update/delete results must be checked with an explicit comparison
 - fixed array fields are address-only; pass `&event.comm` directly to helpers instead of copying arrays
 - conditions must be typed boolean expressions; integers and pointers need explicit comparison
 - parser failures are surfaced as stable diagnostics and never produce generated C
 - integer, bitwise, comparison, and boolean operators are typed before C emission
 - integer width changes are explicit; write `u64(pid)` or `u16(port)` instead of relying on implicit C coercions
+- integer literals are checked against their target scalar width before C emission
 - constants can carry scalar widths, and generated C preserves those widths
 - every program must return an explicit `i32` on every control-flow path
 - only bounded counted loops with numeric literal or integer const upper bounds are accepted

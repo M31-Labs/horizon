@@ -159,6 +159,37 @@ map Counts hash[u32, u32]
 	}
 }
 
+func TestBuildMapAttributeConstReference(t *testing.T) {
+	parsed, err := parser.ParseSource(parser.SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
+
+const CountEntries = 4096
+
+@max_entries(CountEntries)
+map Counts hash[u32, u32]
+`)})
+	if err != nil {
+		t.Fatalf("ParseSource: %v", err)
+	}
+	file, err := Build(parsed)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(file.Decls) != 2 {
+		t.Fatalf("decls = %d, want 2", len(file.Decls))
+	}
+	decl, ok := file.Decls[1].(MapDecl)
+	if !ok {
+		t.Fatalf("decl = %T, want MapDecl", file.Decls[1])
+	}
+	if decl.MaxEntries != "CountEntries" {
+		t.Fatalf("MaxEntries = %q, want CountEntries", decl.MaxEntries)
+	}
+	value, ok := decl.Attrs[0].Args[0].(IdentExpr)
+	if !ok || value.Name != "CountEntries" {
+		t.Fatalf("attr arg = %#v, want ident CountEntries", decl.Attrs[0].Args)
+	}
+}
+
 func TestBuildPerCPUAndLRUMapKinds(t *testing.T) {
 	parsed, err := parser.ParseSource(parser.SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
 

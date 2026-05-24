@@ -91,6 +91,7 @@ func AnalyzePath(root string) (*Result, error) {
 		result.Files[fileIndexes[i]].Diagnostics = diags
 		result.Diagnostics = append(result.Diagnostics, diags...)
 	}
+	resolveMapMaxEntries(files)
 	program, lowerDiags := ir.FromAST(mergeASTFiles(files, packageName))
 	result.Program = program
 	result.Diagnostics = append(result.Diagnostics, lowerDiags...)
@@ -98,6 +99,37 @@ func AnalyzePath(root string) (*Result, error) {
 		result.Diagnostics = append(result.Diagnostics, validate.Program(result.Program)...)
 	}
 	return &result, nil
+}
+
+func resolveMapMaxEntries(files []ast.File) {
+	consts := map[string]string{}
+	for _, file := range files {
+		for _, decl := range file.Decls {
+			constant, ok := decl.(ast.ConstDecl)
+			if !ok {
+				continue
+			}
+			value, ok := constant.Value.(ast.IntExpr)
+			if ok {
+				consts[constant.Name] = value.Value
+			}
+		}
+	}
+	if len(consts) == 0 {
+		return
+	}
+	for i := range files {
+		for j, decl := range files[i].Decls {
+			m, ok := decl.(ast.MapDecl)
+			if !ok {
+				continue
+			}
+			if resolved, ok := consts[m.MaxEntries]; ok {
+				m.MaxEntries = resolved
+				files[i].Decls[j] = m
+			}
+		}
+	}
 }
 
 func mergeASTFiles(files []ast.File, packageName string) ast.File {

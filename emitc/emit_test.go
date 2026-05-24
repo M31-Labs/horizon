@@ -340,8 +340,13 @@ func TestEmitMapMaxEntries(t *testing.T) {
 	path := filepath.Join(dir, "maps.hzn")
 	if err := os.WriteFile(path, []byte(`package probes
 
+const CountEntries = 4096
+
 @max_entries(4096)
 map Counts hash[u32, u32]
+
+@max_entries(CountEntries)
+map ConstCounts hash[u32, u32]
 
 @max_entries(0x40000)
 map Events ringbuf[u32]
@@ -371,6 +376,9 @@ func OnExec(ctx tracepoint.Exec) i32 {
 		if !strings.Contains(out.Code, want) {
 			t.Fatalf("generated C missing %q:\n%s", want, out.Code)
 		}
+	}
+	if strings.Contains(out.Code, "__uint(max_entries, CountEntries);") || strings.Contains(out.Code, "__uint(max_entries, hzn_const_CountEntries);") {
+		t.Fatalf("generated C did not resolve const-backed max_entries:\n%s", out.Code)
 	}
 	if strings.Contains(out.Code, "__uint(max_entries, 1024);") || strings.Contains(out.Code, "__uint(max_entries, 1 << 24);") {
 		t.Fatalf("generated C kept default map sizing:\n%s", out.Code)
