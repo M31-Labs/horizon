@@ -1,0 +1,11 @@
+package probes
+
+type Big struct {
+    payload [600]u8
+}
+
+@tracepoint("sched:sched_process_exec")
+func Bad(ctx tracepoint.Exec) i32 {
+    big := Big{}
+    return 0
+}

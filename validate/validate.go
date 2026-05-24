@@ -8,6 +8,7 @@ import (
 func Program(program ir.Program) []diag.Diagnostic {
 	var diags []diag.Diagnostic
 	diags = append(diags, ValidateLoops(program)...)
+	diags = append(diags, ValidateStack(program)...)
 	diags = append(diags, ValidateRingbuf(program)...)
 	diags = append(diags, ValidateMaps(program)...)
 	diags = append(diags, ValidateHelpers(program)...)

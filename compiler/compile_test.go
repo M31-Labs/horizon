@@ -37,6 +37,7 @@ func TestAnalyzeInvalidRingbufPrograms(t *testing.T) {
 		"../testdata/invalid/current_comm_bad_arg.hzn":       "HZN1415",
 		"../testdata/invalid/unknown_event_field.hzn":        "HZN1406",
 		"../testdata/invalid/packet_unproven_read.hzn":       "HZN2600",
+		"../testdata/invalid/stack_too_large.hzn":            "HZN2700",
 	}
 	for path, code := range tests {
 		result, err := AnalyzePath(path)
