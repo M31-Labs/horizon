@@ -338,7 +338,7 @@ func TestGenerateTypedMapBindings(t *testing.T) {
 	}
 }
 
-func TestGeneratePerCPUMapBindings(t *testing.T) {
+func TestGeneratePerCPUAndLRUMapBindings(t *testing.T) {
 	code, err := Generate(ir.Program{
 		Package: "probes",
 		Structs: []ir.Struct{{
@@ -358,6 +358,16 @@ func TestGeneratePerCPUMapBindings(t *testing.T) {
 			Kind: ir.MapKindPerCPUArray,
 			Key:  ir.Type{Name: "u32"},
 			Val:  ir.Type{Name: "u64"},
+		}, {
+			Name: "Recent",
+			Kind: ir.MapKindLRUHash,
+			Key:  ir.Type{Name: "u32"},
+			Val:  ir.Type{Name: "Count"},
+		}, {
+			Name: "RecentByCPU",
+			Kind: ir.MapKindLRUPerCPU,
+			Key:  ir.Type{Name: "u32"},
+			Val:  ir.Type{Name: "Count"},
 		}},
 	}, "bindings")
 	if err != nil {
@@ -375,6 +385,12 @@ func TestGeneratePerCPUMapBindings(t *testing.T) {
 		"func (o *Objects) LookupSlots(key uint32) ([]uint64, bool, error)",
 		"func (o *Objects) UpdateSlots(key uint32, values []uint64) error",
 		"func (o *Objects) ForEachSlots(handle func(key uint32, values []uint64) error) error",
+		"func (o *Objects) LookupRecent(key uint32) (Count, bool, error)",
+		"func (o *Objects) UpdateRecent(key uint32, value Count) error",
+		"func (o *Objects) DeleteRecent(key uint32) error",
+		"func (o *Objects) LookupRecentByCPU(key uint32) ([]Count, bool, error)",
+		"func (o *Objects) UpdateRecentByCPU(key uint32, values []Count) error",
+		"func (o *Objects) DeleteRecentByCPU(key uint32) error",
 	} {
 		if !strings.Contains(code, want) {
 			t.Fatalf("generated bindings missing %q:\n%s", want, code)

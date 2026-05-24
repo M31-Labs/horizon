@@ -21,7 +21,7 @@ func ValidateMaps(program ir.Program) []diag.Diagnostic {
 					Message:  fmt.Sprintf("ringbuf map %q is missing a value type", m.Name),
 				})
 			}
-		case ir.MapKindHash, ir.MapKindArray, ir.MapKindPerCPUHash, ir.MapKindPerCPUArray:
+		case ir.MapKindHash, ir.MapKindArray, ir.MapKindPerCPUHash, ir.MapKindPerCPUArray, ir.MapKindLRUHash, ir.MapKindLRUPerCPU:
 			if m.Key.Name == "" || m.Val.Name == "" {
 				diags = append(diags, diag.Diagnostic{
 					Code:     "HZN2401",

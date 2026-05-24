@@ -183,7 +183,7 @@ func validateMapDecl(decl ast.MapDecl, known map[string]bool) []diag.Diagnostic 
 			})
 		}
 		diags = append(diags, validateTypeRef(decl.Val, known)...)
-	case ast.MapKindHash, ast.MapKindArray, ast.MapKindPerCPUHash, ast.MapKindPerCPUArray:
+	case ast.MapKindHash, ast.MapKindArray, ast.MapKindPerCPUHash, ast.MapKindPerCPUArray, ast.MapKindLRUHash, ast.MapKindLRUPerCPU:
 		if decl.Key.IsZero() || decl.Val.IsZero() {
 			diags = append(diags, diag.Diagnostic{
 				Code:     "HZN1202",
@@ -208,7 +208,7 @@ func validateMapDecl(decl ast.MapDecl, known map[string]bool) []diag.Diagnostic 
 			Severity: diag.SeverityError,
 			Message:  fmt.Sprintf("unsupported map kind %q", decl.Kind),
 			Primary:  decl.Span,
-			Suggest:  "v0 supports ringbuf[T], hash[K, V], array[K, V], percpu_hash[K, V], and percpu_array[K, V]",
+			Suggest:  "v0 supports ringbuf[T], hash[K, V], array[K, V], percpu_hash[K, V], percpu_array[K, V], lru_hash[K, V], and lru_percpu_hash[K, V]",
 		})
 	}
 	return diags
@@ -1381,7 +1381,7 @@ func (t exprTyper) call(call ast.CallExpr) (valueType, []diag.Diagnostic) {
 				diags = append(diags, diag.Diagnostic{
 					Code:     "HZN1418",
 					Severity: diag.SeverityError,
-					Message:  "lookup is only valid on hash, array, and per-CPU maps",
+					Message:  "lookup is only valid on keyed map kinds",
 					Primary:  call.Span,
 				})
 			}
@@ -1405,7 +1405,7 @@ func (t exprTyper) call(call ast.CallExpr) (valueType, []diag.Diagnostic) {
 				diags = append(diags, diag.Diagnostic{
 					Code:     "HZN1420",
 					Severity: diag.SeverityError,
-					Message:  "update is only valid on hash, array, and per-CPU maps",
+					Message:  "update is only valid on keyed map kinds",
 					Primary:  call.Span,
 				})
 			}
@@ -1439,7 +1439,7 @@ func (t exprTyper) call(call ast.CallExpr) (valueType, []diag.Diagnostic) {
 				diags = append(diags, diag.Diagnostic{
 					Code:     "HZN1423",
 					Severity: diag.SeverityError,
-					Message:  "delete is only valid on hash and per-CPU hash maps",
+					Message:  "delete is only valid on hash-like map kinds",
 					Primary:  call.Span,
 				})
 			}

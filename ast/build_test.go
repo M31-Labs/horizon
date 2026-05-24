@@ -159,11 +159,13 @@ map Counts hash[u32, u32]
 	}
 }
 
-func TestBuildPerCPUMapKinds(t *testing.T) {
+func TestBuildPerCPUAndLRUMapKinds(t *testing.T) {
 	parsed, err := parser.ParseSource(parser.SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
 
 map Counts percpu_hash[u32, u64]
 map Slots percpu_array[u32, u64]
+map Recent lru_hash[u32, u64]
+map RecentByCPU lru_percpu_hash[u32, u64]
 `)})
 	if err != nil {
 		t.Fatalf("ParseSource: %v", err)
@@ -172,8 +174,8 @@ map Slots percpu_array[u32, u64]
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
-	if len(file.Decls) != 2 {
-		t.Fatalf("decls = %#v, want two maps", file.Decls)
+	if len(file.Decls) != 4 {
+		t.Fatalf("decls = %#v, want four maps", file.Decls)
 	}
 	counts, ok := file.Decls[0].(MapDecl)
 	if !ok {
@@ -188,6 +190,20 @@ map Slots percpu_array[u32, u64]
 	}
 	if slots.Kind != MapKindPerCPUArray || slots.Key.Name != "u32" || slots.Val.Name != "u64" {
 		t.Fatalf("slots = %#v, want percpu_array[u32, u64]", slots)
+	}
+	recent, ok := file.Decls[2].(MapDecl)
+	if !ok {
+		t.Fatalf("decl[2] = %T, want MapDecl", file.Decls[2])
+	}
+	if recent.Kind != MapKindLRUHash || recent.Key.Name != "u32" || recent.Val.Name != "u64" {
+		t.Fatalf("recent = %#v, want lru_hash[u32, u64]", recent)
+	}
+	recentByCPU, ok := file.Decls[3].(MapDecl)
+	if !ok {
+		t.Fatalf("decl[3] = %T, want MapDecl", file.Decls[3])
+	}
+	if recentByCPU.Kind != MapKindLRUPerCPU || recentByCPU.Key.Name != "u32" || recentByCPU.Val.Name != "u64" {
+		t.Fatalf("recentByCPU = %#v, want lru_percpu_hash[u32, u64]", recentByCPU)
 	}
 }
 

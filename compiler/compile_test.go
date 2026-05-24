@@ -340,7 +340,7 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	}
 }
 
-func TestAnalyzePerCPUMapsPassAndTrackManifestAccess(t *testing.T) {
+func TestAnalyzePerCPUAndLRUMapsPassAndTrackManifestAccess(t *testing.T) {
 	result := analyzeSource(t, "percpu.hzn", `package probes
 
 type Count struct {
@@ -351,6 +351,12 @@ type Count struct {
 map Counts percpu_hash[u32, Count]
 
 map Slots percpu_array[u32, u64]
+
+@max_entries(64)
+map Recent lru_hash[u32, Count]
+
+@max_entries(64)
+map RecentByCPU lru_percpu_hash[u32, Count]
 
 @capability("kernel.process.exec.count")
 @tracepoint("sched:sched_process_exec")
@@ -370,7 +376,26 @@ func OnExec(ctx tracepoint.Exec) i32 {
         return 0
     }
 
+    if Recent.update(pid, Count{seen: 1}) != 0 {
+        return 0
+    }
+    recent := Recent.lookup(pid)
+    if recent == nil {
+        return 0
+    }
+    recent.seen = recent.seen + 1
+
+    if RecentByCPU.update(pid, Count{seen: 1}) != 0 {
+        return 0
+    }
+
     if Counts.delete(pid) != 0 {
+        return 0
+    }
+    if Recent.delete(pid) != 0 {
+        return 0
+    }
+    if RecentByCPU.delete(pid) != 0 {
         return 0
     }
     return 0
@@ -379,8 +404,8 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	if diag.HasErrors(result.Diagnostics) {
 		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
 	}
-	if len(result.Program.Maps) != 2 {
-		t.Fatalf("maps = %#v, want two", result.Program.Maps)
+	if len(result.Program.Maps) != 4 {
+		t.Fatalf("maps = %#v, want four", result.Program.Maps)
 	}
 	if result.Program.Maps[0].Kind != ir.MapKindPerCPUHash || result.Program.Maps[0].MaxEntries != "128" {
 		t.Fatalf("map[0] = %#v, want configured percpu hash", result.Program.Maps[0])
@@ -388,13 +413,26 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	if result.Program.Maps[1].Kind != ir.MapKindPerCPUArray {
 		t.Fatalf("map[1] = %#v, want percpu array", result.Program.Maps[1])
 	}
+	if result.Program.Maps[2].Kind != ir.MapKindLRUHash || result.Program.Maps[2].MaxEntries != "64" {
+		t.Fatalf("map[2] = %#v, want configured lru hash", result.Program.Maps[2])
+	}
+	if result.Program.Maps[3].Kind != ir.MapKindLRUPerCPU || result.Program.Maps[3].MaxEntries != "64" {
+		t.Fatalf("map[3] = %#v, want configured lru percpu hash", result.Program.Maps[3])
+	}
 	manifest := capability.FromIR(result.Program)
 	if len(manifest.Capabilities) != 1 {
 		t.Fatalf("manifest capabilities = %#v, want one", manifest.Capabilities)
 	}
 	access := manifest.Capabilities[0].Maps
-	if !slices.Contains(access.Read, "Counts") || !slices.Contains(access.Write, "Counts") || !slices.Contains(access.Write, "Slots") {
-		t.Fatalf("map access = %#v, want Counts read/write and Slots write", access)
+	for _, name := range []string{"Counts", "Recent"} {
+		if !slices.Contains(access.Read, name) {
+			t.Fatalf("map access = %#v, want %s read", access, name)
+		}
+	}
+	for _, name := range []string{"Counts", "Slots", "Recent", "RecentByCPU"} {
+		if !slices.Contains(access.Write, name) {
+			t.Fatalf("map access = %#v, want %s write", access, name)
+		}
 	}
 }
 

@@ -370,6 +370,10 @@ func mapType(decl ast.MapDecl) string {
 		return "percpu_hash[" + typeRef(decl.Key) + ", " + typeRef(decl.Val) + "]"
 	case ast.MapKindPerCPUArray:
 		return "percpu_array[" + typeRef(decl.Key) + ", " + typeRef(decl.Val) + "]"
+	case ast.MapKindLRUHash:
+		return "lru_hash[" + typeRef(decl.Key) + ", " + typeRef(decl.Val) + "]"
+	case ast.MapKindLRUPerCPU:
+		return "lru_percpu_hash[" + typeRef(decl.Key) + ", " + typeRef(decl.Val) + "]"
 	default:
 		return string(decl.Kind)
 	}

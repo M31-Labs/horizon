@@ -256,7 +256,7 @@ func validProgramKind(kind string) bool {
 
 func validMapKind(kind string) bool {
 	switch kind {
-	case "ringbuf", "hash", "array", "percpu_hash", "percpu_array":
+	case "ringbuf", "hash", "array", "percpu_hash", "percpu_array", "lru_hash", "lru_percpu_hash":
 		return true
 	default:
 		return false

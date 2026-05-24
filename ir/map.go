@@ -10,6 +10,8 @@ const (
 	MapKindArray       MapKind = "array"
 	MapKindPerCPUHash  MapKind = "percpu_hash"
 	MapKindPerCPUArray MapKind = "percpu_array"
+	MapKindLRUHash     MapKind = "lru_hash"
+	MapKindLRUPerCPU   MapKind = "lru_percpu_hash"
 )
 
 func (k MapKind) IsLookup() bool {
@@ -17,7 +19,7 @@ func (k MapKind) IsLookup() bool {
 }
 
 func (k MapKind) IsHashLike() bool {
-	return k == MapKindHash || k == MapKindPerCPUHash
+	return k == MapKindHash || k == MapKindPerCPUHash || k == MapKindLRUHash || k == MapKindLRUPerCPU
 }
 
 func (k MapKind) IsArrayLike() bool {
@@ -25,7 +27,7 @@ func (k MapKind) IsArrayLike() bool {
 }
 
 func (k MapKind) HasPerCPUValue() bool {
-	return k == MapKindPerCPUHash || k == MapKindPerCPUArray
+	return k == MapKindPerCPUHash || k == MapKindPerCPUArray || k == MapKindLRUPerCPU
 }
 
 type Map struct {

@@ -377,7 +377,7 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	}
 }
 
-func TestEmitPerCPUMapDefinitionsAndWrappers(t *testing.T) {
+func TestEmitPerCPUAndLRUMapDefinitionsAndWrappers(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "percpu.hzn")
 	if err := os.WriteFile(path, []byte(`package probes
@@ -390,6 +390,12 @@ type Count struct {
 map Counts percpu_hash[u32, Count]
 
 map Slots percpu_array[u32, u64]
+
+@max_entries(64)
+map Recent lru_hash[u32, Count]
+
+@max_entries(64)
+map RecentByCPU lru_percpu_hash[u32, Count]
 
 @tracepoint("sched:sched_process_exec")
 func OnExec(ctx tracepoint.Exec) i32 {
@@ -408,7 +414,26 @@ func OnExec(ctx tracepoint.Exec) i32 {
         return 0
     }
 
+    if Recent.update(pid, Count{seen: 1}) != 0 {
+        return 0
+    }
+    recent := Recent.lookup(pid)
+    if recent == nil {
+        return 0
+    }
+    recent.seen = recent.seen + 1
+
+    if RecentByCPU.update(pid, Count{seen: 1}) != 0 {
+        return 0
+    }
+
     if Counts.delete(pid) != 0 {
+        return 0
+    }
+    if Recent.delete(pid) != 0 {
+        return 0
+    }
+    if RecentByCPU.delete(pid) != 0 {
         return 0
     }
     return 0
@@ -431,10 +456,17 @@ func OnExec(ctx tracepoint.Exec) i32 {
 		"__uint(type, BPF_MAP_TYPE_PERCPU_HASH);",
 		"__uint(max_entries, 128);",
 		"__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);",
+		"__uint(type, BPF_MAP_TYPE_LRU_HASH);",
+		"__uint(type, BPF_MAP_TYPE_LRU_PERCPU_HASH);",
 		"static __always_inline struct hzn_type_Count *Counts_lookup(__u32 key)",
 		"static __always_inline long Counts_update(__u32 key, struct hzn_type_Count value)",
 		"static __always_inline long Counts_delete(__u32 key)",
 		"static __always_inline long Slots_update(__u32 key, __u64 value)",
+		"static __always_inline struct hzn_type_Count *Recent_lookup(__u32 key)",
+		"static __always_inline long Recent_update(__u32 key, struct hzn_type_Count value)",
+		"static __always_inline long Recent_delete(__u32 key)",
+		"static __always_inline long RecentByCPU_update(__u32 key, struct hzn_type_Count value)",
+		"static __always_inline long RecentByCPU_delete(__u32 key)",
 	} {
 		if !strings.Contains(out.Code, want) {
 			t.Fatalf("generated C missing %q:\n%s", want, out.Code)

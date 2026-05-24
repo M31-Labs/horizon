@@ -261,12 +261,14 @@ func TestValidateRejectsUnsupportedEnumValues(t *testing.T) {
 	}
 }
 
-func TestValidateAllowsPerCPUMapKinds(t *testing.T) {
+func TestValidateAllowsPerCPUAndLRUMapKinds(t *testing.T) {
 	m := NewManifest("probes")
 	m.Programs = append(m.Programs, Program{Name: "OnExec", Kind: "tracepoint", Section: "tracepoint/sched:sched_process_exec"})
 	m.Maps = append(m.Maps,
 		Map{Name: "Counts", Kind: "percpu_hash", Key: "u32", Value: "u64", MaxEntries: "128"},
 		Map{Name: "Slots", Kind: "percpu_array", Key: "u32", Value: "u64"},
+		Map{Name: "Recent", Kind: "lru_hash", Key: "u32", Value: "u64", MaxEntries: "64"},
+		Map{Name: "RecentByCPU", Kind: "lru_percpu_hash", Key: "u32", Value: "u64", MaxEntries: "64"},
 	)
 	m.Capabilities = append(m.Capabilities, Capability{
 		Name:    "kernel.process.exec.count",
@@ -274,7 +276,7 @@ func TestValidateAllowsPerCPUMapKinds(t *testing.T) {
 		Danger:  "observe",
 		Program: "OnExec",
 		Section: "tracepoint/sched:sched_process_exec",
-		Maps:    MapAccess{Read: []string{"Counts"}, Write: []string{"Counts", "Slots"}},
+		Maps:    MapAccess{Read: []string{"Counts", "Recent"}, Write: []string{"Counts", "Slots", "Recent", "RecentByCPU"}},
 	})
 	if err := Validate(m); err != nil {
 		t.Fatalf("Validate: %v", err)

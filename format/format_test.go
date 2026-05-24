@@ -146,10 +146,12 @@ map Counts hash[u32, u32]
 	}
 }
 
-func TestSourceFormatsPerCPUMaps(t *testing.T) {
+func TestSourceFormatsPerCPUAndLRUMaps(t *testing.T) {
 	got, err := Source(parser.SourceFile{Path: "maps.hzn", Bytes: []byte(`package probes
 map Counts percpu_hash[u32,u64]
 map Slots percpu_array[u32,u64]
+map Recent lru_hash[u32,u64]
+map RecentByCPU lru_percpu_hash[u32,u64]
 `)})
 	if err != nil {
 		t.Fatalf("Source: %v", err)
@@ -159,6 +161,10 @@ map Slots percpu_array[u32,u64]
 map Counts percpu_hash[u32, u64]
 
 map Slots percpu_array[u32, u64]
+
+map Recent lru_hash[u32, u64]
+
+map RecentByCPU lru_percpu_hash[u32, u64]
 `
 	if string(got) != want {
 		t.Fatalf("formatted source mismatch\nwant:\n%s\ngot:\n%s", want, got)

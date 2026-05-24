@@ -874,7 +874,7 @@ struct {
     __uint(max_entries, %s);
 } %s SEC(".maps");
 `, mapMaxEntries(m, "1 << 24"), m.Name)
-	case ir.MapKindHash, ir.MapKindArray, ir.MapKindPerCPUHash, ir.MapKindPerCPUArray:
+	case ir.MapKindHash, ir.MapKindArray, ir.MapKindPerCPUHash, ir.MapKindPerCPUArray, ir.MapKindLRUHash, ir.MapKindLRUPerCPU:
 		mapType := "BPF_MAP_TYPE_HASH"
 		switch m.Kind {
 		case ir.MapKindArray:
@@ -883,6 +883,10 @@ struct {
 			mapType = "BPF_MAP_TYPE_PERCPU_HASH"
 		case ir.MapKindPerCPUArray:
 			mapType = "BPF_MAP_TYPE_PERCPU_ARRAY"
+		case ir.MapKindLRUHash:
+			mapType = "BPF_MAP_TYPE_LRU_HASH"
+		case ir.MapKindLRUPerCPU:
+			mapType = "BPF_MAP_TYPE_LRU_PERCPU_HASH"
 		}
 		fmt.Fprintf(b, `
 struct {
@@ -909,7 +913,7 @@ func emitMapWrappers(b *strings.Builder, m ir.Map, methods map[string]bool) {
 	switch m.Kind {
 	case ir.MapKindRingbuf:
 		emitRingbufWrappers(b, m, methods)
-	case ir.MapKindHash, ir.MapKindArray, ir.MapKindPerCPUHash, ir.MapKindPerCPUArray:
+	case ir.MapKindHash, ir.MapKindArray, ir.MapKindPerCPUHash, ir.MapKindPerCPUArray, ir.MapKindLRUHash, ir.MapKindLRUPerCPU:
 		emitLookupMapWrappers(b, m, methods)
 	}
 }
