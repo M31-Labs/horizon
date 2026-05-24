@@ -286,7 +286,25 @@ func (o *Objects) Update%s(key %s, value %s) error {
 	return o.%s.Update(key, value, ebpf.UpdateAny)
 }
 
-`, mapField, keyType, valueType, valueType, mapField, m.Name, mapField, mapField, keyType, valueType, mapField, m.Name, mapField)
+func (o *Objects) ForEach%s(handle func(key %s, value %s) error) error {
+	if o == nil || o.%s == nil {
+		return fmt.Errorf("%s map is not loaded")
+	}
+	iter := o.%s.Iterate()
+	for {
+		var key %s
+		var value %s
+		if !iter.Next(&key, &value) {
+			break
+		}
+		if err := handle(key, value); err != nil {
+			return err
+		}
+	}
+	return iter.Err()
+}
+
+`, mapField, keyType, valueType, valueType, mapField, m.Name, mapField, mapField, keyType, valueType, mapField, m.Name, mapField, mapField, keyType, valueType, mapField, m.Name, mapField, keyType, valueType)
 	if m.Kind != ir.MapKindHash {
 		return
 	}

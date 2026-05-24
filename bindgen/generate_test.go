@@ -118,9 +118,13 @@ func TestGenerateTypedMapBindings(t *testing.T) {
 		"if errors.Is(err, ebpf.ErrKeyNotExist)",
 		"func (o *Objects) UpdateCounts(key uint32, value Count) error",
 		"return o.Counts.Update(key, value, ebpf.UpdateAny)",
+		"func (o *Objects) ForEachCounts(handle func(key uint32, value Count) error) error",
+		"iter := o.Counts.Iterate()",
+		"return iter.Err()",
 		"func (o *Objects) DeleteCounts(key uint32) error",
 		"func (o *Objects) LookupSlots(key uint32) (uint64, bool, error)",
 		"func (o *Objects) UpdateSlots(key uint32, value uint64) error",
+		"func (o *Objects) ForEachSlots(handle func(key uint32, value uint64) error) error",
 	} {
 		if !strings.Contains(code, want) {
 			t.Fatalf("generated bindings missing %q:\n%s", want, code)
