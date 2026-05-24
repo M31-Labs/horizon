@@ -1,0 +1,41 @@
+name: Language or workbench feature
+description: Propose a Horizon language, validation, emission, binding, or workbench improvement.
+title: "feature: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Horizon is a small Go-shaped DSL with verifier-aware ownership/resource rules and readable generated C. Proposals should preserve that identity.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What authoring or operational pain should Horizon solve?
+    validations:
+      required: true
+  - type: textarea
+    id: shape
+    attributes:
+      label: Proposed shape
+      description: Show the author-facing `.hzn` surface or CLI behavior.
+      render: go
+  - type: textarea
+    id: semantics
+    attributes:
+      label: eBPF semantics
+      description: Explain the verifier, resource, helper, map, or generated-C behavior this would imply.
+    validations:
+      required: true
+  - type: textarea
+    id: safety
+    attributes:
+      label: Safety model
+      description: How should Horizon keep this type-safe and verifier-aware instead of becoming raw C?
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Fit
+      options:
+        - label: This is not a request for broad Go compatibility without explicit eBPF semantics.
+          required: true

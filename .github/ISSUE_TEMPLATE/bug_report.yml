@@ -1,0 +1,55 @@
+name: Bug report
+description: Report a reproducible Horizon compiler, workbench, binding, or diagnostic issue.
+title: "bug: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve Horizon. Do not include secrets, production-only `.hzn` source, private generated artifacts, or sensitive verifier logs.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What failed, and what did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction
+      description: Include the smallest safe `.hzn` snippet and command that reproduces the issue.
+      placeholder: |
+        hzn check ./examples/execwatch
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: Paste Horizon diagnostic codes, clang output, or verifier snippets only if they are safe to share.
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: Horizon version
+      description: Commit SHA, tag, or branch.
+      placeholder: "main @ abc1234"
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, kernel, architecture, Go, clang, LLVM, libbpf, and bpftool versions when relevant.
+      placeholder: |
+        go version
+        clang --version
+        uname -a
+  - type: checkboxes
+    id: hygiene
+    attributes:
+      label: Public hygiene
+      options:
+        - label: I removed secrets, host-specific private paths, and sensitive generated artifacts from this report.
+          required: true
