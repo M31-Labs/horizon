@@ -44,16 +44,22 @@ func runWorkbench(args []string) error {
 		}
 	}
 	if err != nil {
+		if diag.HasErrors(report.Diagnostics) {
+			if !*jsonOut {
+				printDiagnostics(report.Diagnostics)
+			}
+			return errDiagnostics(report.DiagnosticCount)
+		}
 		return err
 	}
 	if !*jsonOut {
 		fmt.Printf("workbench %s: %d artifact(s)\n", report.Status, len(report.Artifacts))
 	}
-	if diag.HasErrors(result.Diagnostics) {
+	if diag.HasErrors(report.Diagnostics) {
 		if !*jsonOut {
-			printDiagnostics(result.Diagnostics)
+			printDiagnostics(report.Diagnostics)
 		}
-		return errDiagnostics(len(result.Diagnostics))
+		return errDiagnostics(report.DiagnosticCount)
 	}
 	return nil
 }
@@ -147,6 +153,21 @@ func writeWorkbenchArtifacts(result *compiler.Result, opts workbenchOptions) (wo
 
 	cOutput, err := emitc.Emit(result.Program)
 	if err != nil {
+		if d, ok := emitc.DiagnosticForError(err); ok {
+			report.Status = "emit_error"
+			report.Diagnostics = append(report.Diagnostics, d)
+			report.DiagnosticCount = len(report.Diagnostics)
+			report.Artifacts = paths.diagnosticArtifacts()
+			if writeErr := writeJSON(paths.Diagnostics, report.Diagnostics); writeErr != nil {
+				return report, writeErr
+			}
+			if writeErr := addArtifactDetails(&report, paths); writeErr != nil {
+				return report, writeErr
+			}
+			if writeErr := writeJSON(paths.Report, report); writeErr != nil {
+				return report, writeErr
+			}
+		}
 		return report, err
 	}
 	cOutput.SourceMap.Generated.Path = paths.C

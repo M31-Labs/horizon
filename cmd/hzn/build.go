@@ -1,6 +1,10 @@
 package main
 
-import "flag"
+import (
+	"flag"
+
+	"m31labs.dev/horizon/compiler/diag"
+)
 
 func runBuild(args []string) error {
 	fs := flag.NewFlagSet("build", flag.ContinueOnError)
@@ -13,10 +17,14 @@ func runBuild(args []string) error {
 	if err != nil {
 		return err
 	}
-	_, err = writeWorkbenchArtifacts(result, workbenchOptions{
+	report, err := writeWorkbenchArtifacts(result, workbenchOptions{
 		OutDir:      *outDir,
 		PackageName: *packageName,
 		Compile:     true,
 	})
+	if err != nil && diag.HasErrors(report.Diagnostics) {
+		printDiagnostics(report.Diagnostics)
+		return errDiagnostics(report.DiagnosticCount)
+	}
 	return err
 }

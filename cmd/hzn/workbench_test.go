@@ -9,7 +9,9 @@ import (
 	"strings"
 	"testing"
 
+	"m31labs.dev/horizon/compiler"
 	"m31labs.dev/horizon/compiler/diag"
+	"m31labs.dev/horizon/ir"
 )
 
 func TestWorkbenchWritesAuthoringArtifactsWithoutObject(t *testing.T) {
@@ -261,6 +263,69 @@ func TestWorkbenchWritesDiagnosticReportForInvalidInput(t *testing.T) {
 	}
 	if !hasDiagnosticCodeLite(diagnostics, "HZN2600") {
 		t.Fatalf("diagnostics artifact = %#v, want HZN2600", diagnostics)
+	}
+}
+
+func TestWorkbenchReportsEmitterDiagnostics(t *testing.T) {
+	outDir := t.TempDir()
+	sourcePath := filepath.Join(t.TempDir(), "bad.hzn")
+	if err := os.WriteFile(sourcePath, []byte("package probes\n"), 0o600); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	result := &compiler.Result{
+		Files: []compiler.FileResult{{Path: sourcePath, Package: "probes"}},
+		Program: ir.Program{
+			Package: "probes",
+			Functions: []ir.Function{{
+				Name:    "Bad",
+				Section: ir.Section{Kind: ir.ProgramTracepoint, Name: "tracepoint/sched/sched_process_exec"},
+				Body: []ir.Block{{
+					Statements: []ir.Statement{{Kind: "while"}},
+				}},
+			}},
+		},
+	}
+
+	report, err := writeWorkbenchArtifacts(result, workbenchOptions{OutDir: outDir})
+	if err == nil {
+		t.Fatal("writeWorkbenchArtifacts succeeded, want emitter error")
+	}
+	if report.Status != "emit_error" {
+		t.Fatalf("status = %q, want emit_error", report.Status)
+	}
+	if report.DiagnosticCount != 1 || !hasDiagnosticCode(report.Diagnostics, "HZN3000") {
+		t.Fatalf("diagnostics = %#v, want HZN3000", report.Diagnostics)
+	}
+	for _, name := range []string{
+		"bad.diagnostics.json",
+		"bad.report.json",
+	} {
+		if _, err := os.Stat(filepath.Join(outDir, name)); err != nil {
+			t.Fatalf("missing emitter diagnostic artifact %s: %v", name, err)
+		}
+	}
+	for _, name := range []string{
+		"bad.bpf.c",
+		"bad.hznmap.json",
+		"bad.bindings.go",
+		"bad.cap.json",
+		"bad.bpf.o",
+	} {
+		if _, err := os.Stat(filepath.Join(outDir, name)); !os.IsNotExist(err) {
+			t.Fatalf("generated artifact %s should not exist for emitter error: %v", name, err)
+		}
+	}
+
+	data, err := os.ReadFile(filepath.Join(outDir, "bad.diagnostics.json"))
+	if err != nil {
+		t.Fatalf("read diagnostics: %v", err)
+	}
+	var diagnostics []diag.Diagnostic
+	if err := json.Unmarshal(data, &diagnostics); err != nil {
+		t.Fatalf("unmarshal diagnostics: %v", err)
+	}
+	if !hasDiagnosticCode(diagnostics, "HZN3000") {
+		t.Fatalf("diagnostics artifact = %#v, want HZN3000", diagnostics)
 	}
 }
 

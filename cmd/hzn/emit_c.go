@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 
+	"m31labs.dev/horizon/compiler/diag"
 	"m31labs.dev/horizon/emitc"
 )
 
@@ -18,6 +19,10 @@ func runEmitC(args []string) error {
 	}
 	output, err := emitc.Emit(result.Program)
 	if err != nil {
+		if d, ok := emitc.DiagnosticForError(err); ok {
+			printDiagnostics([]diag.Diagnostic{d})
+			return errDiagnostics(1)
+		}
 		return err
 	}
 	if *outPath != "" {

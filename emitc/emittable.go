@@ -1,8 +1,10 @@
 package emitc
 
 import (
+	"errors"
 	"fmt"
 
+	"m31labs.dev/horizon/compiler/diag"
 	"m31labs.dev/horizon/compiler/span"
 	"m31labs.dev/horizon/ir"
 )
@@ -23,6 +25,27 @@ func (e UnsupportedNodeError) Error() string {
 		msg += fmt.Sprintf(" at %s:%d:%d", e.Span.File, e.Span.Start.Line, e.Span.Start.Column)
 	}
 	return msg
+}
+
+func DiagnosticForError(err error) (diag.Diagnostic, bool) {
+	var unsupported UnsupportedNodeError
+	if !errors.As(err, &unsupported) {
+		return diag.Diagnostic{}, false
+	}
+	kind := unsupported.Kind
+	if kind == "" {
+		kind = "<empty>"
+	}
+	return diag.Diagnostic{
+		Code:     "HZN3000",
+		Severity: diag.SeverityError,
+		Message:  fmt.Sprintf("cannot emit BPF C for unsupported %s kind %q", unsupported.Node, kind),
+		Primary:  unsupported.Span,
+		Notes: []string{
+			"Horizon only emits compiler-known typed IR into BPF C.",
+		},
+		Suggest: "keep source within Horizon's supported typed DSL subset before code generation",
+	}, true
 }
 
 func validateEmittable(program ir.Program) error {
