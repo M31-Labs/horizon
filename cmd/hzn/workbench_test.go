@@ -60,6 +60,7 @@ func TestWorkbenchWritesAuthoringArtifactsWithoutObject(t *testing.T) {
 		t.Fatalf("object path = %q, want empty without -compile", report.Paths.Object)
 	}
 	assertSourceDetail(t, report, input)
+	assertExecWorkbenchSummary(t, report)
 	if report.DiagnosticCount != 0 {
 		t.Fatalf("diagnostic count = %d, want 0", report.DiagnosticCount)
 	}
@@ -120,6 +121,7 @@ func TestWorkbenchJSONOutput(t *testing.T) {
 		t.Fatalf("diagnostic count = %d, want 0", report.DiagnosticCount)
 	}
 	assertSourceDetail(t, report, input)
+	assertExecWorkbenchSummary(t, report)
 	if len(report.Artifacts) != 6 {
 		t.Fatalf("artifacts = %d, want 6", len(report.Artifacts))
 	}
@@ -639,6 +641,29 @@ func assertSourceDetail(t *testing.T, report workbenchReport, path string) {
 		if (ch < '0' || ch > '9') && (ch < 'a' || ch > 'f') {
 			t.Fatalf("source %s sha256 = %q, want lowercase hex", path, detail.SHA256)
 		}
+	}
+}
+
+func assertExecWorkbenchSummary(t *testing.T, report workbenchReport) {
+	t.Helper()
+	summary := report.Summary
+	if summary.SourceCount != 1 {
+		t.Fatalf("source_count = %d, want 1", summary.SourceCount)
+	}
+	if summary.ProgramCount != 1 || summary.MapCount != 1 || summary.CapabilityCount != 1 || summary.TypeCount != 1 {
+		t.Fatalf("summary counts = %#v, want one program, map, capability, and type", summary)
+	}
+	if !artifactsContain(summary.ProgramKinds, "tracepoint") {
+		t.Fatalf("program_kinds = %#v, want tracepoint", summary.ProgramKinds)
+	}
+	if !artifactsContain(summary.MapKinds, "ringbuf") {
+		t.Fatalf("map_kinds = %#v, want ringbuf", summary.MapKinds)
+	}
+	if !artifactsContain(summary.CapabilityDangers, "observe") {
+		t.Fatalf("capability_dangers = %#v, want observe", summary.CapabilityDangers)
+	}
+	if summary.MinKernel != "5.8" {
+		t.Fatalf("min_kernel = %q, want 5.8", summary.MinKernel)
 	}
 }
 

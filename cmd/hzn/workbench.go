@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"m31labs.dev/horizon/bindgen"
@@ -77,6 +78,7 @@ type workbenchReport struct {
 	Package               string            `json:"package"`
 	Sources               []sourceDetail    `json:"sources,omitempty"`
 	Status                string            `json:"status"`
+	Summary               workbenchSummary  `json:"summary"`
 	Compile               bool              `json:"compile"`
 	Artifacts             []string          `json:"artifacts"`
 	ArtifactDetails       []artifactDetail  `json:"artifact_details,omitempty"`
@@ -99,6 +101,18 @@ type artifactDetail struct {
 	Kind   string `json:"kind"`
 	Size   int64  `json:"size"`
 	SHA256 string `json:"sha256"`
+}
+
+type workbenchSummary struct {
+	SourceCount       int      `json:"source_count"`
+	ProgramCount      int      `json:"program_count"`
+	MapCount          int      `json:"map_count"`
+	CapabilityCount   int      `json:"capability_count"`
+	TypeCount         int      `json:"type_count"`
+	ProgramKinds      []string `json:"program_kinds,omitempty"`
+	MapKinds          []string `json:"map_kinds,omitempty"`
+	CapabilityDangers []string `json:"capability_dangers,omitempty"`
+	MinKernel         string   `json:"min_kernel,omitempty"`
 }
 
 type artifactPaths struct {
@@ -130,6 +144,7 @@ func writeWorkbenchArtifacts(result *compiler.Result, opts workbenchOptions) (wo
 		Package:     result.Program.Package,
 		Sources:     sources,
 		Status:      "generated",
+		Summary:     workbenchSummaryFor(result, sources),
 		Compile:     opts.Compile,
 		Paths:       paths,
 		Diagnostics: diagnosticsForReport(result.Diagnostics),
@@ -144,6 +159,7 @@ func writeWorkbenchArtifacts(result *compiler.Result, opts workbenchOptions) (wo
 		report.Paths.Object = ""
 	}
 	if diag.HasErrors(result.Diagnostics) {
+		report.Summary.applyManifest(capability.FromIR(result.Program))
 		report.Status = "diagnostic_error"
 		report.Artifacts = paths.diagnosticArtifacts()
 		if err := writeJSON(paths.Diagnostics, report.Diagnostics); err != nil {
@@ -160,6 +176,7 @@ func writeWorkbenchArtifacts(result *compiler.Result, opts workbenchOptions) (wo
 
 	cOutput, err := emitc.Emit(result.Program)
 	if err != nil {
+		report.Summary.applyManifest(capability.FromIR(result.Program))
 		if d, ok := emitc.DiagnosticForError(err); ok {
 			report.Status = "emit_error"
 			report.Diagnostics = append(report.Diagnostics, d)
@@ -177,6 +194,8 @@ func writeWorkbenchArtifacts(result *compiler.Result, opts workbenchOptions) (wo
 		}
 		return report, err
 	}
+	manifest := capability.FromIR(result.Program)
+	report.Summary.applyManifest(manifest)
 	cOutput.SourceMap.Generated.Path = paths.C
 	if err := writeFile(paths.C, []byte(cOutput.Code)); err != nil {
 		return report, err
@@ -206,7 +225,6 @@ func writeWorkbenchArtifacts(result *compiler.Result, opts workbenchOptions) (wo
 	if err := writeFile(paths.Bindings, []byte(bindings)); err != nil {
 		return report, err
 	}
-	manifest := capability.FromIR(result.Program)
 	if err := capability.Validate(manifest); err != nil {
 		if d, ok := capability.DiagnosticForError(err); ok {
 			report.Status = "capability_error"
@@ -285,6 +303,57 @@ func collectSourceDetails(files []compiler.FileResult) ([]sourceDetail, error) {
 		})
 	}
 	return details, nil
+}
+
+func workbenchSummaryFor(result *compiler.Result, sources []sourceDetail) workbenchSummary {
+	if result == nil {
+		return workbenchSummary{}
+	}
+	summary := workbenchSummary{
+		SourceCount:     len(sources),
+		ProgramCount:    len(result.Program.Functions),
+		MapCount:        len(result.Program.Maps),
+		CapabilityCount: len(result.Program.Capabilities),
+		TypeCount:       len(result.Program.Structs),
+	}
+	programKinds := map[string]bool{}
+	for _, fn := range result.Program.Functions {
+		if fn.Section.Kind != "" {
+			programKinds[string(fn.Section.Kind)] = true
+		}
+	}
+	mapKinds := map[string]bool{}
+	for _, m := range result.Program.Maps {
+		if m.Kind != "" {
+			mapKinds[string(m.Kind)] = true
+		}
+	}
+	dangers := map[string]bool{}
+	for _, cap := range result.Program.Capabilities {
+		if cap.Danger != "" {
+			dangers[string(cap.Danger)] = true
+		}
+	}
+	summary.ProgramKinds = sortedKeys(programKinds)
+	summary.MapKinds = sortedKeys(mapKinds)
+	summary.CapabilityDangers = sortedKeys(dangers)
+	return summary
+}
+
+func (s *workbenchSummary) applyManifest(manifest capability.Manifest) {
+	if s == nil || manifest.Requirements == nil {
+		return
+	}
+	s.MinKernel = manifest.Requirements.MinKernel
+}
+
+func sortedKeys(values map[string]bool) []string {
+	out := make([]string, 0, len(values))
+	for value := range values {
+		out = append(out, value)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func artifactPathsFor(outDir string, base string) artifactPaths {

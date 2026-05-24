@@ -306,9 +306,12 @@ formatting. The formatter preserves standalone and inline line comments.
 `hzn workbench` is the authoring path: it validates source and writes readable
 BPF C, a source map, typed Go bindings, a capability manifest, diagnostics, and
 a report with source file hashes plus artifact kinds, byte sizes, and SHA-256
-hashes. Each run removes stale artifacts for the target output base before
-writing new ones, records replaced paths, and includes generator/timestamp
-provenance in the report. Invalid programs still produce
+hashes. The report also includes a compact summary of source count, program
+kinds, map kinds, capability danger levels, declared type count, and the
+minimum kernel version implied by generated capabilities. Each run removes
+stale artifacts for the target output base before writing new ones, records
+replaced paths, and includes generator/timestamp provenance in the report.
+Invalid programs still produce
 `<name>.diagnostics.json` and `<name>.report.json`, including parser failures
 before typechecking or C emission can run. Clang failures are remapped into the
 same diagnostics artifact, so editors and automation can show actionable
