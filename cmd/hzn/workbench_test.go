@@ -535,7 +535,7 @@ func TestWorkbenchReportsClangDiagnostics(t *testing.T) {
 		t.Fatalf("write stale object: %v", err)
 	}
 	fakeClang := filepath.Join(fakeBin, "clang")
-	output := cPath + ":57:5: error: synthetic clang failure"
+	output := cPath + ":57:5: error: invalid mem access 'scalar'"
 	script := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' %q >&2\nexit 1\n", output)
 	if err := os.WriteFile(fakeClang, []byte(script), 0o755); err != nil {
 		t.Fatalf("write fake clang: %v", err)
@@ -567,6 +567,9 @@ func TestWorkbenchReportsClangDiagnostics(t *testing.T) {
 	}
 	if report.DiagnosticCount == 0 || !hasDiagnosticCode(report.Diagnostics, "HZN3100") {
 		t.Fatalf("diagnostics = %#v, want HZN3100", report.Diagnostics)
+	}
+	if !strings.Contains(report.Diagnostics[0].Suggest, "nil-check") {
+		t.Fatalf("diagnostic suggest = %q, want verifier remediation", report.Diagnostics[0].Suggest)
 	}
 	if report.Diagnostics[0].Primary.File != "../../testdata/golden/exec/input.hzn" {
 		t.Fatalf("primary file = %q, want authored input", report.Diagnostics[0].Primary.File)

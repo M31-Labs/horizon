@@ -128,6 +128,7 @@ func diagnosticsFromVerifier(remapped []verifier.Diagnostic) []diag.Diagnostic {
 			Severity: severity,
 			Message:  d.Message,
 			Primary:  d.Span,
+			Suggest:  verifierSuggestion(d),
 		}
 		if converted.Primary.IsZero() {
 			converted.Primary = d.Generated
@@ -151,6 +152,32 @@ func diagnosticsFromVerifier(remapped []verifier.Diagnostic) []diag.Diagnostic {
 		out = append(out, converted)
 	}
 	return out
+}
+
+func verifierSuggestion(d verifier.Diagnostic) string {
+	text := strings.ToLower(d.Message + "\n" + d.Raw)
+	switch {
+	case strings.Contains(text, "invalid mem access") || strings.Contains(text, "cannot access"):
+		return "prove pointer safety in .hzn before dereference: nil-check map lookup, ringbuf reserve, or packet helper results and keep using the checked local"
+	case strings.Contains(text, "unreleased reference"):
+		return "submit or discard every ringbuf reservation on all return paths"
+	case strings.Contains(text, "unbounded"):
+		return "use a counted for loop with a literal or integer const upper bound"
+	case strings.Contains(text, "unknown func"):
+		return "use only Horizon compiler-known helpers for this program kind, or add a typed helper wrapper before calling it"
+	case strings.Contains(text, "r0 !read_ok"):
+		return "return an explicit i32 action or value on every control-flow path"
+	case strings.Contains(text, "stack depth"):
+		return "move large local records into maps or ringbuf reservations to stay within the BPF stack limit"
+	case strings.Contains(text, "out of bounds"):
+		return "use Horizon packet helpers and nil checks so bounds are proven before reading packet data"
+	case strings.Contains(text, "permission denied"):
+		return "check the attach type, helper availability, and capability manifest kernel requirements for this program"
+	case strings.Contains(text, "math between"):
+		return "avoid raw pointer arithmetic in .hzn; use compiler-known packet and map helpers that carry verifier-safe bounds"
+	default:
+		return ""
+	}
 }
 
 func sourceMapNote(d verifier.Diagnostic) string {

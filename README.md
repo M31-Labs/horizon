@@ -317,8 +317,10 @@ before typechecking or C emission can run. Clang failures are remapped into the
 same diagnostics artifact, so editors and automation can show actionable
 feedback without scraping terminal output. Remapped diagnostics keep
 the generated BPF C location plus source-map metadata such as Horizon function,
-section, and AST node. Use `-compile` or `hzn build` when the local clang/BPF C
-toolchain should also produce a `.bpf.o`.
+section, and AST node. Common verifier failures also carry Horizon-specific
+remediation hints for nil checks, ringbuf lifetimes, bounded loops, helper
+availability, and stack usage. Use `-compile` or `hzn build` when the local
+clang/BPF C toolchain should also produce a `.bpf.o`.
 
 Generated Go bindings expose typed helpers around the loaded objects: ringbuf
 maps get `Read<Name>(context.Context, func(Event) error)`, hash maps get

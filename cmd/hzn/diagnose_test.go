@@ -96,6 +96,9 @@ func TestDiagnoseLoadsGeneratedSourceBesideSourceMap(t *testing.T) {
 	if diagnostics[0].Primary.Start.Line != 7 {
 		t.Fatalf("primary line = %d, want 7", diagnostics[0].Primary.Start.Line)
 	}
+	if !strings.Contains(diagnostics[0].Suggest, "nil-check") {
+		t.Fatalf("suggest = %q, want pointer safety nil-check guidance", diagnostics[0].Suggest)
+	}
 }
 
 func TestDiagnoseGeneratedFlagTakesValue(t *testing.T) {
@@ -127,6 +130,29 @@ func TestDiagnoseGeneratedFlagTakesValue(t *testing.T) {
 	}
 	if len(diagnostics) != 1 || diagnostics[0].Primary.File != span.FileID(sourcePath) {
 		t.Fatalf("diagnostics = %#v, want remapped authored source", diagnostics)
+	}
+	if !strings.Contains(diagnostics[0].Suggest, "nil-check") {
+		t.Fatalf("suggest = %q, want pointer safety nil-check guidance", diagnostics[0].Suggest)
+	}
+}
+
+func TestDiagnoseAddsVerifierSpecificSuggestions(t *testing.T) {
+	tests := map[string]string{
+		"unreleased reference id=3 alloc_insn=8": "ringbuf reservation",
+		"unbounded loop":                         "counted for loop",
+		"unknown func bpf_bad#999":               "compiler-known helpers",
+		"R0 !read_ok":                            "explicit i32",
+		"stack depth 520":                        "BPF stack limit",
+		"math between fp pointer and register":   "pointer arithmetic",
+	}
+	for raw, want := range tests {
+		diagnostics := diagnosticsFromVerifierLog(raw, ir.SourceMap{}, nil)
+		if len(diagnostics) != 1 {
+			t.Fatalf("diagnostics for %q = %d, want 1", raw, len(diagnostics))
+		}
+		if !strings.Contains(diagnostics[0].Suggest, want) {
+			t.Fatalf("suggest for %q = %q, want containing %q", raw, diagnostics[0].Suggest, want)
+		}
 	}
 }
 
