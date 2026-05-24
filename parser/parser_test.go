@@ -137,6 +137,35 @@ func F(ctx xdp.Context) i32 {
 	}
 }
 
+func TestParseTypedOperators(t *testing.T) {
+	src := SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
+
+const Mask = 0x0f
+
+@xdp
+func F(ctx xdp.Context) i32 {
+    tcp := xdp.tcp(ctx)
+    if tcp == nil {
+        return xdp.Pass
+    }
+    if (xdp.ntohs(tcp.dst_port) == 443) && ((tcp.data_off & Mask) != 0) {
+        return xdp.Drop
+    }
+    return xdp.Pass
+}
+`)}
+	file, err := ParseSource(src)
+	if err != nil {
+		t.Fatalf("ParseSource: %v", err)
+	}
+	if countNamedDescendants(file.Tree.RootNode(), file.Lang, "binary_expression") < 4 {
+		t.Fatalf("binary expression count = %d, want at least 4; tree: %s", countNamedDescendants(file.Tree.RootNode(), file.Lang, "binary_expression"), file.Tree.RootNode().SExpr(file.Lang))
+	}
+	if countNamedDescendants(file.Tree.RootNode(), file.Lang, "parenthesized_expression") < 3 {
+		t.Fatalf("parenthesized expression count = %d, want at least 3; tree: %s", countNamedDescendants(file.Tree.RootNode(), file.Lang, "parenthesized_expression"), file.Tree.RootNode().SExpr(file.Lang))
+	}
+}
+
 func TestParseStructLiteral(t *testing.T) {
 	src := SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
 

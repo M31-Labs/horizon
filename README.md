@@ -11,7 +11,7 @@ It keeps the kernel-side language deliberately small:
 - kprobe and kretprobe programs
 - XDP programs
 - typed structs and fixed arrays
-- decimal integer constants
+- integer constants
 - ringbuf event output
 - hash and array maps
 - nil-checked map lookups
@@ -102,7 +102,9 @@ func DropTCP(ctx xdp.Context) i32 {
     if tcp == nil {
         return xdp.Pass
     }
-    if xdp.ntohs(tcp.dst_port) == 443 {
+
+    port := xdp.ntohs(tcp.dst_port)
+    if (port == 443) && ((tcp.data_off & 0x0f) != 0) {
         return xdp.Drop
     }
 
@@ -163,6 +165,8 @@ Horizon makes verifier-sensitive behavior explicit before clang runs:
 - writes after ringbuf submit/discard are rejected
 - map lookup results must be nil-checked before field access
 - fixed array fields are address-only; pass `&event.comm` directly to helpers instead of copying arrays
+- conditions must be typed boolean expressions; integers and pointers need explicit comparison
+- integer, bitwise, comparison, and boolean operators are typed before C emission
 - only bounded counted loops are accepted
 - helper availability is checked against the program kind
 - packet headers returned by `xdp.eth(ctx)`, `xdp.ipv4(ctx)`, `xdp.tcp(ctx)`, and `xdp.udp(ctx)` must be nil-checked before field access

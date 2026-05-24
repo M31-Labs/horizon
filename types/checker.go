@@ -488,8 +488,9 @@ func validateFuncBody(decl ast.FuncDecl, maps map[string]ast.MapDecl, structs ma
 				})
 			}
 		case ast.IfStmt:
-			_, exprDiags := typeOfExpr(s.Cond, locals, maps, structs)
+			cond, exprDiags := typeOfExpr(s.Cond, locals, maps, structs)
 			diags = append(diags, exprDiags...)
+			diags = append(diags, validateCondition(cond, s.Cond.GetSpan())...)
 			for _, child := range s.Then {
 				checkStmt(child)
 			}
@@ -498,8 +499,9 @@ func validateFuncBody(decl ast.FuncDecl, maps map[string]ast.MapDecl, structs ma
 				checkStmt(s.Init)
 			}
 			if s.Cond != nil {
-				_, exprDiags := typeOfExpr(s.Cond, locals, maps, structs)
+				cond, exprDiags := typeOfExpr(s.Cond, locals, maps, structs)
 				diags = append(diags, exprDiags...)
+				diags = append(diags, validateCondition(cond, s.Cond.GetSpan())...)
 			}
 			if s.Post != nil {
 				checkStmt(s.Post)
@@ -612,9 +614,12 @@ func typeOfExpr(expr ast.Expr, locals map[string]valueType, maps map[string]ast.
 			return operand, diags
 		}
 	case ast.BinaryExpr:
-		_, leftDiags := typeOfExpr(e.Left, locals, maps, structs)
-		_, rightDiags := typeOfExpr(e.Right, locals, maps, structs)
-		return valueType{Name: "bool"}, append(leftDiags, rightDiags...)
+		left, leftDiags := typeOfExpr(e.Left, locals, maps, structs)
+		right, rightDiags := typeOfExpr(e.Right, locals, maps, structs)
+		typ, opDiags := typeOfBinaryExpr(e, left, right)
+		diags := append(leftDiags, rightDiags...)
+		diags = append(diags, opDiags...)
+		return typ, diags
 	case ast.StructLiteralExpr:
 		return typeOfStructLiteral(e, locals, maps, structs)
 	case ast.CallExpr:
@@ -628,6 +633,143 @@ func typeOfExpr(expr ast.Expr, locals map[string]valueType, maps map[string]ast.
 		}}
 	default:
 		return valueType{}, nil
+	}
+}
+
+func validateCondition(cond valueType, primary span.Span) []diag.Diagnostic {
+	if cond.Void || cond.Name == "" {
+		return nil
+	}
+	if cond.Name == "bool" && !cond.Ptr {
+		return nil
+	}
+	return []diag.Diagnostic{{
+		Code:     "HZN1443",
+		Severity: diag.SeverityError,
+		Message:  fmt.Sprintf("condition must be bool, got %s", typeName(cond)),
+		Primary:  primary,
+		Suggest:  "compare explicitly, for example `value != 0` or `ptr != nil`",
+	}}
+}
+
+func typeOfBinaryExpr(expr ast.BinaryExpr, left valueType, right valueType) (valueType, []diag.Diagnostic) {
+	if left.Void || right.Void {
+		return valueType{Void: true}, nil
+	}
+	switch {
+	case isLogicalOp(expr.Op):
+		if left.Name == "bool" && right.Name == "bool" && !left.Ptr && !right.Ptr {
+			return valueType{Name: "bool"}, nil
+		}
+		return valueType{Name: "bool"}, []diag.Diagnostic{{
+			Code:     "HZN1442",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("operator %s expects bool operands, got %s and %s", expr.Op, typeName(left), typeName(right)),
+			Primary:  expr.Span,
+		}}
+	case isEqualityOp(expr.Op):
+		if comparable(left, right) {
+			return valueType{Name: "bool"}, nil
+		}
+		return valueType{Name: "bool"}, []diag.Diagnostic{{
+			Code:     "HZN1440",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("operator %s cannot compare %s and %s", expr.Op, typeName(left), typeName(right)),
+			Primary:  expr.Span,
+		}}
+	case isComparisonOp(expr.Op):
+		if integerOperand(left) && integerOperand(right) && compatibleIntegerOperands(left, right) {
+			return valueType{Name: "bool"}, nil
+		}
+		return valueType{Name: "bool"}, []diag.Diagnostic{{
+			Code:     "HZN1440",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("operator %s expects compatible integer operands, got %s and %s", expr.Op, typeName(left), typeName(right)),
+			Primary:  expr.Span,
+		}}
+	case isShiftOp(expr.Op):
+		if integerOperand(left) && integerOperand(right) {
+			return integerResult(left, right), nil
+		}
+	case isIntegerBinaryOp(expr.Op):
+		if integerOperand(left) && integerOperand(right) && compatibleIntegerOperands(left, right) {
+			return integerResult(left, right), nil
+		}
+	}
+	if isShiftOp(expr.Op) || isIntegerBinaryOp(expr.Op) {
+		return valueType{Name: "untyped_int"}, []diag.Diagnostic{{
+			Code:     "HZN1441",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("operator %s expects compatible integer operands, got %s and %s", expr.Op, typeName(left), typeName(right)),
+			Primary:  expr.Span,
+		}}
+	}
+	return valueType{Void: true}, []diag.Diagnostic{{
+		Code:     "HZN1444",
+		Severity: diag.SeverityError,
+		Message:  fmt.Sprintf("unsupported binary operator %q", expr.Op),
+		Primary:  expr.Span,
+	}}
+}
+
+func comparable(left valueType, right valueType) bool {
+	if left.Name == "nil" {
+		return right.Ptr || right.MaybeNil
+	}
+	if right.Name == "nil" {
+		return left.Ptr || left.MaybeNil
+	}
+	if left.Ptr || right.Ptr {
+		return left.Ptr == right.Ptr && left.Name == right.Name
+	}
+	if left.Name == "bool" || right.Name == "bool" {
+		return left.Name == right.Name
+	}
+	return integerOperand(left) && integerOperand(right) && compatibleIntegerOperands(left, right)
+}
+
+func integerResult(left valueType, right valueType) valueType {
+	if left.Name != "untyped_int" {
+		return left
+	}
+	return right
+}
+
+func integerOperand(t valueType) bool {
+	return t.Name == "untyped_int" || isIntegerScalar(t.Name)
+}
+
+func compatibleIntegerOperands(left valueType, right valueType) bool {
+	return left.Name == "untyped_int" || right.Name == "untyped_int" || left.Name == right.Name
+}
+
+func isLogicalOp(op string) bool {
+	return op == "&&" || op == "||"
+}
+
+func isEqualityOp(op string) bool {
+	return op == "==" || op == "!="
+}
+
+func isComparisonOp(op string) bool {
+	switch op {
+	case "<", "<=", ">", ">=":
+		return true
+	default:
+		return false
+	}
+}
+
+func isShiftOp(op string) bool {
+	return op == "<<" || op == ">>"
+}
+
+func isIntegerBinaryOp(op string) bool {
+	switch op {
+	case "+", "-", "*", "/", "%", "&", "|", "^":
+		return true
+	default:
+		return false
 	}
 }
 

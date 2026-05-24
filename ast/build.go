@@ -263,6 +263,8 @@ func buildExpr(parsed *parser.File, n *gotreesitter.Node) Expr {
 			Right: buildExpr(parsed, n.ChildByFieldName("right", parsed.Lang)),
 			Span:  spanForNode(parsed.Source.FileID, n),
 		}
+	case "parenthesized_expression":
+		return buildExpr(parsed, n.ChildByFieldName("expression", parsed.Lang))
 	default:
 		raw := strings.TrimSpace(text(parsed, n))
 		if raw == "" {
@@ -315,7 +317,9 @@ func operatorText(parsed *parser.File, n *gotreesitter.Node) string {
 			continue
 		}
 		switch tok := text(parsed, child); tok {
-		case "==", "!=", "<=", ">=", "<", ">", "&", "*", "!", "++", "--":
+		case "==", "!=", "<=", ">=", "<", ">", "&&", "||",
+			"+", "-", "*", "/", "%", "&", "|", "^", "<<", ">>",
+			"!", "++", "--":
 			return tok
 		}
 	}

@@ -302,6 +302,46 @@ func DropTCP(ctx xdp.Context) i32 {
 	requireDiagnosticCode(t, result, "HZN1103")
 }
 
+func TestAnalyzeAllowsTypedIntegerAndBooleanOperators(t *testing.T) {
+	result := analyzeSource(t, "counts.hzn", `package probes
+
+import bpf "m31labs.dev/horizon/runtime/kernel"
+
+const Mask = 0x0f
+
+map Counts hash[u32, u32]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    pid := bpf.current_pid()
+    bucket := (pid & Mask) + 1
+    if bucket != 0 && pid > 0 {
+        Counts.update(bucket, pid)
+    }
+    return 0
+}
+`)
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+}
+
+func TestAnalyzeRejectsNonBoolCondition(t *testing.T) {
+	result := analyzeSource(t, "bad_condition.hzn", `package probes
+
+import bpf "m31labs.dev/horizon/runtime/kernel"
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    if bpf.current_pid() {
+        return 0
+    }
+    return 0
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1443")
+}
+
 func TestAnalyzeXDPProgramPasses(t *testing.T) {
 	result := analyzeSource(t, "xdp.hzn", `package probes
 

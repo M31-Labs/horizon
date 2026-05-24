@@ -247,6 +247,7 @@ func HorizonGrammar() *grammargen.Grammar {
 
 	g.Define("expression", grammargen.Choice(
 		grammargen.Sym("binary_expression"),
+		grammargen.Sym("parenthesized_expression"),
 		grammargen.Sym("struct_literal"),
 		grammargen.Sym("call_expression"),
 		grammargen.Sym("unary_expression"),
@@ -256,20 +257,20 @@ func HorizonGrammar() *grammargen.Grammar {
 		grammargen.Sym("identifier"),
 	))
 
-	g.Define("binary_expression", grammargen.PrecLeft(1, grammargen.Seq(
-		grammargen.Field("left", grammargen.Sym("_simple_expression")),
-		grammargen.Field("operator", grammargen.Choice(
-			grammargen.Str("=="),
-			grammargen.Str("!="),
-			grammargen.Str("<="),
-			grammargen.Str(">="),
-			grammargen.Str("<"),
-			grammargen.Str(">"),
-		)),
-		grammargen.Field("right", grammargen.Sym("_simple_expression")),
-	)))
+	g.Define("binary_expression", grammargen.Choice(
+		binaryOp(1, "||"),
+		binaryOp(2, "&&"),
+		binaryOps(3, "==", "!=", "<=", ">=", "<", ">"),
+		binaryOp(4, "|"),
+		binaryOp(5, "^"),
+		binaryOp(6, "&"),
+		binaryOps(7, "<<", ">>"),
+		binaryOps(8, "+", "-"),
+		binaryOps(9, "*", "/", "%"),
+	))
 
 	g.Define("_simple_expression", grammargen.Choice(
+		grammargen.Sym("parenthesized_expression"),
 		grammargen.Sym("struct_literal"),
 		grammargen.Sym("call_expression"),
 		grammargen.Sym("unary_expression"),
@@ -277,6 +278,12 @@ func HorizonGrammar() *grammargen.Grammar {
 		grammargen.Sym("nil_literal"),
 		grammargen.Sym("number_literal"),
 		grammargen.Sym("identifier"),
+	))
+
+	g.Define("parenthesized_expression", grammargen.Seq(
+		grammargen.Str("("),
+		grammargen.Field("expression", grammargen.Sym("expression")),
+		grammargen.Str(")"),
 	))
 
 	g.Define("struct_literal", grammargen.Prec(2, grammargen.Seq(
@@ -334,7 +341,7 @@ func HorizonGrammar() *grammargen.Grammar {
 	g.Define("raw_expr", grammargen.Token(grammargen.Pat(`[^\n\r]+`)))
 	g.Define("nil_literal", grammargen.Str("nil"))
 	g.Define("identifier", grammargen.Token(grammargen.Pat(`[A-Za-z_][A-Za-z0-9_]*`)))
-	g.Define("number_literal", grammargen.Token(grammargen.Pat(`[0-9]+`)))
+	g.Define("number_literal", grammargen.Token(grammargen.Pat(`0[xX][0-9a-fA-F]+|[0-9]+`)))
 	g.Define("string_literal", grammargen.Token(grammargen.Seq(
 		grammargen.Str(`"`),
 		grammargen.Pat(`[^"]*`),
@@ -343,4 +350,20 @@ func HorizonGrammar() *grammargen.Grammar {
 	g.Define("line_comment", grammargen.Token(grammargen.Pat(`//[^\n]*`)))
 
 	return g
+}
+
+func binaryOp(prec int, op string) *grammargen.Rule {
+	return binaryOps(prec, op)
+}
+
+func binaryOps(prec int, ops ...string) *grammargen.Rule {
+	choices := make([]*grammargen.Rule, 0, len(ops))
+	for _, op := range ops {
+		choices = append(choices, grammargen.Str(op))
+	}
+	return grammargen.PrecLeft(prec, grammargen.Seq(
+		grammargen.Field("left", grammargen.Sym("expression")),
+		grammargen.Field("operator", grammargen.Choice(choices...)),
+		grammargen.Field("right", grammargen.Sym("expression")),
+	))
 }

@@ -66,6 +66,7 @@ func Emit(program ir.Program) (Output, error) {
 type cEnv struct {
 	ptrLocals map[string]bool
 	locals    map[string]ir.Type
+	constants map[string]bool
 	structs   map[string]ir.Struct
 	maps      map[string]ir.Map
 }
@@ -74,8 +75,12 @@ func newCEnv(program ir.Program) *cEnv {
 	env := &cEnv{
 		ptrLocals: map[string]bool{},
 		locals:    map[string]ir.Type{},
+		constants: map[string]bool{},
 		structs:   map[string]ir.Struct{},
 		maps:      map[string]ir.Map{},
+	}
+	for _, decl := range program.Constants {
+		env.constants[decl.Name] = true
 	}
 	for _, decl := range program.Structs {
 		env.structs[decl.Name] = decl
@@ -504,6 +509,8 @@ func cType(t ir.Type) string {
 		return "__s64"
 	case "bool":
 		return "bool"
+	case "untyped_int":
+		return "__s64"
 	default:
 		if t.Name != "" {
 			return cStructType(t.Name)
@@ -686,13 +693,19 @@ func cExprType(expr *ir.Expr, env *cEnv) (ir.Type, bool) {
 	}
 	switch expr.Kind {
 	case "ident":
+		if env != nil && env.constants[expr.Name] {
+			return ir.Type{Name: "untyped_int"}, true
+		}
+		if env == nil {
+			return ir.Type{}, false
+		}
 		return env.local(expr.Name)
 	case "int":
 		return ir.Type{Name: "i64"}, true
 	case "nil":
 		return ptrTo(ir.Type{}), true
 	case "binary":
-		return ir.Type{Name: "bool"}, true
+		return cBinaryExprType(expr, env)
 	case "struct_lit":
 		if expr.Name == "" {
 			return ir.Type{}, false
@@ -750,6 +763,45 @@ func cExprType(expr *ir.Expr, env *cEnv) (ir.Type, bool) {
 		}
 	}
 	return ir.Type{}, false
+}
+
+func cBinaryExprType(expr *ir.Expr, env *cEnv) (ir.Type, bool) {
+	if expr == nil {
+		return ir.Type{}, false
+	}
+	if isCBoolOp(expr.Op) {
+		return ir.Type{Name: "bool"}, true
+	}
+	left, leftOK := cExprType(expr.Left, env)
+	right, rightOK := cExprType(expr.Right, env)
+	if !leftOK || !rightOK || !isCIntegerLike(left) || !isCIntegerLike(right) {
+		return ir.Type{}, false
+	}
+	if expr.Op == "<<" || expr.Op == ">>" || left.Name != "untyped_int" {
+		return left, true
+	}
+	if right.Name != "untyped_int" {
+		return right, true
+	}
+	return ir.Type{Name: "i64"}, true
+}
+
+func isCBoolOp(op string) bool {
+	switch op {
+	case "==", "!=", "<", "<=", ">", ">=", "&&", "||":
+		return true
+	default:
+		return false
+	}
+}
+
+func isCIntegerLike(typ ir.Type) bool {
+	switch typ.Name {
+	case "u8", "u16", "u32", "u64", "i8", "i16", "i32", "i64", "untyped_int":
+		return true
+	default:
+		return false
+	}
 }
 
 func selectorExprType(expr *ir.Expr, env *cEnv) (ir.Type, bool) {
@@ -820,7 +872,7 @@ func cExpr(expr *ir.Expr, env *cEnv) string {
 	case "unary":
 		return expr.Op + cExpr(expr.Operand, env)
 	case "binary":
-		return cExpr(expr.Left, env) + " " + expr.Op + " " + cExpr(expr.Right, env)
+		return cBinaryOperand(expr.Left, env) + " " + expr.Op + " " + cBinaryOperand(expr.Right, env)
 	case "call":
 		return cCallExpr(expr, env)
 	case "struct_lit":
@@ -830,6 +882,13 @@ func cExpr(expr *ir.Expr, env *cEnv) string {
 	default:
 		return "0"
 	}
+}
+
+func cBinaryOperand(expr *ir.Expr, env *cEnv) string {
+	if expr != nil && expr.Kind == "binary" {
+		return "(" + cExpr(expr, env) + ")"
+	}
+	return cExpr(expr, env)
 }
 
 func xdpActionC(name string) (string, bool) {
