@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"m31labs.dev/horizon/compiler"
+	"m31labs.dev/horizon/compiler/diag"
 	"m31labs.dev/horizon/ir"
 )
 
@@ -96,6 +97,44 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	}
 	if !strings.Contains(out.Code, "for (__s64 i = 0; i < 4; i++) {") {
 		t.Fatalf("generated C missing bounded for clause:\n%s", out.Code)
+	}
+}
+
+func TestEmitConstBoundedForClause(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "loop.hzn")
+	if err := os.WriteFile(path, []byte(`package probes
+
+const MaxSamples u32 = 4
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    for i := 0; i < MaxSamples; i++ {
+        bpf.current_pid()
+    }
+    return 0
+}
+`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	result, err := compiler.AnalyzePath(dir)
+	if err != nil {
+		t.Fatalf("AnalyzePath: %v", err)
+	}
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+	out, err := Emit(result.Program)
+	if err != nil {
+		t.Fatalf("Emit: %v", err)
+	}
+	for _, needle := range []string{
+		"static const __u32 hzn_const_MaxSamples = 4;",
+		"for (__u32 i = 0; i < hzn_const_MaxSamples; i++) {",
+	} {
+		if !strings.Contains(out.Code, needle) {
+			t.Fatalf("generated C missing %q:\n%s", needle, out.Code)
+		}
 	}
 }
 

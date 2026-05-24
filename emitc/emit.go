@@ -969,7 +969,7 @@ func emitStatement(b *strings.Builder, stmt ir.Statement, program ir.Program, de
 	case "for":
 		loopEnv := env.child()
 		if stmt.Init != nil || stmt.Post != nil {
-			fmt.Fprintf(b, "%sfor (%s; %s; %s) {\n", indent, cForInit(stmt.Init, program, loopEnv), cExpr(stmt.Cond, loopEnv), cForPost(stmt.Post))
+			fmt.Fprintf(b, "%sfor (%s; %s; %s) {\n", indent, cForInit(stmt.Init, loopEnv, loopIndexType(stmt, loopEnv)), cExpr(stmt.Cond, loopEnv), cForPost(stmt.Post))
 		} else if stmt.Cond == nil || stmt.Cond.Kind == "" {
 			fmt.Fprintf(b, "%sfor (;;) {\n", indent)
 		} else {
@@ -1013,13 +1013,16 @@ func reserveType(mapName string, maps []ir.Map) string {
 	return "void"
 }
 
-func cForInit(stmt *ir.Statement, program ir.Program, env *cEnv) string {
+func cForInit(stmt *ir.Statement, env *cEnv, typeHint ir.Type) string {
 	if stmt == nil {
 		return ""
 	}
 	switch stmt.Kind {
 	case "short_var":
 		typ := inferredExprType(stmt.Value, env)
+		if !typeHintIsZero(typeHint) {
+			typ = typeHint
+		}
 		env.setLocal(stmt.Name, typ)
 		return fmt.Sprintf("%s = %s", cDecl(typ, stmt.Name), cExpr(stmt.Value, env))
 	case "assign":
@@ -1027,6 +1030,27 @@ func cForInit(stmt *ir.Statement, program ir.Program, env *cEnv) string {
 	default:
 		return ""
 	}
+}
+
+func loopIndexType(stmt ir.Statement, env *cEnv) ir.Type {
+	if stmt.Init == nil || stmt.Init.Kind != "short_var" || stmt.Init.Name == "" {
+		return ir.Type{}
+	}
+	if stmt.Cond == nil || stmt.Cond.Kind != "binary" || stmt.Cond.Left == nil || stmt.Cond.Right == nil {
+		return ir.Type{}
+	}
+	if stmt.Cond.Left.Kind != "ident" || stmt.Cond.Left.Name != stmt.Init.Name {
+		return ir.Type{}
+	}
+	typ, ok := cExprType(stmt.Cond.Right, env)
+	if !ok || !isCIntegerLike(typ) || typ.Name == "untyped_int" {
+		return ir.Type{}
+	}
+	return typ
+}
+
+func typeHintIsZero(typ ir.Type) bool {
+	return typ.Name == "" && len(typ.Args) == 0 && typ.Len == "" && typ.Elem == nil && !typ.Ptr
 }
 
 func cForPost(stmt *ir.Statement) string {

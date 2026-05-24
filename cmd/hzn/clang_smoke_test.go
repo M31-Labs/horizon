@@ -241,6 +241,41 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	}
 }
 
+func TestConstBoundedLoopCompileSmoke(t *testing.T) {
+	if _, err := os.Stat("/usr/local/include/vmlinux.h"); err != nil {
+		t.Skipf("vmlinux.h not available: %v", err)
+	}
+	if err := run([]string{"doctor"}); err != nil {
+		t.Fatalf("doctor: %v", err)
+	}
+	srcDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(srcDir, "loop.hzn"), []byte(`package probes
+
+const MaxSamples u32 = 4
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    for i := 0; i < MaxSamples; i++ {
+        bpf.current_pid()
+    }
+    return 0
+}
+`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	outDir := t.TempDir()
+	if err := run([]string{"workbench", srcDir, "-o", outDir, "-compile"}); err != nil {
+		t.Fatalf("workbench -compile: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(outDir, "loop.bpf.c"))
+	if err != nil {
+		t.Fatalf("read generated C: %v", err)
+	}
+	if !strings.Contains(string(data), "for (__u32 i = 0; i < hzn_const_MaxSamples; i++) {") {
+		t.Fatalf("generated C missing typed const bounded loop:\n%s", data)
+	}
+}
+
 func TestStructSymbolCollisionCompileSmoke(t *testing.T) {
 	if _, err := os.Stat("/usr/local/include/vmlinux.h"); err != nil {
 		t.Skipf("vmlinux.h not available: %v", err)

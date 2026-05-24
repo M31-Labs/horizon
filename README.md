@@ -273,7 +273,7 @@ Horizon makes verifier-sensitive behavior explicit before clang runs:
 - integer width changes are explicit; write `u64(pid)` or `u16(port)` instead of relying on implicit C coercions
 - constants can carry scalar widths, and generated C preserves those widths
 - every program must return an explicit `i32` on every control-flow path
-- only bounded counted loops are accepted
+- only bounded counted loops with numeric literal or integer const upper bounds are accepted
 - helper availability is checked against the program kind
 - packet headers returned by `xdp.eth(ctx)`, `xdp.ipv4(ctx)`, `xdp.tcp(ctx)`, and `xdp.udp(ctx)` must be nil-checked before field access
 - XDP programs must return named actions such as `xdp.Pass` and `xdp.Drop`, not raw integers
