@@ -102,7 +102,25 @@ func validateXDPPacketHeaders(fn ir.Function) []diag.Diagnostic {
 					oldStates := states
 					states = branchStates
 					walk(stmt.Then)
+					thenStates := states
 					states = oldStates
+					if len(stmt.Else) > 0 {
+						elseStates := clonePacketHeaderStates(oldStates)
+						if state, ok := elseStates[varName]; ok && state.State == "maybe_nil" {
+							state.State = "live"
+							elseStates[varName] = state
+						}
+						states = elseStates
+						walk(stmt.Else)
+						elseStates = states
+						states = oldStates
+						if branchAlwaysReturns(stmt.Then) {
+							states = elseStates
+						} else if branchAlwaysReturns(stmt.Else) {
+							states = thenStates
+						}
+						break
+					}
 					if branchAlwaysReturns(stmt.Then) {
 						if state, ok := states[varName]; ok && state.State == "maybe_nil" {
 							state.State = "live"
@@ -120,10 +138,29 @@ func validateXDPPacketHeaders(fn ir.Function) []diag.Diagnostic {
 					oldStates := states
 					states = branchStates
 					walk(stmt.Then)
+					thenStates := states
 					states = oldStates
+					if len(stmt.Else) > 0 {
+						elseStates := clonePacketHeaderStates(oldStates)
+						if state, ok := elseStates[varName]; ok && state.State == "maybe_nil" {
+							state.State = "nil"
+							elseStates[varName] = state
+						}
+						states = elseStates
+						walk(stmt.Else)
+						elseStates = states
+						states = oldStates
+						if branchAlwaysReturns(stmt.Then) {
+							states = elseStates
+						} else if branchAlwaysReturns(stmt.Else) {
+							states = thenStates
+						}
+						break
+					}
 					break
 				}
 				walk(stmt.Then)
+				walk(stmt.Else)
 			case "for":
 				if stmt.Init != nil {
 					walk([]ir.Statement{*stmt.Init})

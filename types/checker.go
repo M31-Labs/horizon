@@ -494,6 +494,9 @@ func validateFuncBody(decl ast.FuncDecl, maps map[string]ast.MapDecl, structs ma
 			for _, child := range s.Then {
 				checkStmt(child)
 			}
+			for _, child := range s.Else {
+				checkStmt(child)
+			}
 		case ast.ForStmt:
 			if s.Init != nil {
 				checkStmt(s.Init)

@@ -60,6 +60,42 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	}
 }
 
+func TestEmitIfElse(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "branch.hzn")
+	if err := os.WriteFile(path, []byte(`package probes
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    pid := bpf.current_pid()
+    if pid == 0 {
+        return 0
+    } else {
+        return 1
+    }
+}
+`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	result, err := compiler.AnalyzePath(dir)
+	if err != nil {
+		t.Fatalf("AnalyzePath: %v", err)
+	}
+	out, err := Emit(result.Program)
+	if err != nil {
+		t.Fatalf("Emit: %v", err)
+	}
+	for _, want := range []string{
+		"if (pid == 0) {",
+		"} else {",
+		"return 1;",
+	} {
+		if !strings.Contains(out.Code, want) {
+			t.Fatalf("generated C missing %q:\n%s", want, out.Code)
+		}
+	}
+}
+
 func TestEmitHashMapMethods(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "counts.hzn")

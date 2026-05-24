@@ -52,6 +52,7 @@ func (s ReturnStmt) GetSpan() span.Span {
 type IfStmt struct {
 	Cond Expr
 	Then []Stmt
+	Else []Stmt
 	Span span.Span
 }
 

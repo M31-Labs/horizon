@@ -111,6 +111,7 @@ func (e *stackEstimator) walkStatement(stmt ir.Statement) {
 	case "if":
 		e.walkExpr(stmt.Cond)
 		e.walkStatements(stmt.Then)
+		e.walkStatements(stmt.Else)
 	case "for":
 		if stmt.Init != nil {
 			e.walkStatement(*stmt.Init)

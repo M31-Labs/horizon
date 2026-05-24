@@ -77,6 +77,7 @@ func validateTypedLoops(fn ir.Function) []diag.Diagnostic {
 				walk(stmt.Body)
 			case "if":
 				walk(stmt.Then)
+				walk(stmt.Else)
 			}
 		}
 	}

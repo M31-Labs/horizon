@@ -188,6 +188,7 @@ func buildStmt(parsed *parser.File, n *gotreesitter.Node) Stmt {
 		return IfStmt{
 			Cond: buildExpr(parsed, n.ChildByFieldName("condition", parsed.Lang)),
 			Then: buildBlockStatements(parsed, n.ChildByFieldName("consequence", parsed.Lang)),
+			Else: buildElseStatements(parsed, n.ChildByFieldName("alternative", parsed.Lang)),
 			Span: spanForNode(parsed.Source.FileID, n),
 		}
 	case "for_statement":
@@ -216,6 +217,19 @@ func buildStmt(parsed *parser.File, n *gotreesitter.Node) Stmt {
 		}
 		return RawStmt{Text: raw, Span: spanForNode(parsed.Source.FileID, n)}
 	}
+}
+
+func buildElseStatements(parsed *parser.File, n *gotreesitter.Node) []Stmt {
+	if n == nil {
+		return nil
+	}
+	if n.Type(parsed.Lang) == "if_statement" {
+		if stmt := buildStmt(parsed, n); stmt != nil {
+			return []Stmt{stmt}
+		}
+		return nil
+	}
+	return buildBlockStatements(parsed, n)
 }
 
 func buildExpr(parsed *parser.File, n *gotreesitter.Node) Expr {

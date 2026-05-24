@@ -211,6 +211,13 @@ func HorizonGrammar() *grammargen.Grammar {
 		grammargen.Str("if"),
 		grammargen.Field("condition", grammargen.Sym("expression")),
 		grammargen.Field("consequence", grammargen.Sym("block")),
+		grammargen.Optional(grammargen.Seq(
+			grammargen.Str("else"),
+			grammargen.Field("alternative", grammargen.Choice(
+				grammargen.Sym("block"),
+				grammargen.Sym("if_statement"),
+			)),
+		)),
 	))
 
 	g.Define("for_statement", grammargen.Seq(

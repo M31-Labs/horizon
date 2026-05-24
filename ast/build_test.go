@@ -127,6 +127,39 @@ func F(ctx tracepoint.Exec) i32 {
 	}
 }
 
+func TestBuildIfElseAST(t *testing.T) {
+	parsed, err := parser.ParseSource(parser.SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
+
+@tracepoint("sched:sched_process_exec")
+func F(ctx tracepoint.Exec) i32 {
+    pid := bpf.current_pid()
+    if pid == 0 {
+        return 0
+    } else {
+        return 1
+    }
+}
+`)})
+	if err != nil {
+		t.Fatalf("ParseSource: %v", err)
+	}
+	file, err := Build(parsed)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	fn := file.Decls[0].(FuncDecl)
+	stmt, ok := fn.Body[1].(IfStmt)
+	if !ok {
+		t.Fatalf("body[1] = %T, want IfStmt", fn.Body[1])
+	}
+	if len(stmt.Then) != 1 || len(stmt.Else) != 1 {
+		t.Fatalf("if branches = then %d else %d, want 1 and 1", len(stmt.Then), len(stmt.Else))
+	}
+	if _, ok := stmt.Else[0].(ReturnStmt); !ok {
+		t.Fatalf("else[0] = %T, want ReturnStmt", stmt.Else[0])
+	}
+}
+
 func TestBuildConstDeclaration(t *testing.T) {
 	parsed, err := parser.ParseSource(parser.SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
 

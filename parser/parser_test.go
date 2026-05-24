@@ -89,6 +89,33 @@ func F(ctx tracepoint.Exec) i32 {
 	}
 }
 
+func TestParseElseAndElseIf(t *testing.T) {
+	src := SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
+
+@tracepoint("sched:sched_process_exec")
+func F(ctx tracepoint.Exec) i32 {
+    pid := bpf.current_pid()
+    if pid == 0 {
+        return 0
+    } else if pid == 1 {
+        return 1
+    } else {
+        return 2
+    }
+}
+`)}
+	file, err := ParseSource(src)
+	if err != nil {
+		t.Fatalf("ParseSource: %v", err)
+	}
+	if countNamedDescendants(file.Tree.RootNode(), file.Lang, "if_statement") != 2 {
+		t.Fatalf("if statement count = %d, want 2; tree: %s", countNamedDescendants(file.Tree.RootNode(), file.Lang, "if_statement"), file.Tree.RootNode().SExpr(file.Lang))
+	}
+	if countNamedDescendants(file.Tree.RootNode(), file.Lang, "return_statement") != 3 {
+		t.Fatalf("return statement count = %d, want 3; tree: %s", countNamedDescendants(file.Tree.RootNode(), file.Lang, "return_statement"), file.Tree.RootNode().SExpr(file.Lang))
+	}
+}
+
 func TestParseBoundedForClause(t *testing.T) {
 	src := SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
 

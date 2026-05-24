@@ -244,6 +244,11 @@ func statementUsesXDPPacketHelpers(stmt ir.Statement) bool {
 				return true
 			}
 		}
+		for _, child := range stmt.Else {
+			if statementUsesXDPPacketHelpers(child) {
+				return true
+			}
+		}
 	case "for":
 		if stmt.Init != nil && statementUsesXDPPacketHelpers(*stmt.Init) {
 			return true
@@ -607,6 +612,14 @@ func emitStatement(b *strings.Builder, stmt ir.Statement, program ir.Program, de
 		fmt.Fprintf(b, "%sif (%s) {\n", indent, cExpr(stmt.Cond, env))
 		for _, child := range stmt.Then {
 			emitStatement(b, child, program, depth+1, sourceMap, fn, env)
+		}
+		if len(stmt.Else) > 0 {
+			fmt.Fprintf(b, "%s} else {\n", indent)
+			for _, child := range stmt.Else {
+				emitStatement(b, child, program, depth+1, sourceMap, fn, env)
+			}
+			fmt.Fprintf(b, "%s}\n", indent)
+			break
 		}
 		fmt.Fprintf(b, "%s}\n", indent)
 	case "for":

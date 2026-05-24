@@ -233,7 +233,25 @@ func validateTypedRingbuf(fn ir.Function, ringMaps map[string]ir.Map) []diag.Dia
 					oldStates := states
 					states = branchStates
 					walk(stmt.Then)
+					thenStates := states
 					states = oldStates
+					if len(stmt.Else) > 0 {
+						elseStates := cloneReserveStates(oldStates)
+						if state, ok := elseStates[varName]; ok && state.State == "maybe_nil" {
+							state.State = "live"
+							elseStates[varName] = state
+						}
+						states = elseStates
+						walk(stmt.Else)
+						elseStates = states
+						states = oldStates
+						if branchAlwaysReturns(stmt.Then) {
+							states = elseStates
+						} else if branchAlwaysReturns(stmt.Else) {
+							states = thenStates
+						}
+						break
+					}
 					if branchAlwaysReturns(stmt.Then) {
 						if state, ok := states[varName]; ok && state.State == "maybe_nil" {
 							state.State = "live"
@@ -242,7 +260,37 @@ func validateTypedRingbuf(fn ir.Function, ringMaps map[string]ir.Map) []diag.Dia
 					}
 					break
 				}
+				if varName, ok := nilComparedVar(stmt.Cond, "!="); ok {
+					branchStates := cloneReserveStates(states)
+					if state, ok := branchStates[varName]; ok && state.State == "maybe_nil" {
+						state.State = "live"
+						branchStates[varName] = state
+					}
+					oldStates := states
+					states = branchStates
+					walk(stmt.Then)
+					thenStates := states
+					states = oldStates
+					if len(stmt.Else) > 0 {
+						elseStates := cloneReserveStates(oldStates)
+						if state, ok := elseStates[varName]; ok && state.State == "maybe_nil" {
+							state.State = "nil"
+							elseStates[varName] = state
+						}
+						states = elseStates
+						walk(stmt.Else)
+						elseStates = states
+						states = oldStates
+						if branchAlwaysReturns(stmt.Then) {
+							states = elseStates
+						} else if branchAlwaysReturns(stmt.Else) {
+							states = thenStates
+						}
+					}
+					break
+				}
 				walk(stmt.Then)
+				walk(stmt.Else)
 			case "for":
 				walk(stmt.Body)
 			case "return":
@@ -434,7 +482,7 @@ func branchAlwaysReturns(stmts []ir.Statement) bool {
 	if last.Kind == "return" {
 		return true
 	}
-	if last.Kind == "if" && branchAlwaysReturns(last.Then) {
+	if last.Kind == "if" && branchAlwaysReturns(last.Then) && branchAlwaysReturns(last.Else) {
 		return true
 	}
 	return false

@@ -107,7 +107,7 @@ func buildStatement(stmt ast.Stmt) Statement {
 		return Statement{Kind: "return", Value: &value, Span: s.Span}
 	case ast.IfStmt:
 		cond := buildExpr(s.Cond)
-		return Statement{Kind: "if", Cond: &cond, Then: buildStatements(s.Then), Span: s.Span}
+		return Statement{Kind: "if", Cond: &cond, Then: buildStatements(s.Then), Else: buildStatements(s.Else), Span: s.Span}
 	case ast.ForStmt:
 		init := buildStatementPtr(s.Init)
 		cond := buildExpr(s.Cond)
@@ -360,6 +360,7 @@ func mapAccesses(fn Function, maps []Map) capabilityAccess {
 			case "if":
 				visitExpr(stmt.Cond)
 				walk(stmt.Then)
+				walk(stmt.Else)
 			case "for":
 				if stmt.Init != nil {
 					walk([]Statement{*stmt.Init})
@@ -431,6 +432,7 @@ func inferDanger(fn Function) DangerLevel {
 				}
 			case "if":
 				visit(stmt.Then)
+				visit(stmt.Else)
 			case "for":
 				visit(stmt.Body)
 			}

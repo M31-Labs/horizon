@@ -518,6 +518,53 @@ func DropDNS(ctx xdp.Context) i32 {
 	}
 }
 
+func TestAnalyzePacketHeaderElseBranchPasses(t *testing.T) {
+	result := analyzeSource(t, "xdp.hzn", `package probes
+
+@xdp
+func DropTCP(ctx xdp.Context) i32 {
+    tcp := xdp.tcp(ctx)
+    if tcp != nil {
+        if xdp.ntohs(tcp.dst_port) == 443 {
+            return xdp.Drop
+        }
+    } else {
+        return xdp.Pass
+    }
+    return xdp.Pass
+}
+`)
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+}
+
+func TestAnalyzeRingbufElseBranchConsumesReservation(t *testing.T) {
+	result := analyzeSource(t, "else.hzn", `package probes
+
+type Event struct {
+    pid u32
+}
+
+map Events ringbuf[Event]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    event := Events.reserve()
+    if event != nil {
+        event.pid = bpf.current_pid()
+        Events.submit(event)
+    } else {
+        return 0
+    }
+    return 0
+}
+`)
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+}
+
 func TestAnalyzeRejectsFixedArrayValueCopies(t *testing.T) {
 	tests := map[string]string{
 		"local copy": `package probes
