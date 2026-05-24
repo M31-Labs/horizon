@@ -4,10 +4,13 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
+	"m31labs.dev/horizon/bindgen"
 	"m31labs.dev/horizon/capability"
 	"m31labs.dev/horizon/compiler/diag"
+	"m31labs.dev/horizon/emitc"
 	"m31labs.dev/horizon/ir"
 )
 
@@ -143,6 +146,138 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	if diag.HasErrors(result.Diagnostics) {
 		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
 	}
+}
+
+func TestAnalyzeAllowsScalarUserHelpers(t *testing.T) {
+	result := analyzeSource(t, "helpers.hzn", `package probes
+
+func should_count(pid u32) bool {
+    return pid != 0
+}
+
+func normalize_pid(pid u32) u32 {
+    if should_count(pid) {
+        return pid
+    }
+    return 1
+}
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    pid := normalize_pid(bpf.current_pid())
+    if should_count(pid) {
+        return 0
+    }
+    return 0
+}
+`)
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+	if len(result.Program.Functions) != 3 {
+		t.Fatalf("functions = %#v, want two helpers and one eBPF program", result.Program.Functions)
+	}
+	manifest := capability.FromIR(result.Program)
+	if len(manifest.Programs) != 1 || manifest.Programs[0].Name != "OnExec" {
+		t.Fatalf("manifest programs = %#v, want only the eBPF entrypoint", manifest.Programs)
+	}
+	out, err := emitc.Emit(result.Program)
+	if err != nil {
+		t.Fatalf("Emit: %v", err)
+	}
+	for _, want := range []string{
+		"static __always_inline bool hzn_fn_should_count(__u32 pid)",
+		"static __always_inline __u32 hzn_fn_normalize_pid(__u32 pid)",
+		"pid = hzn_fn_normalize_pid(hzn_current_pid())",
+		"if (hzn_fn_should_count(pid))",
+	} {
+		if !strings.Contains(out.Code, want) {
+			t.Fatalf("generated C missing %q:\n%s", want, out.Code)
+		}
+	}
+	bindings, err := bindgen.Generate(result.Program, "bindings")
+	if err != nil {
+		t.Fatalf("bindgen: %v", err)
+	}
+	if strings.Contains(bindings, "ShouldCount *ebpf.Program") || strings.Contains(bindings, "NormalizePid *ebpf.Program") {
+		t.Fatalf("bindings expose helper functions as programs:\n%s", bindings)
+	}
+	if !strings.Contains(bindings, "OnExec *ebpf.Program") {
+		t.Fatalf("bindings missing entrypoint program:\n%s", bindings)
+	}
+}
+
+func TestAnalyzeRejectsEntrypointCalls(t *testing.T) {
+	result := analyzeSource(t, "helpers.hzn", `package probes
+
+@tracepoint("sched:sched_process_exec")
+func Other(ctx tracepoint.Exec) i32 {
+    return 0
+}
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    return Other(ctx)
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1501")
+}
+
+func TestAnalyzeRejectsRecursiveUserHelpers(t *testing.T) {
+	result := analyzeSource(t, "helpers.hzn", `package probes
+
+func a(pid u32) u32 {
+    return b(pid)
+}
+
+func b(pid u32) u32 {
+    return a(pid)
+}
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    pid := a(bpf.current_pid())
+    if pid == 0 {
+        return 0
+    }
+    return 0
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1503")
+}
+
+func TestAnalyzeRejectsNonScalarUserHelperSignatures(t *testing.T) {
+	result := analyzeSource(t, "helpers.hzn", `package probes
+
+type Event struct {
+    pid u32
+}
+
+func event(pid u32) Event {
+    return Event{pid: pid}
+}
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    return 0
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1320")
+}
+
+func TestAnalyzeRejectsUserHelperReturnMismatch(t *testing.T) {
+	result := analyzeSource(t, "helpers.hzn", `package probes
+
+func bad(pid u32) bool {
+    return pid
+}
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    return 0
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1505")
 }
 
 func TestAnalyzeAllowsGuardedDynamicDivisor(t *testing.T) {

@@ -14,6 +14,9 @@ func FromIR(program ir.Program) Manifest {
 	}
 	functions := functionsByName(program.Functions)
 	for _, fn := range program.Functions {
+		if fn.Section.Kind == "" {
+			continue
+		}
 		var caps []string
 		for _, cap := range program.Capabilities {
 			if cap.Program == fn.Name {

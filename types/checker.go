@@ -27,6 +27,7 @@ func CheckPackage(files []ast.File) [][]diag.Diagnostic {
 	maps := map[string]ast.MapDecl{}
 	consts := map[string]ast.ConstDecl{}
 	userStructs := map[string]ast.TypeDecl{}
+	funcs := map[string]ast.FuncDecl{}
 	for i, file := range files {
 		if file.Package == "" {
 			diags[i] = append(diags[i], diag.Diagnostic{
@@ -73,8 +74,12 @@ func CheckPackage(files []ast.File) [][]diag.Diagnostic {
 			if constant, ok := decl.(ast.ConstDecl); ok && constant.Name != "" {
 				consts[constant.Name] = constant
 			}
+			if fn, ok := decl.(ast.FuncDecl); ok && fn.Name != "" {
+				funcs[fn.Name] = fn
+			}
 		}
 	}
+	callGraphDiags := validateFunctionCallGraph(funcs)
 	for i, file := range files {
 		for _, decl := range file.Decls {
 			switch d := decl.(type) {
@@ -83,7 +88,8 @@ func CheckPackage(files []ast.File) [][]diag.Diagnostic {
 			case ast.MapDecl:
 				diags[i] = append(diags[i], validateMapDecl(d, knownTypes, userStructs, consts)...)
 			case ast.FuncDecl:
-				diags[i] = append(diags[i], validateFuncDecl(d, knownTypes, maps, structs, consts)...)
+				diags[i] = append(diags[i], validateFuncDecl(d, knownTypes, maps, structs, consts, funcs)...)
+				diags[i] = append(diags[i], callGraphDiags[d.Name]...)
 			case ast.ConstDecl:
 				diags[i] = append(diags[i], validateConstDecl(d, knownTypes)...)
 			}
@@ -518,18 +524,11 @@ func constDeclType(decl ast.ConstDecl) (valueType, bool) {
 	return typ, ok
 }
 
-func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]ast.MapDecl, structs map[string]ast.TypeDecl, consts map[string]ast.ConstDecl) []diag.Diagnostic {
+func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]ast.MapDecl, structs map[string]ast.TypeDecl, consts map[string]ast.ConstDecl, funcs map[string]ast.FuncDecl) []diag.Diagnostic {
 	var diags []diag.Diagnostic
 	sections := sectionAttrs(decl.Attrs)
-	if len(sections) == 0 {
-		diags = append(diags, diag.Diagnostic{
-			Code:     "HZN1301",
-			Severity: diag.SeverityError,
-			Message:  fmt.Sprintf("function %q is missing an eBPF program section", decl.Name),
-			Primary:  decl.Span,
-			Suggest:  `add @tracepoint("category:event"), @xdp, @tc("ingress"), @cgroup("connect4"), @lsm("file_open"), @kprobe("symbol"), or @kretprobe("symbol") above the function`,
-		})
-	} else if len(sections) > 1 {
+	isHelper := len(sections) == 0
+	if len(sections) > 1 {
 		diags = append(diags, diag.Diagnostic{
 			Code:     "HZN1306",
 			Severity: diag.SeverityError,
@@ -644,6 +643,15 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 					Primary:  attr.Span,
 				})
 			}
+			if isHelper {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1318",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("helper function %q cannot declare a capability", decl.Name),
+					Primary:  attr.Span,
+					Suggest:  "capabilities belong on eBPF entrypoint functions with an explicit section attribute",
+				})
+			}
 		default:
 			diags = append(diags, diag.Diagnostic{
 				Code:     "HZN1303",
@@ -660,23 +668,188 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 		diags = append(diags, validateTypeRef(param.Type, known)...)
 	}
 	diags = append(diags, validateTypeRef(decl.Return, known)...)
+	if isHelper {
+		diags = append(diags, validateHelperSignature(decl)...)
+	} else {
+		if decl.Return.IsZero() {
+			diags = append(diags, diag.Diagnostic{
+				Code:     "HZN1304",
+				Severity: diag.SeverityError,
+				Message:  fmt.Sprintf("function %q must return i32", decl.Name),
+				Primary:  decl.Span,
+			})
+		} else if decl.Return.Name != "i32" {
+			diags = append(diags, diag.Diagnostic{
+				Code:     "HZN1305",
+				Severity: diag.SeverityError,
+				Message:  fmt.Sprintf("function %q returns %s; eBPF programs must return i32 in v0", decl.Name, decl.Return.Name),
+				Primary:  decl.Return.Span,
+			})
+		}
+	}
+	diags = append(diags, validateFuncBody(decl, maps, structs, consts, sections, funcs)...)
+	return diags
+}
+
+func validateHelperSignature(decl ast.FuncDecl) []diag.Diagnostic {
+	var diags []diag.Diagnostic
+	for _, param := range decl.Params {
+		if !helperScalarType(param.Type) {
+			diags = append(diags, diag.Diagnostic{
+				Code:     "HZN1319",
+				Severity: diag.SeverityError,
+				Message:  fmt.Sprintf("helper function %q parameter %q must be a scalar or bool value", decl.Name, param.Name),
+				Primary:  param.Type.Span,
+				Suggest:  "keep reusable helpers scalar-only in v0; pass resources through compiler-known helpers inside an eBPF entrypoint",
+			})
+		}
+	}
 	if decl.Return.IsZero() {
-		diags = append(diags, diag.Diagnostic{
-			Code:     "HZN1304",
+		return append(diags, diag.Diagnostic{
+			Code:     "HZN1320",
 			Severity: diag.SeverityError,
-			Message:  fmt.Sprintf("function %q must return i32", decl.Name),
+			Message:  fmt.Sprintf("helper function %q must return a scalar or bool value", decl.Name),
 			Primary:  decl.Span,
-		})
-	} else if decl.Return.Name != "i32" {
-		diags = append(diags, diag.Diagnostic{
-			Code:     "HZN1305",
-			Severity: diag.SeverityError,
-			Message:  fmt.Sprintf("function %q returns %s; eBPF programs must return i32 in v0", decl.Name, decl.Return.Name),
-			Primary:  decl.Return.Span,
+			Suggest:  "return an explicit scalar value such as i32, u32, u64, or bool",
 		})
 	}
-	diags = append(diags, validateFuncBody(decl, maps, structs, consts, sections)...)
+	if !helperScalarType(decl.Return) {
+		diags = append(diags, diag.Diagnostic{
+			Code:     "HZN1320",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("helper function %q return type must be scalar or bool, got %s", decl.Name, decl.Return.Name),
+			Primary:  decl.Return.Span,
+			Suggest:  "Horizon v0 user helpers are inline scalar helpers; keep resources and records local to entrypoints",
+		})
+	}
 	return diags
+}
+
+func helperScalarType(ref ast.TypeRef) bool {
+	return !ref.IsZero() && !ref.Ptr && ref.Elem == nil && len(ref.Args) == 0 && isScalar(ref.Name)
+}
+
+func validateFunctionCallGraph(funcs map[string]ast.FuncDecl) map[string][]diag.Diagnostic {
+	graph := map[string][]string{}
+	for name, fn := range funcs {
+		if len(sectionAttrs(fn.Attrs)) != 0 {
+			continue
+		}
+		for _, called := range calledFunctionNames(fn.Body, funcs) {
+			calledFn := funcs[called]
+			if len(sectionAttrs(calledFn.Attrs)) == 0 {
+				graph[name] = append(graph[name], called)
+			}
+		}
+	}
+	out := map[string][]diag.Diagnostic{}
+	visiting := map[string]bool{}
+	visited := map[string]bool{}
+	reported := map[string]bool{}
+	var visit func(string) bool
+	visit = func(name string) bool {
+		if visiting[name] {
+			if !reported[name] {
+				fn := funcs[name]
+				out[name] = append(out[name], diag.Diagnostic{
+					Code:     "HZN1503",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("helper function %q participates in a recursive call cycle", name),
+					Primary:  fn.Span,
+					Suggest:  "Horizon helper functions must be acyclic so clang can inline them predictably for the verifier",
+				})
+				reported[name] = true
+			}
+			return true
+		}
+		if visited[name] {
+			return false
+		}
+		visiting[name] = true
+		cyclic := false
+		for _, called := range graph[name] {
+			if visit(called) {
+				cyclic = true
+			}
+		}
+		delete(visiting, name)
+		visited[name] = true
+		return cyclic
+	}
+	for name := range graph {
+		visit(name)
+	}
+	return out
+}
+
+func calledFunctionNames(stmts []ast.Stmt, funcs map[string]ast.FuncDecl) []string {
+	seen := map[string]bool{}
+	var out []string
+	var walkStmt func(ast.Stmt)
+	var walkExpr func(ast.Expr)
+	walkStmt = func(stmt ast.Stmt) {
+		switch s := stmt.(type) {
+		case nil:
+			return
+		case ast.ShortVarStmt:
+			walkExpr(s.Value)
+		case ast.AssignStmt:
+			walkExpr(s.Target)
+			walkExpr(s.Value)
+		case ast.ExprStmt:
+			walkExpr(s.Expr)
+		case ast.ReturnStmt:
+			walkExpr(s.Value)
+		case ast.IfStmt:
+			walkStmt(s.Init)
+			walkExpr(s.Cond)
+			for _, child := range s.Then {
+				walkStmt(child)
+			}
+			for _, child := range s.Else {
+				walkStmt(child)
+			}
+		case ast.ForStmt:
+			walkStmt(s.Init)
+			walkExpr(s.Cond)
+			walkStmt(s.Post)
+			for _, child := range s.Body {
+				walkStmt(child)
+			}
+		}
+	}
+	walkExpr = func(expr ast.Expr) {
+		switch e := expr.(type) {
+		case nil:
+			return
+		case ast.CallExpr:
+			if name, ok := identCallTarget(e.Func); ok {
+				if _, found := funcs[name]; found && !seen[name] {
+					seen[name] = true
+					out = append(out, name)
+				}
+			}
+			walkExpr(e.Func)
+			for _, arg := range e.Args {
+				walkExpr(arg)
+			}
+		case ast.SelectorExpr:
+			walkExpr(e.Operand)
+		case ast.UnaryExpr:
+			walkExpr(e.Expr)
+		case ast.BinaryExpr:
+			walkExpr(e.Left)
+			walkExpr(e.Right)
+		case ast.StructLiteralExpr:
+			for _, field := range e.Fields {
+				walkExpr(field.Value)
+			}
+		}
+	}
+	for _, stmt := range stmts {
+		walkStmt(stmt)
+	}
+	return out
 }
 
 func validateTypeRef(ref ast.TypeRef, known map[string]bool) []diag.Diagnostic {
@@ -785,12 +958,14 @@ type valueType struct {
 	LSMAction    bool
 }
 
-func validateFuncBody(decl ast.FuncDecl, maps map[string]ast.MapDecl, structs map[string]ast.TypeDecl, consts map[string]ast.ConstDecl, sections []sectionSpec) []diag.Diagnostic {
+func validateFuncBody(decl ast.FuncDecl, maps map[string]ast.MapDecl, structs map[string]ast.TypeDecl, consts map[string]ast.ConstDecl, sections []sectionSpec, funcs map[string]ast.FuncDecl) []diag.Diagnostic {
 	locals := initialFuncLocals(decl, consts)
 	checker := funcBodyChecker{
 		maps:           maps,
 		structs:        structs,
+		funcs:          funcs,
 		programSection: programSectionName(sections),
+		returnType:     valueType{Name: decl.Return.Name, Ref: decl.Return, Ptr: decl.Return.Ptr},
 	}
 	checker.checkStatements(decl.Body, locals)
 	if !blockAlwaysReturns(decl.Body) {
@@ -808,7 +983,9 @@ func validateFuncBody(decl ast.FuncDecl, maps map[string]ast.MapDecl, structs ma
 type funcBodyChecker struct {
 	maps           map[string]ast.MapDecl
 	structs        map[string]ast.TypeDecl
+	funcs          map[string]ast.FuncDecl
 	programSection string
+	returnType     valueType
 	diags          []diag.Diagnostic
 }
 
@@ -841,7 +1018,7 @@ func (c *funcBodyChecker) add(diags ...diag.Diagnostic) {
 }
 
 func (c *funcBodyChecker) typeOf(expr ast.Expr, locals map[string]valueType) (valueType, []diag.Diagnostic) {
-	return typeOfExpr(expr, locals, c.maps, c.structs)
+	return typeOfExpr(expr, locals, c.maps, c.structs, c.funcs)
 }
 
 func (c *funcBodyChecker) checkStatements(stmts []ast.Stmt, locals map[string]valueType) {
@@ -1088,9 +1265,49 @@ func (c *funcBodyChecker) checkReturn(s ast.ReturnStmt, locals map[string]valueT
 	if s.Value != nil {
 		primary = s.Value.GetSpan()
 	}
+	if c.programSection == "" {
+		if d, ok := helperReturnDiagnostic(c.returnType, value, s.Value != nil, primary); ok {
+			c.add(d)
+		}
+		return
+	}
 	if d, ok := returnDiagnostic(c.programSection, value, s.Value != nil, primary); ok {
 		c.add(d)
 	}
+}
+
+func helperReturnDiagnostic(target valueType, value valueType, hasValue bool, primary span.Span) (diag.Diagnostic, bool) {
+	if !hasValue {
+		return diag.Diagnostic{
+			Code:     "HZN1504",
+			Severity: diag.SeverityError,
+			Message:  "helper functions must return an explicit scalar or bool value",
+			Primary:  primary,
+			Suggest:  "return a value matching the helper signature",
+		}, true
+	}
+	if isFixedArray(value) {
+		return diag.Diagnostic{
+			Code:     "HZN1432",
+			Severity: diag.SeverityError,
+			Message:  "fixed array values cannot be returned in Horizon v0",
+			Primary:  primary,
+			Suggest:  "keep fixed arrays inside typed records and pass field addresses to compiler-known helpers",
+		}, true
+	}
+	if !assignable(target, value) {
+		if d, ok := assignabilityDiagnostic(
+			"HZN1505",
+			fmt.Sprintf("cannot return %s from helper returning %s", typeName(value), typeName(target)),
+			target,
+			value,
+			primary,
+		); ok {
+			return d, true
+		}
+		return diag.Diagnostic{Code: "HZN1505", Severity: diag.SeverityError, Message: fmt.Sprintf("cannot return %s from helper returning %s", typeName(value), typeName(target)), Primary: primary}, true
+	}
+	return diag.Diagnostic{}, false
 }
 
 func returnDiagnostic(programSection string, value valueType, hasValue bool, primary span.Span) (diag.Diagnostic, bool) {
@@ -1449,11 +1666,12 @@ func cloneValueTypes(in map[string]valueType) map[string]valueType {
 	return out
 }
 
-func typeOfExpr(expr ast.Expr, locals map[string]valueType, maps map[string]ast.MapDecl, structs map[string]ast.TypeDecl) (valueType, []diag.Diagnostic) {
+func typeOfExpr(expr ast.Expr, locals map[string]valueType, maps map[string]ast.MapDecl, structs map[string]ast.TypeDecl, funcs map[string]ast.FuncDecl) (valueType, []diag.Diagnostic) {
 	return exprTyper{
 		locals:  locals,
 		maps:    maps,
 		structs: structs,
+		funcs:   funcs,
 	}.typeOf(expr)
 }
 
@@ -1461,6 +1679,7 @@ type exprTyper struct {
 	locals  map[string]valueType
 	maps    map[string]ast.MapDecl
 	structs map[string]ast.TypeDecl
+	funcs   map[string]ast.FuncDecl
 }
 
 func (t exprTyper) typeOf(expr ast.Expr) (valueType, []diag.Diagnostic) {
@@ -2020,12 +2239,17 @@ func (t exprTyper) call(call ast.CallExpr) (valueType, []diag.Diagnostic) {
 	if name, ok := identCallTarget(call.Func); ok && isIntegerScalar(name) {
 		return t.scalarConversion(name, call)
 	}
+	if name, ok := identCallTarget(call.Func); ok {
+		if fn, found := t.funcs[name]; found {
+			return t.userFunctionCall(fn, call)
+		}
+	}
 	root, method, ok := selectorParts(call.Func)
 	if !ok {
 		return valueType{}, []diag.Diagnostic{{
 			Code:     "HZN1410",
 			Severity: diag.SeverityError,
-			Message:  "only compiler-known helper and map method calls are supported",
+			Message:  "only user helper, compiler-known helper, and map method calls are supported",
 			Primary:  call.Span,
 		}}
 	}
@@ -2193,6 +2417,39 @@ func (t exprTyper) call(call ast.CallExpr) (valueType, []diag.Diagnostic) {
 		Message:  fmt.Sprintf("unknown call target %q", root),
 		Primary:  call.Span,
 	}}
+}
+
+func (t exprTyper) userFunctionCall(fn ast.FuncDecl, call ast.CallExpr) (valueType, []diag.Diagnostic) {
+	if len(sectionAttrs(fn.Attrs)) != 0 {
+		return valueType{}, []diag.Diagnostic{{
+			Code:     "HZN1501",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("cannot call eBPF entrypoint function %q", fn.Name),
+			Primary:  call.Span,
+			Suggest:  "put reusable scalar logic in a sectionless helper function",
+		}}
+	}
+	result := valueType{Name: fn.Return.Name, Ref: fn.Return, Ptr: fn.Return.Ptr}
+	if len(call.Args) != len(fn.Params) {
+		return result, []diag.Diagnostic{argCountDiagnostic(call.Span, fn.Name, len(fn.Params), len(call.Args))}
+	}
+	var diags []diag.Diagnostic
+	for i, argExpr := range call.Args {
+		arg, argDiags := t.typeOf(argExpr)
+		diags = append(diags, argDiags...)
+		param := fn.Params[i]
+		paramType := valueType{Name: param.Type.Name, Ref: param.Type, Ptr: param.Type.Ptr}
+		if d, ok := assignabilityDiagnostic(
+			"HZN1502",
+			fmt.Sprintf("%s argument %q expects %s, got %s", fn.Name, param.Name, typeName(paramType), typeName(arg)),
+			paramType,
+			arg,
+			argExpr.GetSpan(),
+		); ok {
+			diags = append(diags, d)
+		}
+	}
+	return result, diags
 }
 
 func (t exprTyper) scalarConversion(name string, call ast.CallExpr) (valueType, []diag.Diagnostic) {

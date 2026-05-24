@@ -344,7 +344,7 @@ func workbenchSummaryFor(result *compiler.Result, sources []sourceDetail) workbe
 	}
 	summary := workbenchSummary{
 		SourceCount:     len(sources),
-		ProgramCount:    len(result.Program.Functions),
+		ProgramCount:    workbenchProgramCount(result.Program),
 		MapCount:        len(result.Program.Maps),
 		CapabilityCount: len(result.Program.Capabilities),
 		TypeCount:       len(result.Program.Structs),
@@ -371,6 +371,16 @@ func workbenchSummaryFor(result *compiler.Result, sources []sourceDetail) workbe
 	summary.MapKinds = sortedKeys(mapKinds)
 	summary.CapabilityDangers = sortedKeys(dangers)
 	return summary
+}
+
+func workbenchProgramCount(program ir.Program) int {
+	count := 0
+	for _, fn := range program.Functions {
+		if fn.Section.Kind != "" {
+			count++
+		}
+	}
+	return count
 }
 
 func (s *workbenchSummary) applyManifest(manifest capability.Manifest) {

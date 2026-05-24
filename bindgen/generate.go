@@ -177,6 +177,9 @@ func (g *generator) validateObjectFieldNames() error {
 		}
 	}
 	for _, fn := range g.program.Functions {
+		if !isBPFProgramFunction(fn) {
+			continue
+		}
 		if err := names.addAt(fmt.Sprintf("program %q", fn.Name), exported(fn.Name), fn.Span); err != nil {
 			return g.identifierError(err)
 		}
@@ -193,6 +196,9 @@ func (g *generator) validateObjectMethodNames() error {
 		}
 	}
 	for _, fn := range g.program.Functions {
+		if !isBPFProgramFunction(fn) {
+			continue
+		}
 		if err := addAttachMethodNames(names, fn); err != nil {
 			return g.identifierError(err)
 		}
@@ -334,6 +340,9 @@ func (g *generator) emitObjects() {
 		fmt.Fprintf(&g.b, "\t%s *ebpf.Map `ebpf:%q`\n", exported(m.Name), m.Name)
 	}
 	for _, fn := range g.program.Functions {
+		if !isBPFProgramFunction(fn) {
+			continue
+		}
 		fmt.Fprintf(&g.b, "\t%s *ebpf.Program `ebpf:%q`\n", exported(fn.Name), fn.Name)
 	}
 	g.b.WriteString("}\n\n")
@@ -380,6 +389,9 @@ func (g *generator) emitClose() {
 		fmt.Fprintf(&g.b, "\tif o.%s != nil {\n\t\terr = errors.Join(err, o.%s.Close())\n\t}\n", exported(m.Name), exported(m.Name))
 	}
 	for _, fn := range g.program.Functions {
+		if !isBPFProgramFunction(fn) {
+			continue
+		}
 		fmt.Fprintf(&g.b, "\tif o.%s != nil {\n\t\terr = errors.Join(err, o.%s.Close())\n\t}\n", exported(fn.Name), exported(fn.Name))
 	}
 	g.b.WriteString("\treturn err\n}\n\n")
@@ -398,6 +410,9 @@ func (g *generator) emitMapHelpers() {
 
 func (g *generator) emitAttachHelpers() {
 	for _, fn := range g.program.Functions {
+		if !isBPFProgramFunction(fn) {
+			continue
+		}
 		emitAttach(&g.b, fn)
 	}
 }
@@ -547,7 +562,7 @@ func emitImports(b *bytes.Buffer, program ir.Program) {
 	if needsRingbuf {
 		std = append(std, "bytes", "context", "encoding/binary")
 	}
-	if len(program.Maps)+len(program.Functions) > 0 || needsRingbuf {
+	if len(program.Maps)+bpfProgramCount(program) > 0 || needsRingbuf {
 		std = append(std, "errors")
 	}
 	std = append(std, "fmt")
@@ -580,6 +595,20 @@ func emitImports(b *bytes.Buffer, program ir.Program) {
 
 func isLookupMap(m ir.Map) bool {
 	return m.Kind.IsLookup() && m.Key.Name != "" && m.Val.Name != ""
+}
+
+func isBPFProgramFunction(fn ir.Function) bool {
+	return fn.Section.Kind != ""
+}
+
+func bpfProgramCount(program ir.Program) int {
+	count := 0
+	for _, fn := range program.Functions {
+		if isBPFProgramFunction(fn) {
+			count++
+		}
+	}
+	return count
 }
 
 func hasRingbuf(program ir.Program) bool {

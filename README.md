@@ -27,6 +27,7 @@ It keeps the kernel-side language deliberately small:
 - explicit integer scalar conversions such as `u64(pid)`
 - explicitly typed constants such as `const Port u16 = 443`
 - signed constants such as `const Errno i32 = -1`
+- scalar user helper functions that lower to `static __always_inline` C
 - compiler-known kernel helpers
 - typed kprobe argument and kretprobe return helpers
 - readable generated BPF C
@@ -97,6 +98,36 @@ func OnExec(ctx tracepoint.Exec) i32 {
 
     if count := Counts.lookup(pid); count != nil {
         count.seen = count.seen + 1
+    }
+    return 0
+}
+```
+
+Reusable logic belongs in small scalar helpers, not in raw C fragments. A
+sectionless `func` is a Horizon user helper: it can be called from eBPF
+entrypoints or other helpers, must be acyclic, and lowers to readable
+`static __always_inline` C so clang and the verifier still see the final code.
+In v0, helper parameters and return values are scalar or bool values; resource
+ownership stays visible inside the function that reserves or looks up the
+resource.
+
+```go
+func should_count(pid u32) bool {
+    return pid != 0
+}
+
+func normalize_pid(pid u32) u32 {
+    if should_count(pid) {
+        return pid
+    }
+    return 1
+}
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    pid := normalize_pid(bpf.current_pid())
+    if should_count(pid) {
+        return 0
     }
     return 0
 }
@@ -428,6 +459,8 @@ Horizon makes verifier-sensitive behavior explicit before clang runs:
 - dynamic shift counts must be proven non-negative and below the shifted value width with a simple guard
 - constants can carry scalar widths, and generated C preserves those widths
 - constants are immutable; use locals for values that change inside a program
+- sectionless functions are user helpers, not eBPF programs; they are emitted as `static __always_inline` C, must be non-recursive, and currently accept and return only scalar or bool values
+- eBPF entrypoint functions cannot be called like helpers; share logic through sectionless helpers so attachable programs remain explicit
 - short variable declarations introduce fresh local names only; use `=` to update existing locals, and do not shadow maps or compiler namespaces
 - every program must return an explicit `i32` on every control-flow path
 - bare `return` is rejected; tracing programs should use `return 0`, while packet and policy programs should return named actions

@@ -174,15 +174,59 @@ func typeStructDependencies(typ ir.Type, structs map[string]ir.Struct) []string 
 }
 
 func (e *cEmitter) emitFunctions() error {
+	e.emitFunctionPrototypes()
 	for _, fn := range e.program.Functions {
-		if err := e.emitFunction(fn); err != nil {
+		if isUserFunction(fn) {
+			if err := e.emitUserFunction(fn); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := e.emitProgramFunction(fn); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (e *cEmitter) emitFunction(fn ir.Function) error {
+func (e *cEmitter) emitFunctionPrototypes() {
+	emitted := false
+	for _, fn := range e.program.Functions {
+		if !isUserFunction(fn) {
+			continue
+		}
+		if !emitted {
+			e.b.WriteByte('\n')
+			emitted = true
+		}
+		fmt.Fprintf(&e.b, "static __always_inline %s %s(%s);\n", cType(fn.Return), cUserFunctionName(fn.Name), cParams(fn.Params))
+	}
+}
+
+func (e *cEmitter) emitUserFunction(fn ir.Function) error {
+	env := newCEnv(e.program)
+	for _, param := range fn.Params {
+		env.setLocal(param.Name, param.Type)
+	}
+	startLine := generatedLine(&e.b)
+	fmt.Fprintf(&e.b, "\nstatic __always_inline %s %s(%s) {\n", cType(fn.Return), cUserFunctionName(fn.Name), cParams(fn.Params))
+	statements := cStatementEmitter{
+		b:         &e.b,
+		program:   e.program,
+		sourceMap: &e.sourceMap,
+		fn:        fn,
+	}
+	for _, stmt := range functionStatements(fn) {
+		if err := statements.emit(stmt, 1, env); err != nil {
+			return err
+		}
+	}
+	e.b.WriteString("}\n")
+	addSourceMapping(&e.sourceMap, fn.Span, "helper_function", fn.Name, "", startLine, generatedLine(&e.b))
+	return nil
+}
+
+func (e *cEmitter) emitProgramFunction(fn ir.Function) error {
 	env := newCEnv(e.program)
 	for _, param := range fn.Params {
 		env.setLocal(param.Name, param.Type)
@@ -205,6 +249,10 @@ func (e *cEmitter) emitFunction(fn ir.Function) error {
 	e.b.WriteString("}\n")
 	addSourceMapping(&e.sourceMap, fn.Span, "function", fn.Name, fn.Section.Name, startLine, generatedLine(&e.b))
 	return nil
+}
+
+func isUserFunction(fn ir.Function) bool {
+	return fn.Section.Kind == "" && fn.Section.Name == "" && fn.Section.Attach == ""
 }
 
 func (e *cEmitter) emitMapped(source span.Span, node string, function string, section string, emit func()) {
@@ -254,6 +302,7 @@ type cEnv struct {
 	constants map[string]ir.Type
 	structs   map[string]ir.Struct
 	maps      map[string]ir.Map
+	functions map[string]ir.Function
 }
 
 func newCEnv(program ir.Program) *cEnv {
@@ -263,6 +312,7 @@ func newCEnv(program ir.Program) *cEnv {
 		constants: map[string]ir.Type{},
 		structs:   map[string]ir.Struct{},
 		maps:      map[string]ir.Map{},
+		functions: map[string]ir.Function{},
 	}
 	for _, decl := range program.Constants {
 		env.constants[decl.Name] = constType(decl)
@@ -275,6 +325,9 @@ func newCEnv(program ir.Program) *cEnv {
 	}
 	for _, m := range program.Maps {
 		env.maps[m.Name] = m
+	}
+	for _, fn := range program.Functions {
+		env.functions[fn.Name] = fn
 	}
 	return env
 }
@@ -290,6 +343,7 @@ func (e *cEnv) child() *cEnv {
 		constants: e.constants,
 		structs:   e.structs,
 		maps:      e.maps,
+		functions: e.functions,
 	}
 }
 
@@ -1303,6 +1357,21 @@ func cDecl(t ir.Type, name string) string {
 	return fmt.Sprintf("%s %s", cType(t), name)
 }
 
+func cParams(params []ir.Param) string {
+	if len(params) == 0 {
+		return "void"
+	}
+	out := make([]string, 0, len(params))
+	for _, param := range params {
+		out = append(out, cDecl(param.Type, param.Name))
+	}
+	return strings.Join(out, ", ")
+}
+
+func cUserFunctionName(name string) string {
+	return "hzn_fn_" + cIdent(name)
+}
+
 func cContext(fn ir.Function) string {
 	name := contextParamName(fn)
 	switch fn.Section.Kind {
@@ -1641,6 +1710,11 @@ func (t cExprTyper) call(expr *ir.Expr) (ir.Type, bool) {
 	if name := qualifiedName(expr.Func); name != "" {
 		if isScalarConversionCall(expr) {
 			return ir.Type{Name: name}, true
+		}
+		if t.env != nil {
+			if fn, ok := t.env.functions[name]; ok && isUserFunction(fn) {
+				return fn.Return, true
+			}
 		}
 		if typ, ok := knownCallType(name); ok {
 			return typ, true
@@ -2120,6 +2194,11 @@ func (e cExprEmitter) call(expr *ir.Expr) string {
 		return fmt.Sprintf("%s_%s(%s)", mapName, method, e.args(expr.Args))
 	}
 	if name := qualifiedName(expr.Func); name != "" {
+		if e.env != nil {
+			if fn, ok := e.env.functions[name]; ok && isUserFunction(fn) {
+				return fmt.Sprintf("%s(%s)", cUserFunctionName(name), e.args(expr.Args))
+			}
+		}
 		if rendered, ok := e.knownCall(expr, name); ok {
 			return rendered
 		}

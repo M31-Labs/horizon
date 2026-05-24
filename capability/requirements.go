@@ -23,7 +23,10 @@ func requirementsFromIR(program ir.Program) Requirements {
 func requirementsForCapability(program ir.Program, cap ir.Capability, fn ir.Function) Requirements {
 	var reqs requirementBuilder
 	reqs.addProgram(fn.Section.Kind)
-	reqs.walkFunction(fn)
+	functions := functionsByName(program.Functions)
+	for _, reachable := range reachableFunctions(fn, functions) {
+		reqs.walkFunction(reachable)
+	}
 	maps := mapsByName(program.Maps)
 	for _, name := range capabilityMapNames(cap.Maps) {
 		if m, ok := maps[name]; ok {
@@ -31,6 +34,99 @@ func requirementsForCapability(program ir.Program, cap ir.Capability, fn ir.Func
 		}
 	}
 	return reqs.build()
+}
+
+func reachableFunctions(root ir.Function, functions map[string]ir.Function) []ir.Function {
+	var out []ir.Function
+	visited := map[string]bool{}
+	var visit func(ir.Function)
+	visit = func(fn ir.Function) {
+		if fn.Name == "" || visited[fn.Name] {
+			return
+		}
+		visited[fn.Name] = true
+		out = append(out, fn)
+		for _, called := range calledUserFunctions(fn) {
+			if next, ok := functions[called]; ok && next.Section.Kind == "" {
+				visit(next)
+			}
+		}
+	}
+	visit(root)
+	return out
+}
+
+func calledUserFunctions(fn ir.Function) []string {
+	seen := map[string]bool{}
+	var out []string
+	var walkStmt func(ir.Statement)
+	var walkExpr func(*ir.Expr)
+	walkStmt = func(stmt ir.Statement) {
+		switch stmt.Kind {
+		case "short_var":
+			walkExpr(stmt.Value)
+		case "assign":
+			walkExpr(stmt.Target)
+			walkExpr(stmt.Value)
+		case "expr":
+			walkExpr(stmt.Expr)
+		case "return":
+			walkExpr(stmt.Value)
+		case "if":
+			if stmt.Init != nil {
+				walkStmt(*stmt.Init)
+			}
+			walkExpr(stmt.Cond)
+			for _, child := range stmt.Then {
+				walkStmt(child)
+			}
+			for _, child := range stmt.Else {
+				walkStmt(child)
+			}
+		case "for":
+			if stmt.Init != nil {
+				walkStmt(*stmt.Init)
+			}
+			walkExpr(stmt.Cond)
+			if stmt.Post != nil {
+				walkStmt(*stmt.Post)
+			}
+			for _, child := range stmt.Body {
+				walkStmt(child)
+			}
+		}
+	}
+	walkExpr = func(expr *ir.Expr) {
+		if expr == nil {
+			return
+		}
+		if expr.Kind == "call" && expr.Func != nil && expr.Func.Kind == "ident" && !seen[expr.Func.Name] {
+			seen[expr.Func.Name] = true
+			out = append(out, expr.Func.Name)
+		}
+		walkExpr(expr.Operand)
+		walkExpr(expr.Left)
+		walkExpr(expr.Right)
+		walkExpr(expr.Func)
+		for i := range expr.Args {
+			walkExpr(&expr.Args[i])
+		}
+		for i := range expr.Fields {
+			walkExpr(&expr.Fields[i].Value)
+		}
+	}
+	for _, stmt := range functionStatements(fn) {
+		walkStmt(stmt)
+	}
+	return out
+}
+
+func functionStatements(fn ir.Function) []ir.Statement {
+	var out []ir.Statement
+	for _, block := range fn.Body {
+		out = append(out, block.Statements...)
+	}
+	return out
 }
 
 func mapsByName(maps []ir.Map) map[string]ir.Map {

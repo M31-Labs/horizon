@@ -331,6 +331,14 @@ func validateCallExpr(env *cEnv, expr *ir.Expr) error {
 		}
 		return validateArgs(env, expr.Args)
 	}
+	if expr.Func.Kind == "ident" && env != nil {
+		if fn, ok := env.functions[expr.Func.Name]; ok && isUserFunction(fn) {
+			if err := validateArgCount(expr, fn.Name, len(fn.Params)); err != nil {
+				return err
+			}
+			return validateArgs(env, expr.Args)
+		}
+	}
 	if expr.Func.Kind == "selector" && expr.Func.Operand != nil && expr.Func.Operand.Kind == "ident" {
 		root := expr.Func.Operand.Name
 		method := expr.Func.Field
