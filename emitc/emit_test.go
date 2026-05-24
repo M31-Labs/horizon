@@ -911,6 +911,7 @@ func TestEmitProbeContextHelpers(t *testing.T) {
 
 type Event struct {
     dfd i32
+    path [256]u8
     rc  i64
 }
 
@@ -923,6 +924,10 @@ func OnOpen(ctx kprobe.Context) i32 {
         return 0
     }
     event.dfd = i32(kprobe.arg1(ctx))
+    if bpf.probe_read_user_str(&event.path, kprobe.arg2(ctx)) < 0 {
+        Events.discard(event)
+        return 0
+    }
     Events.submit(event)
     return 0
 }
@@ -952,9 +957,15 @@ func OnOpenReturn(ctx kretprobe.Context) i32 {
 	for _, want := range []string{
 		"static __always_inline __u64 hzn_kprobe_arg1(struct pt_regs *ctx)",
 		"return (__u64)PT_REGS_PARM1(ctx);",
+		"static __always_inline __u64 hzn_kprobe_arg2(struct pt_regs *ctx)",
+		"return (__u64)PT_REGS_PARM2(ctx);",
+		"static __always_inline long hzn_probe_read_user_str(void *dst, __u32 size, const void *unsafe_ptr)",
+		"return bpf_probe_read_user_str(dst, size, unsafe_ptr);",
 		"static __always_inline __s64 hzn_kretprobe_ret(struct pt_regs *ctx)",
 		"return (__s64)PT_REGS_RC(ctx);",
 		"event->dfd = (__s32)(hzn_kprobe_arg1(ctx));",
+		"if (hzn_probe_read_user_str(&event->path, sizeof(event->path), (const void *)(long)hzn_kprobe_arg2(ctx)) < 0) {",
+		"Events_discard(event);",
 		"__s64 rc = hzn_kretprobe_ret(ctx);",
 		`SEC("kretprobe/do_sys_openat2")`,
 	} {
@@ -962,8 +973,8 @@ func OnOpenReturn(ctx kretprobe.Context) i32 {
 			t.Fatalf("generated C missing %q:\n%s", want, out.Code)
 		}
 	}
-	if strings.Contains(out.Code, "hzn_kprobe_arg2") {
-		t.Fatalf("generated C contains unused arg2 helper:\n%s", out.Code)
+	if strings.Contains(out.Code, "hzn_kprobe_arg3") {
+		t.Fatalf("generated C contains unused arg3 helper:\n%s", out.Code)
 	}
 }
 

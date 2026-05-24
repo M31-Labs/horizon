@@ -358,6 +358,8 @@ func validateBPFCall(expr *ir.Expr, method string) error {
 		return validateArgCount(expr, "bpf."+method, 0)
 	case "current_comm":
 		return validateArgCount(expr, "bpf.current_comm", 1)
+	case "probe_read_user_str":
+		return validateArgCount(expr, "bpf.probe_read_user_str", 2)
 	default:
 		return unsupportedExpr(expr, "bpf."+method)
 	}

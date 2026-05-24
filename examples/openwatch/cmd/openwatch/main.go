@@ -23,6 +23,7 @@ type openEvent struct {
 	Pid  uint32
 	Uid  uint32
 	Comm [16]uint8
+	Path [256]uint8
 }
 
 type objects struct {
@@ -79,7 +80,7 @@ func run(objPath string, timeout time.Duration) error {
 		_ = reader.Close()
 	}()
 
-	fmt.Println("PID\tUID\tCOMM")
+	fmt.Println("PID\tUID\tCOMM\tPATH")
 	for {
 		record, err := reader.Read()
 		if err != nil {
@@ -92,7 +93,7 @@ func run(objPath string, timeout time.Duration) error {
 		if err := binary.Read(bytes.NewReader(record.RawSample), binary.LittleEndian, &event); err != nil {
 			return fmt.Errorf("decode OpenEvent: %w", err)
 		}
-		fmt.Printf("%d\t%d\t%s\n", event.Pid, event.Uid, commString(event.Comm))
+		fmt.Printf("%d\t%d\t%s\t%s\n", event.Pid, event.Uid, byteString(event.Comm[:]), byteString(event.Path[:]))
 	}
 }
 
@@ -108,10 +109,10 @@ func closeObjects(objs *objects) {
 	}
 }
 
-func commString(comm [16]uint8) string {
-	n := bytes.IndexByte(comm[:], 0)
+func byteString(value []uint8) string {
+	n := bytes.IndexByte(value, 0)
 	if n < 0 {
-		n = len(comm)
+		n = len(value)
 	}
-	return strings.TrimSpace(string(comm[:n]))
+	return strings.TrimSpace(string(value[:n]))
 }

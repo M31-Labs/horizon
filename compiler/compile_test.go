@@ -1781,6 +1781,7 @@ func TestAnalyzeKprobeArgumentHelpersPass(t *testing.T) {
 
 type ArgEvent struct {
     dfd i32
+    path [256]u8
 }
 
 map Events ringbuf[ArgEvent]
@@ -1792,6 +1793,10 @@ func OnOpen(ctx kprobe.Context) i32 {
         return 0
     }
     event.dfd = i32(kprobe.arg1(ctx))
+    if bpf.probe_read_user_str(&event.path, kprobe.arg2(ctx)) < 0 {
+        Events.discard(event)
+        return 0
+    }
     Events.submit(event)
     return 0
 }
@@ -1799,6 +1804,81 @@ func OnOpen(ctx kprobe.Context) i32 {
 	if diag.HasErrors(result.Diagnostics) {
 		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
 	}
+}
+
+func TestAnalyzeRejectsUncheckedProbeReadUserString(t *testing.T) {
+	result := analyzeSource(t, "open.hzn", `package probes
+
+type ArgEvent struct {
+    path [256]u8
+}
+
+map Events ringbuf[ArgEvent]
+
+@kprobe("do_sys_openat2")
+func OnOpen(ctx kprobe.Context) i32 {
+    event := Events.reserve()
+    if event == nil {
+        return 0
+    }
+    bpf.probe_read_user_str(&event.path, kprobe.arg2(ctx))
+    Events.submit(event)
+    return 0
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1446")
+}
+
+func TestAnalyzeRejectsProbeReadUserStringOutsideKprobe(t *testing.T) {
+	result := analyzeSource(t, "open.hzn", `package probes
+
+type ArgEvent struct {
+    path [256]u8
+}
+
+map Events ringbuf[ArgEvent]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    event := Events.reserve()
+    if event == nil {
+        return 0
+    }
+    if bpf.probe_read_user_str(&event.path, 0) < 0 {
+        Events.discard(event)
+        return 0
+    }
+    Events.submit(event)
+    return 0
+}
+`)
+	requireDiagnosticCode(t, result, "HZN2300")
+}
+
+func TestAnalyzeRejectsProbeReadUserStringBadDestination(t *testing.T) {
+	result := analyzeSource(t, "open.hzn", `package probes
+
+type ArgEvent struct {
+    pid u32
+}
+
+map Events ringbuf[ArgEvent]
+
+@kprobe("do_sys_openat2")
+func OnOpen(ctx kprobe.Context) i32 {
+    event := Events.reserve()
+    if event == nil {
+        return 0
+    }
+    if bpf.probe_read_user_str(&event.pid, kprobe.arg2(ctx)) < 0 {
+        Events.discard(event)
+        return 0
+    }
+    Events.submit(event)
+    return 0
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1474")
 }
 
 func TestAnalyzeKretprobeProgramPasses(t *testing.T) {
@@ -2244,10 +2324,32 @@ func OnExec(ctx tracepoint.Exec) i32 {
     return 0
 }
 `,
+		"probe read before nil check": `package probes
+
+type Event struct {
+    path [256]u8
+}
+
+map Events ringbuf[Event]
+
+@kprobe("do_sys_openat2")
+func OnOpen(ctx kprobe.Context) i32 {
+    event := Events.reserve()
+    if bpf.probe_read_user_str(&event.path, kprobe.arg2(ctx)) < 0 {
+        return 0
+    }
+    if event == nil {
+        return 0
+    }
+    Events.submit(event)
+    return 0
+}
+`,
 	}
 	want := map[string]string{
-		"missing nil check": "HZN2100",
-		"after submit":      "HZN2103",
+		"missing nil check":           "HZN2100",
+		"after submit":                "HZN2103",
+		"probe read before nil check": "HZN2100",
 	}
 	for name, source := range tests {
 		t.Run(name, func(t *testing.T) {

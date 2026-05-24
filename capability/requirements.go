@@ -164,6 +164,8 @@ func compilerHelperRequirements(name string) []string {
 		return []string{"bpf_get_current_uid_gid"}
 	case "bpf.current_comm":
 		return []string{"bpf_get_current_comm"}
+	case "bpf.probe_read_user_str":
+		return []string{"bpf_probe_read_user_str"}
 	case "bpf.ktime_get_ns":
 		return []string{"bpf_ktime_get_ns"}
 	default:
@@ -231,6 +233,8 @@ func helperMinKernel(name string) string {
 	case "bpf_get_current_task":
 		return "4.8"
 	case "bpf_probe_read_kernel":
+		return "5.5"
+	case "bpf_probe_read_user_str":
 		return "5.5"
 	case "bpf_ktime_get_ns":
 		return "4.1"

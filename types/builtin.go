@@ -8,4 +8,5 @@ const (
 	BuiltinCurrentUID  Builtin = "current_uid"
 	BuiltinCurrentComm Builtin = "current_comm"
 	BuiltinKtimeGetNS  Builtin = "ktime_get_ns"
+	BuiltinReadUserStr Builtin = "probe_read_user_str"
 )

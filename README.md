@@ -198,6 +198,7 @@ import bpf "m31labs.dev/horizon/runtime/kernel"
 type OpenEvent struct {
     pid u32
     dfd i32
+    path [256]u8
 }
 
 map OpenEvents ringbuf[OpenEvent]
@@ -212,6 +213,10 @@ func OnOpen(ctx kprobe.Context) i32 {
 
     event.pid = bpf.current_pid()
     event.dfd = i32(kprobe.arg1(ctx))
+    if bpf.probe_read_user_str(&event.path, kprobe.arg2(ctx)) < 0 {
+        OpenEvents.discard(event)
+        return 0
+    }
 
     OpenEvents.submit(event)
     return 0
@@ -390,7 +395,7 @@ Horizon makes verifier-sensitive behavior explicit before clang runs:
 - every program must return an explicit `i32` on every control-flow path
 - only bounded counted loops with numeric literal or integer const upper bounds are accepted
 - helper availability is checked against the program kind
-- kprobe arguments and kretprobe return registers are exposed through typed helper calls, not direct `pt_regs` access
+- kprobe arguments, safe user string reads, and kretprobe return registers are exposed through typed helper calls, not direct `pt_regs` access
 - packet headers returned by `xdp.eth(ctx)`, `xdp.ipv4(ctx)`, `xdp.tcp(ctx)`, and `xdp.udp(ctx)` must be nil-checked before field access
 - XDP programs must return named actions such as `xdp.Pass` and `xdp.Drop`, not raw integers
 - TC programs must declare `@tc("ingress")` or `@tc("egress")` and return named actions such as `tc.OK` and `tc.Shot`, not raw integers

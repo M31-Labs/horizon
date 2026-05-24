@@ -1830,6 +1830,32 @@ func (t exprTyper) helperCall(name string, call ast.CallExpr) (valueType, []diag
 			})
 		}
 		return valueType{Void: true}, diags
+	case "probe_read_user_str":
+		if len(call.Args) != 2 {
+			return valueType{Name: "i64", Fallible: "bpf.probe_read_user_str"}, []diag.Diagnostic{argCountDiagnostic(call.Span, "bpf.probe_read_user_str", 2, len(call.Args))}
+		}
+		dst, dstDiags := t.typeOf(call.Args[0])
+		ptr, ptrDiags := t.typeOf(call.Args[1])
+		diags := append(dstDiags, ptrDiags...)
+		if !dst.Ptr || !isU8FixedArray(dst) {
+			diags = append(diags, diag.Diagnostic{
+				Code:     "HZN1474",
+				Severity: diag.SeverityError,
+				Message:  "bpf.probe_read_user_str expects a pointer to a fixed [N]u8 destination",
+				Primary:  call.Args[0].GetSpan(),
+				Suggest:  "declare a fixed byte array field such as `path [256]u8` and pass `&event.path`",
+			})
+		}
+		if d, ok := assignabilityDiagnostic(
+			"HZN1475",
+			fmt.Sprintf("bpf.probe_read_user_str expects a u64 user pointer, got %s", typeName(ptr)),
+			valueType{Name: "u64"},
+			ptr,
+			call.Args[1].GetSpan(),
+		); ok {
+			diags = append(diags, d)
+		}
+		return valueType{Name: "i64", Fallible: "bpf.probe_read_user_str"}, diags
 	default:
 		return valueType{}, []diag.Diagnostic{{
 			Code:     "HZN1416",
@@ -2009,6 +2035,10 @@ func negateIntegerLiteral(lit string) string {
 
 func isFixedArray(t valueType) bool {
 	return t.Ref.Len != "" && t.Ref.Elem != nil
+}
+
+func isU8FixedArray(t valueType) bool {
+	return t.Ref.Len != "" && t.Ref.Elem != nil && t.Ref.Elem.Name == "u8"
 }
 
 func isTrackedPointer(t valueType) bool {

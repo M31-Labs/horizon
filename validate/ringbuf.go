@@ -224,6 +224,7 @@ func validateTypedRingbuf(fn ir.Function, ringMaps map[string]ir.Map) []diag.Dia
 					checkWrite(varName, stmt.Span)
 				}
 			case "if":
+				checkExprHelperWrites(stmt.Cond, checkWrite)
 				if varName, ok := nilCheckedVar(stmt.Cond); ok {
 					branchStates := cloneReserveStates(states)
 					if state, ok := branchStates[varName]; ok && state.State == "maybe_nil" {
@@ -485,10 +486,29 @@ func helperWriteBase(expr *ir.Expr) (string, bool) {
 		return "", false
 	}
 	switch method {
-	case "current_comm":
+	case "current_comm", "probe_read_user_str":
 		return addressSelectorBase(&expr.Args[0])
 	default:
 		return "", false
+	}
+}
+
+func checkExprHelperWrites(expr *ir.Expr, checkWrite func(string, span.Span)) {
+	if expr == nil {
+		return
+	}
+	if varName, ok := helperWriteBase(expr); ok {
+		checkWrite(varName, expr.Span)
+	}
+	checkExprHelperWrites(expr.Operand, checkWrite)
+	checkExprHelperWrites(expr.Left, checkWrite)
+	checkExprHelperWrites(expr.Right, checkWrite)
+	checkExprHelperWrites(expr.Func, checkWrite)
+	for i := range expr.Args {
+		checkExprHelperWrites(&expr.Args[i], checkWrite)
+	}
+	for i := range expr.Fields {
+		checkExprHelperWrites(&expr.Fields[i].Value, checkWrite)
 	}
 }
 

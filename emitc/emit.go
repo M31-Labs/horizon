@@ -592,6 +592,14 @@ static __always_inline long hzn_current_comm(void *dst, __u32 size) {
 }
 `)
 	}
+
+	if usage.helpers["probe_read_user_str"] {
+		b.WriteString(`
+static __always_inline long hzn_probe_read_user_str(void *dst, __u32 size, const void *unsafe_ptr) {
+    return bpf_probe_read_user_str(dst, size, unsafe_ptr);
+}
+`)
+	}
 }
 
 func emitProbeContextHelpers(b *strings.Builder, usage cUsage) {
@@ -1415,6 +1423,8 @@ func knownCallType(name string) (ir.Type, bool) {
 		return ir.Type{Name: "u64"}, true
 	case "bpf.current_comm":
 		return ir.Type{Name: "i64"}, true
+	case "bpf.probe_read_user_str":
+		return ir.Type{Name: "i64"}, true
 	case "xdp.eth":
 		return ptrTo(ir.Type{Name: "xdp.Eth"}), true
 	case "xdp.ipv4":
@@ -1885,6 +1895,10 @@ func (e cExprEmitter) knownCall(expr *ir.Expr, name string) (string, bool) {
 		return e.oneArgCall(expr, func(arg ir.Expr) string {
 			return fmt.Sprintf("hzn_current_comm(%s, sizeof(%s))", e.emit(&arg), sizeofExpr(&arg, e.env))
 		})
+	case "bpf.probe_read_user_str":
+		return e.twoArgCall(expr, func(dst ir.Expr, unsafePtr ir.Expr) string {
+			return fmt.Sprintf("hzn_probe_read_user_str(%s, sizeof(%s), (const void *)(long)%s)", e.emit(&dst), sizeofExpr(&dst, e.env), e.emit(&unsafePtr))
+		})
 	case "xdp.eth":
 		return e.oneArgCall(expr, func(arg ir.Expr) string {
 			return fmt.Sprintf("hzn_xdp_eth(%s)", e.emit(&arg))
@@ -1949,6 +1963,13 @@ func (e cExprEmitter) oneArgCall(expr *ir.Expr, render func(ir.Expr) string) (st
 		return "", false
 	}
 	return render(expr.Args[0]), true
+}
+
+func (e cExprEmitter) twoArgCall(expr *ir.Expr, render func(ir.Expr, ir.Expr) string) (string, bool) {
+	if len(expr.Args) != 2 {
+		return "", false
+	}
+	return render(expr.Args[0], expr.Args[1]), true
 }
 
 func (e cExprEmitter) ip4Call(expr *ir.Expr) (string, bool) {
@@ -2049,6 +2070,8 @@ func helperWrapperCall(expr *ir.Expr) (string, bool) {
 		return "ktime_get_ns", true
 	case "bpf.current_comm":
 		return "current_comm", true
+	case "bpf.probe_read_user_str":
+		return "probe_read_user_str", true
 	default:
 		return "", false
 	}

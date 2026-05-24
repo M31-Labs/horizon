@@ -19,3 +19,8 @@ func ktime_get_ns() uint64 {
 func current_comm(dst *[16]uint8) {
 	_ = dst
 }
+
+func probe_read_user_str[T any](dst *T, unsafePtr uint64) int64 {
+	_, _ = dst, unsafePtr
+	return 0
+}
