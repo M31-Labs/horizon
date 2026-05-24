@@ -106,9 +106,7 @@ func (e *cEmitter) emitDeclarations() {
 		})
 	}
 	for _, m := range e.program.Maps {
-		e.emitMapped(m.Span, "map_wrapper", "", "", func() {
-			emitMapWrappers(&e.b, m, e.usage.mapMethods[m.Name])
-		})
+		emitMapWrappers(&e.b, &e.sourceMap, m, e.usage.mapMethods[m.Name], e.usage.mapMethodOrigins[m.Name])
 	}
 }
 
@@ -326,19 +324,20 @@ func (e *cEnv) hasLocal(name string) bool {
 }
 
 type cUsage struct {
-	helpers       map[string]bool
-	helperOrigins map[string]cUsageOrigin
-	mapMethods    map[string]map[string]bool
-	xdpHelpers    map[string]bool
-	xdpOrigins    map[string]cUsageOrigin
-	cgroupHelpers map[string]bool
-	cgroupOrigins map[string]cUsageOrigin
-	kprobeHelpers map[string]bool
-	kprobeOrigins map[string]cUsageOrigin
-	kretHelpers   map[string]bool
-	kretOrigins   map[string]cUsageOrigin
-	maps          map[string]ir.Map
-	boolTypes     bool
+	helpers          map[string]bool
+	helperOrigins    map[string]cUsageOrigin
+	mapMethods       map[string]map[string]bool
+	mapMethodOrigins map[string]map[string]cUsageOrigin
+	xdpHelpers       map[string]bool
+	xdpOrigins       map[string]cUsageOrigin
+	cgroupHelpers    map[string]bool
+	cgroupOrigins    map[string]cUsageOrigin
+	kprobeHelpers    map[string]bool
+	kprobeOrigins    map[string]cUsageOrigin
+	kretHelpers      map[string]bool
+	kretOrigins      map[string]cUsageOrigin
+	maps             map[string]ir.Map
+	boolTypes        bool
 }
 
 type cUsageOrigin struct {
@@ -356,18 +355,19 @@ func analyzeUsage(program ir.Program) cUsage {
 
 func newCUsage() cUsage {
 	return cUsage{
-		helpers:       map[string]bool{},
-		helperOrigins: map[string]cUsageOrigin{},
-		mapMethods:    map[string]map[string]bool{},
-		xdpHelpers:    map[string]bool{},
-		xdpOrigins:    map[string]cUsageOrigin{},
-		cgroupHelpers: map[string]bool{},
-		cgroupOrigins: map[string]cUsageOrigin{},
-		kprobeHelpers: map[string]bool{},
-		kprobeOrigins: map[string]cUsageOrigin{},
-		kretHelpers:   map[string]bool{},
-		kretOrigins:   map[string]cUsageOrigin{},
-		maps:          map[string]ir.Map{},
+		helpers:          map[string]bool{},
+		helperOrigins:    map[string]cUsageOrigin{},
+		mapMethods:       map[string]map[string]bool{},
+		mapMethodOrigins: map[string]map[string]cUsageOrigin{},
+		xdpHelpers:       map[string]bool{},
+		xdpOrigins:       map[string]cUsageOrigin{},
+		cgroupHelpers:    map[string]bool{},
+		cgroupOrigins:    map[string]cUsageOrigin{},
+		kprobeHelpers:    map[string]bool{},
+		kprobeOrigins:    map[string]cUsageOrigin{},
+		kretHelpers:      map[string]bool{},
+		kretOrigins:      map[string]cUsageOrigin{},
+		maps:             map[string]ir.Map{},
 	}
 }
 
@@ -483,7 +483,7 @@ func (u *cUsage) observeExpr(expr *ir.Expr, origin cUsageOrigin) {
 		u.addHelper(helper, origin)
 	}
 	if mapName, method, ok := wrapperMethodCall(expr); ok {
-		u.addMapMethod(mapName, method)
+		u.addMapMethod(mapName, method, origin)
 	}
 	if helper, ok := xdpPacketCall(expr); ok {
 		u.addXDPHelper(helper, origin)
@@ -547,7 +547,7 @@ func (u *cUsage) addKretHelper(name string, origin cUsageOrigin) {
 	}
 }
 
-func (u *cUsage) addMapMethod(mapName string, method string) {
+func (u *cUsage) addMapMethod(mapName string, method string, origin cUsageOrigin) {
 	if _, ok := u.maps[mapName]; !ok {
 		return
 	}
@@ -555,6 +555,15 @@ func (u *cUsage) addMapMethod(mapName string, method string) {
 		u.mapMethods[mapName] = map[string]bool{}
 	}
 	u.mapMethods[mapName][method] = true
+	if origin.Span.IsZero() {
+		return
+	}
+	if u.mapMethodOrigins[mapName] == nil {
+		u.mapMethodOrigins[mapName] = map[string]cUsageOrigin{}
+	}
+	if _, ok := u.mapMethodOrigins[mapName][method]; !ok {
+		u.mapMethodOrigins[mapName][method] = origin
+	}
 }
 
 func (u cUsage) hasXDPPacketHelpers() bool {
@@ -1076,76 +1085,96 @@ func mapMaxEntries(m ir.Map, fallback string) string {
 	return fallback
 }
 
-func emitMapWrappers(b *strings.Builder, m ir.Map, methods map[string]bool) {
+func emitMapWrappers(b *strings.Builder, sourceMap *ir.SourceMap, m ir.Map, methods map[string]bool, origins map[string]cUsageOrigin) {
 	if len(methods) == 0 {
 		return
 	}
 	switch m.Kind {
 	case ir.MapKindRingbuf:
-		emitRingbufWrappers(b, m, methods)
+		emitRingbufWrappers(b, sourceMap, m, methods, origins)
 	case ir.MapKindHash, ir.MapKindArray, ir.MapKindPerCPUHash, ir.MapKindPerCPUArray, ir.MapKindLRUHash, ir.MapKindLRUPerCPU:
-		emitLookupMapWrappers(b, m, methods)
+		emitLookupMapWrappers(b, sourceMap, m, methods, origins)
 	}
 }
 
-func emitRingbufWrappers(b *strings.Builder, m ir.Map, methods map[string]bool) {
+func emitRingbufWrappers(b *strings.Builder, sourceMap *ir.SourceMap, m ir.Map, methods map[string]bool, origins map[string]cUsageOrigin) {
 	if m.Val.Name == "" {
 		return
 	}
 	typ := cType(m.Val)
 	if methods["reserve"] {
-		fmt.Fprintf(b, `
+		emitMapWrapperMapped(b, sourceMap, m, origins, "reserve", func() {
+			fmt.Fprintf(b, `
 static __always_inline %s *%s_reserve(void) {
     return bpf_ringbuf_reserve(&%s, sizeof(%s), 0);
 }
 `, typ, m.Name, m.Name, typ)
+		})
 	}
 
 	if methods["submit"] {
-		fmt.Fprintf(b, `
+		emitMapWrapperMapped(b, sourceMap, m, origins, "submit", func() {
+			fmt.Fprintf(b, `
 static __always_inline void %s_submit(%s *value) {
     bpf_ringbuf_submit(value, 0);
 }
 `, m.Name, typ)
+		})
 	}
 
 	if methods["discard"] {
-		fmt.Fprintf(b, `
+		emitMapWrapperMapped(b, sourceMap, m, origins, "discard", func() {
+			fmt.Fprintf(b, `
 static __always_inline void %s_discard(%s *value) {
     bpf_ringbuf_discard(value, 0);
 }
 `, m.Name, typ)
+		})
 	}
 }
 
-func emitLookupMapWrappers(b *strings.Builder, m ir.Map, methods map[string]bool) {
+func emitLookupMapWrappers(b *strings.Builder, sourceMap *ir.SourceMap, m ir.Map, methods map[string]bool, origins map[string]cUsageOrigin) {
 	if m.Key.Name == "" || m.Val.Name == "" {
 		return
 	}
 	keyType := cType(m.Key)
 	valueType := cType(m.Val)
 	if methods["lookup"] {
-		fmt.Fprintf(b, `
+		emitMapWrapperMapped(b, sourceMap, m, origins, "lookup", func() {
+			fmt.Fprintf(b, `
 static __always_inline %s *%s_lookup(%s key) {
     return bpf_map_lookup_elem(&%s, &key);
 }
 `, valueType, m.Name, keyType, m.Name)
+		})
 	}
 
 	if methods["update"] {
-		fmt.Fprintf(b, `
+		emitMapWrapperMapped(b, sourceMap, m, origins, "update", func() {
+			fmt.Fprintf(b, `
 static __always_inline long %s_update(%s key, %s value) {
     return bpf_map_update_elem(&%s, &key, &value, BPF_ANY);
 }
 `, m.Name, keyType, valueType, m.Name)
+		})
 	}
 	if methods["delete"] && m.Kind.IsHashLike() {
-		fmt.Fprintf(b, `
+		emitMapWrapperMapped(b, sourceMap, m, origins, "delete", func() {
+			fmt.Fprintf(b, `
 static __always_inline long %s_delete(%s key) {
     return bpf_map_delete_elem(&%s, &key);
 }
 `, m.Name, keyType, m.Name)
+		})
 	}
+}
+
+func emitMapWrapperMapped(b *strings.Builder, sourceMap *ir.SourceMap, m ir.Map, origins map[string]cUsageOrigin, method string, emit func()) {
+	if origin, ok := origins[method]; ok && !origin.Span.IsZero() {
+		emitUsageMapped(b, sourceMap, origin, "map_wrapper", emit)
+		return
+	}
+	emitMapped(b, sourceMap, m.Span, "map_wrapper", "", "", emit)
 }
 
 func cType(t ir.Type) string {

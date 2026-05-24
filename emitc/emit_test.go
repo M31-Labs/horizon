@@ -68,7 +68,7 @@ func TestEmitSourceMapIncludesDeclarations(t *testing.T) {
 	assertSourceMapLine(t, out, `} ExecEvents SEC(".maps");`, "map", 13)
 	assertSourceMapLine(t, out, "static __always_inline __u32 hzn_current_ppid(void)", "helper_wrapper", 24)
 	assertSourceMapLine(t, out, "static __always_inline long hzn_current_comm(void *dst, __u32 size)", "helper_wrapper", 26)
-	assertSourceMapLine(t, out, "static __always_inline struct hzn_type_ExecEvent *ExecEvents_reserve(void)", "map_wrapper", 13)
+	assertSourceMapLine(t, out, "static __always_inline struct hzn_type_ExecEvent *ExecEvents_reserve(void)", "map_wrapper", 18)
 	assertSourceMapLine(t, out, "int OnExec(struct trace_event_raw_sched_process_exec *ctx)", "function", 15)
 
 	result, err = compiler.AnalyzePath("../examples/execcount")
@@ -83,11 +83,22 @@ func TestEmitSourceMapIncludesDeclarations(t *testing.T) {
 }
 
 func TestEmitSourceMapIncludesGeneratedHelperWrappers(t *testing.T) {
-	result, err := compiler.AnalyzePath("../examples/openwatch")
+	result, err := compiler.AnalyzePath("../examples/execwatch")
+	if err != nil {
+		t.Fatalf("AnalyzePath execwatch: %v", err)
+	}
+	out, err := Emit(result.Program)
+	if err != nil {
+		t.Fatalf("Emit execwatch: %v", err)
+	}
+	assertSourceMapLine(t, out, "static __always_inline struct hzn_type_ExecEvent *ExecEvents_reserve", "map_wrapper", 18)
+	assertSourceMapLine(t, out, "static __always_inline void ExecEvents_submit", "map_wrapper", 27)
+
+	result, err = compiler.AnalyzePath("../examples/openwatch")
 	if err != nil {
 		t.Fatalf("AnalyzePath openwatch: %v", err)
 	}
-	out, err := Emit(result.Program)
+	out, err = Emit(result.Program)
 	if err != nil {
 		t.Fatalf("Emit openwatch: %v", err)
 	}
@@ -115,6 +126,17 @@ func TestEmitSourceMapIncludesGeneratedHelperWrappers(t *testing.T) {
 	}
 	assertSourceMapLine(t, out, "static __always_inline __u32 hzn_cgroup_family", "cgroup_context_wrapper", 6)
 	assertSourceMapLine(t, out, "static __always_inline __u16 hzn_cgroup_dst_port", "cgroup_context_wrapper", 12)
+
+	result, err = compiler.AnalyzePath("../examples/execcount")
+	if err != nil {
+		t.Fatalf("AnalyzePath execcount: %v", err)
+	}
+	out, err = Emit(result.Program)
+	if err != nil {
+		t.Fatalf("Emit execcount: %v", err)
+	}
+	assertSourceMapLine(t, out, "static __always_inline struct hzn_type_Count *ExecCounts_lookup", "map_wrapper", 17)
+	assertSourceMapLine(t, out, "static __always_inline long ExecCounts_update", "map_wrapper", 19)
 }
 
 func TestEmitBoundedForClause(t *testing.T) {

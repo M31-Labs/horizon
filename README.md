@@ -410,6 +410,7 @@ Horizon makes verifier-sensitive behavior explicit before clang runs:
 - cgroup context reads lower through typed generated wrappers, so generated C diagnostics map back to the authored `cgroup.*` helper call
 - LSM programs must declare an explicit hook such as `@lsm("file_open")` and return named actions such as `lsm.Allow` and `lsm.Deny`, not raw integers
 - generated C emits only the helper and map wrappers the program actually uses
+- generated map wrappers source-map back to the authored `lookup`, `update`, `delete`, `reserve`, `submit`, or `discard` call
 - generated BPF C is compiled with clang warnings treated as errors
 - generated C stays readable so clang and verifier logs remain inspectable
 - internal generated C constants and struct tags are prefixed to avoid collisions with kernel headers
