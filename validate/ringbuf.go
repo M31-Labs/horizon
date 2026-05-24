@@ -155,7 +155,7 @@ func validateTypedRingbuf(fn ir.Function, ringMaps map[string]ir.Map) []diag.Dia
 				diags = append(diags, missingNilCheckAt(fn, varName, primary))
 				reportedMissingNil[varName] = true
 			}
-		case "consumed":
+		case "consumed", "maybe_consumed":
 			diags = append(diags, diag.Diagnostic{
 				Code:     "HZN2103",
 				Severity: diag.SeverityError,
@@ -200,7 +200,7 @@ func validateTypedRingbuf(fn ir.Function, ringMaps map[string]ir.Map) []diag.Dia
 							reportedMissingNil[varName] = true
 						}
 						state.State = "consumed"
-					case "consumed":
+					case "consumed", "maybe_consumed":
 						diags = append(diags, diag.Diagnostic{
 							Code:     "HZN2102",
 							Severity: diag.SeverityError,
@@ -244,12 +244,7 @@ func validateTypedRingbuf(fn ir.Function, ringMaps map[string]ir.Map) []diag.Dia
 						states = elseStates
 						walk(stmt.Else)
 						elseStates = states
-						states = oldStates
-						if branchAlwaysReturns(stmt.Then) {
-							states = elseStates
-						} else if branchAlwaysReturns(stmt.Else) {
-							states = thenStates
-						}
+						states = mergeReserveBranchStates(thenStates, elseStates, branchAlwaysReturns(stmt.Then), branchAlwaysReturns(stmt.Else))
 						break
 					}
 					if branchAlwaysReturns(stmt.Then) {
@@ -280,22 +275,28 @@ func validateTypedRingbuf(fn ir.Function, ringMaps map[string]ir.Map) []diag.Dia
 						states = elseStates
 						walk(stmt.Else)
 						elseStates = states
-						states = oldStates
-						if branchAlwaysReturns(stmt.Then) {
-							states = elseStates
-						} else if branchAlwaysReturns(stmt.Else) {
-							states = thenStates
-						}
+						states = mergeReserveBranchStates(thenStates, elseStates, branchAlwaysReturns(stmt.Then), branchAlwaysReturns(stmt.Else))
+						break
 					}
+					states = mergeReserveBranchStates(thenStates, oldStates, branchAlwaysReturns(stmt.Then), false)
 					break
 				}
+				oldStates := states
+				states = cloneReserveStates(oldStates)
 				walk(stmt.Then)
-				walk(stmt.Else)
+				thenStates := states
+				elseStates := oldStates
+				if len(stmt.Else) > 0 {
+					states = cloneReserveStates(oldStates)
+					walk(stmt.Else)
+					elseStates = states
+				}
+				states = mergeReserveBranchStates(thenStates, elseStates, branchAlwaysReturns(stmt.Then), branchAlwaysReturns(stmt.Else))
 			case "for":
 				walk(stmt.Body)
 			case "return":
 				for varName, state := range states {
-					if state.State == "live" || state.State == "maybe_nil" {
+					if state.State == "live" || state.State == "maybe_nil" || state.State == "maybe_consumed" {
 						reportLive(varName, stmt.Span)
 					}
 				}
@@ -386,6 +387,64 @@ func cloneReserveStates(in map[string]reserveState) map[string]reserveState {
 		out[k] = v
 	}
 	return out
+}
+
+func mergeReserveBranchStates(thenStates map[string]reserveState, elseStates map[string]reserveState, thenReturns bool, elseReturns bool) map[string]reserveState {
+	switch {
+	case thenReturns && elseReturns:
+		return map[string]reserveState{}
+	case thenReturns:
+		return cloneReserveStates(elseStates)
+	case elseReturns:
+		return cloneReserveStates(thenStates)
+	}
+
+	out := cloneReserveStates(thenStates)
+	for name, elseState := range elseStates {
+		thenState, ok := out[name]
+		if !ok {
+			out[name] = elseState
+			continue
+		}
+		out[name] = mergeReserveState(thenState, elseState)
+	}
+	return out
+}
+
+func mergeReserveState(a reserveState, b reserveState) reserveState {
+	if a.Map == "" {
+		return b
+	}
+	if b.Map == "" {
+		return a
+	}
+	state := reserveState{Map: a.Map, State: mergeReserveStateName(a.State, b.State)}
+	if state.Map == "" {
+		state.Map = b.Map
+	}
+	return state
+}
+
+func mergeReserveStateName(a string, b string) string {
+	if a == b {
+		return a
+	}
+	if a == "maybe_nil" || b == "maybe_nil" {
+		return "maybe_nil"
+	}
+	if a == "maybe_consumed" || b == "maybe_consumed" {
+		return "maybe_consumed"
+	}
+	if a == "live" && b == "nil" || a == "nil" && b == "live" {
+		return "maybe_nil"
+	}
+	if a == "live" || b == "live" {
+		return "maybe_consumed"
+	}
+	if a == "nil" || b == "nil" {
+		return "consumed"
+	}
+	return "maybe_consumed"
 }
 
 func reserveCall(expr *ir.Expr) (string, bool) {

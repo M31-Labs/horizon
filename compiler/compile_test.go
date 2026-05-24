@@ -565,6 +565,83 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	}
 }
 
+func TestAnalyzeRingbufMutuallyExclusiveConsumeBranchesPass(t *testing.T) {
+	result := analyzeSource(t, "branch.hzn", `package probes
+
+type Event struct {
+    pid u32
+}
+
+map Events ringbuf[Event]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    event := Events.reserve()
+    if event == nil {
+        return 0
+    }
+    if bpf.current_pid() == 0 {
+        Events.submit(event)
+    } else {
+        Events.discard(event)
+    }
+    return 0
+}
+`)
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+}
+
+func TestAnalyzeRejectsConditionalRingbufConsumeWithoutElse(t *testing.T) {
+	result := analyzeSource(t, "branch.hzn", `package probes
+
+type Event struct {
+    pid u32
+}
+
+map Events ringbuf[Event]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    event := Events.reserve()
+    if event == nil {
+        return 0
+    }
+    if bpf.current_pid() == 0 {
+        Events.submit(event)
+    }
+    return 0
+}
+`)
+	requireDiagnosticCode(t, result, "HZN2104")
+}
+
+func TestAnalyzeRejectsRingbufConsumeAfterMaybeConsumedBranch(t *testing.T) {
+	result := analyzeSource(t, "branch.hzn", `package probes
+
+type Event struct {
+    pid u32
+}
+
+map Events ringbuf[Event]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    event := Events.reserve()
+    if event == nil {
+        return 0
+    }
+    if bpf.current_pid() == 0 {
+        Events.submit(event)
+    }
+    Events.discard(event)
+    return 0
+}
+`)
+	requireDiagnosticCode(t, result, "HZN2102")
+}
+
 func TestAnalyzeRejectsFixedArrayValueCopies(t *testing.T) {
 	tests := map[string]string{
 		"local copy": `package probes
