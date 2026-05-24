@@ -155,6 +155,14 @@ artifact, so editors and automation can show actionable feedback without
 scraping terminal output. Use `-compile` or `hzn build` when the local clang/BPF
 C toolchain should also produce a `.bpf.o`.
 
+Generated Go bindings expose typed helpers around the loaded objects: ringbuf
+maps get `Read<Name>(context.Context, func(Event) error)`, hash maps get
+`Lookup<Name>`, `Update<Name>`, and `Delete<Name>`, array maps get
+`Lookup<Name>` and `Update<Name>`, and attachable programs get section-specific
+attach methods. The raw `*ebpf.Map` and `*ebpf.Program` fields remain available
+for advanced users, but ordinary consumers should not need to hand-roll cilium
+loader or map-access boilerplate.
+
 `hzn doctor` checks the local eBPF C toolchain: clang BPF support, libbpf
 headers, bpftool/LLVM utilities, kernel BTF, and a usable `vmlinux.h`.
 Use `make setup-vmlinux` on BTF-enabled Linux hosts to generate

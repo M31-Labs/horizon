@@ -79,3 +79,49 @@ func TestGenerateKprobeAttachBindings(t *testing.T) {
 		t.Fatalf("generated kprobe bindings unexpectedly import net:\n%s", code)
 	}
 }
+
+func TestGenerateTypedMapBindings(t *testing.T) {
+	code, err := Generate(ir.Program{
+		Package: "probes",
+		Structs: []ir.Struct{{
+			Name: "Count",
+			Fields: []ir.Field{{
+				Name: "seen",
+				Type: ir.Type{Name: "u32"},
+			}},
+		}},
+		Maps: []ir.Map{{
+			Name: "Counts",
+			Kind: ir.MapKindHash,
+			Key:  ir.Type{Name: "u32"},
+			Val:  ir.Type{Name: "Count"},
+		}, {
+			Name: "Slots",
+			Kind: ir.MapKindArray,
+			Key:  ir.Type{Name: "u32"},
+			Val:  ir.Type{Name: "u64"},
+		}},
+	}, "bindings")
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	for _, want := range []string{
+		`"errors"`,
+		`"fmt"`,
+		`"github.com/cilium/ebpf"`,
+		"func (o *Objects) LookupCounts(key uint32) (Count, bool, error)",
+		"if errors.Is(err, ebpf.ErrKeyNotExist)",
+		"func (o *Objects) UpdateCounts(key uint32, value Count) error",
+		"return o.Counts.Update(key, value, ebpf.UpdateAny)",
+		"func (o *Objects) DeleteCounts(key uint32) error",
+		"func (o *Objects) LookupSlots(key uint32) (uint64, bool, error)",
+		"func (o *Objects) UpdateSlots(key uint32, value uint64) error",
+	} {
+		if !strings.Contains(code, want) {
+			t.Fatalf("generated bindings missing %q:\n%s", want, code)
+		}
+	}
+	if strings.Contains(code, "DeleteSlots") {
+		t.Fatalf("generated array bindings unexpectedly include delete:\n%s", code)
+	}
+}

@@ -57,6 +57,9 @@ func (o *Objects) Close() error {
 		if m.Kind == ir.MapKindRingbuf && m.Val.Name != "" {
 			emitRingbufReader(&b, m)
 		}
+		if isLookupMap(m) {
+			emitMapMethods(&b, m)
+		}
 	}
 	for _, fn := range program.Functions {
 		emitAttach(&b, fn)
@@ -137,6 +140,7 @@ func emitKprobeAttach(b *bytes.Buffer, fn ir.Function, linkFunc string) {
 
 func emitImports(b *bytes.Buffer, program ir.Program) {
 	needsRingbuf := hasRingbuf(program)
+	needsMapMethods := hasLookupMaps(program)
 	needsAttach := hasAttach(program)
 	needsXDP := hasXDP(program)
 	var std []string
@@ -146,7 +150,7 @@ func emitImports(b *bytes.Buffer, program ir.Program) {
 	if len(program.Maps)+len(program.Functions) > 0 || needsRingbuf {
 		std = append(std, "errors")
 	}
-	if needsRingbuf || needsAttach {
+	if needsRingbuf || needsAttach || needsMapMethods {
 		std = append(std, "fmt")
 	}
 	if needsXDP {
@@ -170,6 +174,19 @@ func emitImports(b *bytes.Buffer, program ir.Program) {
 		fmt.Fprintf(b, "\t%q\n", path)
 	}
 	b.WriteString(")\n\n")
+}
+
+func hasLookupMaps(program ir.Program) bool {
+	for _, m := range program.Maps {
+		if isLookupMap(m) {
+			return true
+		}
+	}
+	return false
+}
+
+func isLookupMap(m ir.Map) bool {
+	return (m.Kind == ir.MapKindHash || m.Kind == ir.MapKindArray) && m.Key.Name != "" && m.Val.Name != ""
 }
 
 func hasRingbuf(program ir.Program) bool {
@@ -239,6 +256,51 @@ func emitRingbufReader(b *bytes.Buffer, m ir.Map) {
 }
 
 `, mapField, eventType, mapField, m.Name, mapField, eventType)
+}
+
+func emitMapMethods(b *bytes.Buffer, m ir.Map) {
+	mapField := exported(m.Name)
+	keyType := goType(m.Key)
+	valueType := goType(m.Val)
+	fmt.Fprintf(b, `func (o *Objects) Lookup%s(key %s) (%s, bool, error) {
+	var value %s
+	if o == nil || o.%s == nil {
+		return value, false, fmt.Errorf("%s map is not loaded")
+	}
+	if err := o.%s.Lookup(key, &value); err != nil {
+		if errors.Is(err, ebpf.ErrKeyNotExist) {
+			return value, false, nil
+		}
+		return value, false, err
+	}
+	return value, true, nil
+}
+
+func (o *Objects) Update%s(key %s, value %s) error {
+	if o == nil || o.%s == nil {
+		return fmt.Errorf("%s map is not loaded")
+	}
+	return o.%s.Update(key, value, ebpf.UpdateAny)
+}
+
+`, mapField, keyType, valueType, valueType, mapField, m.Name, mapField, mapField, keyType, valueType, mapField, m.Name, mapField)
+	if m.Kind != ir.MapKindHash {
+		return
+	}
+	fmt.Fprintf(b, `func (o *Objects) Delete%s(key %s) error {
+	if o == nil || o.%s == nil {
+		return fmt.Errorf("%s map is not loaded")
+	}
+	if err := o.%s.Delete(key); err != nil {
+		if errors.Is(err, ebpf.ErrKeyNotExist) {
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
+`, mapField, keyType, mapField, m.Name, mapField)
 }
 
 func goType(t ir.Type) string {
