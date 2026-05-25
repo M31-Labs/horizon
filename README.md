@@ -513,10 +513,12 @@ same diagnostics artifact, so editors and automation can show actionable
 feedback without scraping terminal output. Diagnostics include source-line
 context and markers when the authored file is available. Remapped diagnostics keep
 the generated BPF C location plus source-map metadata such as Horizon function,
-section, and AST node. Common verifier failures also carry Horizon-specific
-remediation hints for nil checks, ringbuf lifetimes, bounded loops, helper
-availability, and stack usage. Use `-compile` or `hzn build` when the local
-clang/BPF C toolchain should also produce a `.bpf.o`.
+section, and AST node. Verifier diagnostics retain the recent verifier
+instruction/source-comment context that led to the error. Common verifier
+failures also carry Horizon-specific remediation hints for nil checks, ringbuf
+lifetimes, bounded loops, helper availability, and stack usage. Use `-compile`
+or `hzn build` when the local clang/BPF C toolchain should also produce a
+`.bpf.o`.
 
 `hzn diagnose` remaps clang and verifier logs through an `.hznmap.json` source
 map. By default it exits successfully when it can explain the log, even when the

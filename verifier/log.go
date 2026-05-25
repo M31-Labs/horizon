@@ -27,6 +27,7 @@ var clangDiagnosticRE = regexp.MustCompile(`^(.+?):([0-9]+):([0-9]+):\s*(fatal e
 func ParseLog(raw string) Log {
 	log := Log{Raw: raw}
 	var lastSource string
+	var context []string
 	for _, line := range strings.Split(raw, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
@@ -34,20 +35,28 @@ func ParseLog(raw string) Log {
 		}
 		if entry, ok := parseClangDiagnostic(trimmed); ok {
 			log.Entries = append(log.Entries, entry)
+			context = nil
 			continue
 		}
 		if strings.HasPrefix(trimmed, ";") {
 			lastSource = strings.TrimSpace(strings.TrimPrefix(trimmed, ";"))
+			context = appendVerifierContext(context, trimmed)
 			continue
 		}
 		if lastSource != "" && looksLikeVerifierDiagnostic(trimmed) {
 			log.Entries = append(log.Entries, LogEntry{
-				Raw:       trimmed,
+				Raw:       verifierRawContext(context, trimmed),
 				Message:   trimmed,
 				Severity:  "error",
 				CSource:   lastSource,
 				Generated: true,
 			})
+			context = nil
+			lastSource = ""
+			continue
+		}
+		if !looksLikeVerifierSummary(trimmed) {
+			context = appendVerifierContext(context, trimmed)
 		}
 	}
 	return log
@@ -92,4 +101,34 @@ func looksLikeVerifierDiagnostic(line string) bool {
 		}
 	}
 	return false
+}
+
+func looksLikeVerifierSummary(line string) bool {
+	lower := strings.ToLower(line)
+	return strings.HasPrefix(lower, "processed ") ||
+		strings.HasPrefix(lower, "verification time ") ||
+		strings.HasPrefix(lower, "from ") ||
+		strings.HasPrefix(lower, "mark_precise:")
+}
+
+func appendVerifierContext(context []string, line string) []string {
+	const maxVerifierContextLines = 6
+	if line == "" {
+		return context
+	}
+	context = append(context, line)
+	if len(context) > maxVerifierContextLines {
+		context = context[len(context)-maxVerifierContextLines:]
+	}
+	return context
+}
+
+func verifierRawContext(context []string, message string) string {
+	if len(context) == 0 {
+		return message
+	}
+	lines := make([]string, 0, len(context)+1)
+	lines = append(lines, context...)
+	lines = append(lines, message)
+	return strings.Join(lines, "\n")
 }

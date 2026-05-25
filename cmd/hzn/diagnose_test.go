@@ -107,6 +107,9 @@ func TestDiagnoseLoadsGeneratedSourceBesideSourceMap(t *testing.T) {
 	if diagnostics[0].Source == nil || diagnostics[0].Source.Line != 7 || !strings.Contains(diagnostics[0].Source.Text, "bad_access") {
 		t.Fatalf("source context = %#v, want authored source line", diagnostics[0].Source)
 	}
+	if !hasNoteContaining(diagnostics[0], "0: R1=ctx() R10=fp0") || !hasNoteContaining(diagnostics[0], "; bad_access();") {
+		t.Fatalf("notes = %#v, want verifier context", diagnostics[0].Notes)
+	}
 	generatedSource := generatedBPFLabelSource(diagnostics[0])
 	if generatedSource == nil || !strings.Contains(generatedSource.Text, "bad_access();") || generatedSource.Marker == "" {
 		t.Fatalf("generated source context = %#v, want generated BPF C line", generatedSource)
