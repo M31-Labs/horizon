@@ -7,7 +7,7 @@
 (function_declaration
   name: (identifier) @local.definition.function)
 
-(type_declaration
+(type_spec
   name: (identifier) @local.definition.type)
 
 (const_spec

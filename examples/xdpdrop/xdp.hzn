@@ -1,6 +1,8 @@
 package probes
 
-type Port = u16
+type (
+    Port = u16
+)
 
 const (
     HTTPS Port = 443

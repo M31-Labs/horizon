@@ -44,7 +44,19 @@ func buildImport(parsed *parser.File, n *gotreesitter.Node) ImportDecl {
 	}
 }
 
-func buildTypeDecl(parsed *parser.File, n *gotreesitter.Node) TypeDecl {
+func buildTypeDecl(parsed *parser.File, n *gotreesitter.Node) Decl {
+	specs := namedDescendantsOfType(parsed, n, "type_spec")
+	if len(specs) == 1 && !hasDirectToken(parsed, n, "(") {
+		return buildTypeSpec(parsed, specs[0])
+	}
+	group := TypeGroupDecl{Span: spanForNode(parsed.Source.FileID, n)}
+	for _, spec := range specs {
+		group.Types = append(group.Types, buildTypeSpec(parsed, spec))
+	}
+	return group
+}
+
+func buildTypeSpec(parsed *parser.File, n *gotreesitter.Node) TypeDecl {
 	decl := TypeDecl{
 		Name: text(parsed, n.ChildByFieldName("name", parsed.Lang)),
 		Span: spanForNode(parsed.Source.FileID, n),

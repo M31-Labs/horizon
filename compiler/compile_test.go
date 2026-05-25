@@ -1592,6 +1592,62 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	}
 }
 
+func TestAnalyzeAllowsTypeGroups(t *testing.T) {
+	result := analyzeSource(t, "aliases.hzn", `package probes
+
+type (
+    Pid = u32
+    Port = u16
+    Event struct {
+        pid Pid
+        port Port
+    }
+)
+
+@max_entries(64)
+map Counts hash[Pid, Event]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    var pid Pid = bpf.current_pid()
+    var port Port = 443
+    if Counts.update(pid, Event{pid: pid, port: port}) != 0 {
+        return 0
+    }
+    return 0
+}
+`)
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+	if len(result.Program.Structs) != 1 || result.Program.Structs[0].Name != "Event" {
+		t.Fatalf("structs = %#v, want only Event", result.Program.Structs)
+	}
+	if len(result.Program.Maps) != 1 || result.Program.Maps[0].Key.Name != "u32" || result.Program.Structs[0].Fields[1].Type.Name != "u16" {
+		t.Fatalf("program = %#v, want aliases lowered through group", result.Program)
+	}
+}
+
+func TestAnalyzeRejectsDuplicateTypeGroupName(t *testing.T) {
+	result := analyzeSource(t, "aliases.hzn", `package probes
+
+type (
+    Pid = u32
+    Pid = u64
+)
+`)
+	requireDiagnosticCode(t, result, "HZN1002")
+}
+
+func TestAnalyzeRejectsEmptyTypeGroup(t *testing.T) {
+	result := analyzeSource(t, "aliases.hzn", `package probes
+
+type (
+)
+`)
+	requireDiagnosticCode(t, result, "HZN1113")
+}
+
 func TestAnalyzeRejectsTypeAliasToStruct(t *testing.T) {
 	result := analyzeSource(t, "aliases.hzn", `package probes
 

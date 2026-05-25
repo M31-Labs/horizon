@@ -46,6 +46,23 @@ func defineDeclarations(g *grammargen.Grammar) {
 
 	g.Define("type_declaration", grammargen.Seq(
 		grammargen.Str("type"),
+		grammargen.Choice(
+			grammargen.Sym("type_spec"),
+			grammargen.Seq(
+				grammargen.Str("("),
+				grammargen.Repeat(grammargen.Sym("_terminator")),
+				grammargen.Repeat(grammargen.Seq(
+					grammargen.Sym("type_spec"),
+					grammargen.Repeat1(grammargen.Sym("_terminator")),
+				)),
+				grammargen.Optional(grammargen.Sym("type_spec")),
+				grammargen.Repeat(grammargen.Sym("_terminator")),
+				grammargen.Str(")"),
+			),
+		),
+	))
+
+	g.Define("type_spec", grammargen.Seq(
 		grammargen.Field("name", grammargen.Sym("identifier")),
 		grammargen.Choice(
 			grammargen.Field("type", grammargen.Sym("struct_type")),

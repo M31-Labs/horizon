@@ -41,7 +41,7 @@
   operand: (identifier) @namespace
   field: (identifier) @property)
 
-(type_declaration
+(type_spec
   name: (identifier) @type)
 
 (struct_type

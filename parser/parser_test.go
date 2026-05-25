@@ -44,6 +44,34 @@ type Event struct {
 	if got := countNamedDescendants(file.Tree.RootNode(), file.Lang, "type_declaration"); got != 2 {
 		t.Fatalf("type declaration count = %d, want 2; tree: %s", got, file.Tree.RootNode().SExpr(file.Lang))
 	}
+	if got := countNamedDescendants(file.Tree.RootNode(), file.Lang, "type_spec"); got != 2 {
+		t.Fatalf("type spec count = %d, want 2; tree: %s", got, file.Tree.RootNode().SExpr(file.Lang))
+	}
+	if got := countNamedDescendants(file.Tree.RootNode(), file.Lang, "struct_type"); got != 1 {
+		t.Fatalf("struct type count = %d, want 1; tree: %s", got, file.Tree.RootNode().SExpr(file.Lang))
+	}
+}
+
+func TestParseTypeGroup(t *testing.T) {
+	src := SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
+
+type (
+    Pid = u32
+    Event struct {
+        pid Pid
+    }
+)
+`)}
+	file, err := ParseSource(src)
+	if err != nil {
+		t.Fatalf("ParseSource: %v", err)
+	}
+	if got := countNamedDescendants(file.Tree.RootNode(), file.Lang, "type_declaration"); got != 1 {
+		t.Fatalf("type declaration count = %d, want 1; tree: %s", got, file.Tree.RootNode().SExpr(file.Lang))
+	}
+	if got := countNamedDescendants(file.Tree.RootNode(), file.Lang, "type_spec"); got != 2 {
+		t.Fatalf("type spec count = %d, want 2; tree: %s", got, file.Tree.RootNode().SExpr(file.Lang))
+	}
 	if got := countNamedDescendants(file.Tree.RootNode(), file.Lang, "struct_type"); got != 1 {
 		t.Fatalf("struct type count = %d, want 1; tree: %s", got, file.Tree.RootNode().SExpr(file.Lang))
 	}

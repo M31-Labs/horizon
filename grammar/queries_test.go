@@ -23,13 +23,14 @@ enum PacketAction i32 {
 
 capability DropCapability = "kernel.network.xdp.drop"
 
-type Port = u16
-
-type Event struct {
-    pid u32
-    port Port
-    ok bool
-}
+type (
+    Port = u16
+    Event struct {
+        pid u32
+        port Port
+        ok bool
+    }
+)
 
 @max_entries(EventBytes)
 map Events ringbuf[Event]

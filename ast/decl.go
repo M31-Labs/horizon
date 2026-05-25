@@ -18,6 +18,16 @@ func (d TypeDecl) IsAlias() bool {
 	return !d.Alias.IsZero()
 }
 
+type TypeGroupDecl struct {
+	Types []TypeDecl
+	Span  span.Span
+}
+
+func (TypeGroupDecl) declNode() {}
+func (d TypeGroupDecl) GetSpan() span.Span {
+	return d.Span
+}
+
 type FuncDecl struct {
 	Name     string
 	Attrs    []Attr

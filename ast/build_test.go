@@ -120,6 +120,41 @@ type Port = u16
 	}
 }
 
+func TestBuildTypeGroup(t *testing.T) {
+	parsed, err := parser.ParseSource(parser.SourceFile{Path: "inline.hzn", Bytes: []byte(`package probes
+
+type (
+    Pid = u32
+    Event struct {
+        pid Pid
+    }
+)
+`)})
+	if err != nil {
+		t.Fatalf("ParseSource: %v", err)
+	}
+	file, err := Build(parsed)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(file.Decls) != 1 {
+		t.Fatalf("decls = %d, want 1", len(file.Decls))
+	}
+	group, ok := file.Decls[0].(TypeGroupDecl)
+	if !ok {
+		t.Fatalf("decl[0] = %T, want TypeGroupDecl", file.Decls[0])
+	}
+	if len(group.Types) != 2 {
+		t.Fatalf("types = %#v, want two", group.Types)
+	}
+	if group.Types[0].Name != "Pid" || group.Types[0].Alias.Name != "u32" {
+		t.Fatalf("type[0] = %#v, want Pid = u32", group.Types[0])
+	}
+	if group.Types[1].Name != "Event" || len(group.Types[1].Fields) != 1 || group.Types[1].Fields[0].Type.Name != "Pid" {
+		t.Fatalf("type[1] = %#v, want Event struct with pid Pid", group.Types[1])
+	}
+}
+
 func TestBuildCapabilityAlias(t *testing.T) {
 	parsed, err := parser.ParseSource(parser.SourceFile{Path: "inline.hzn", Bytes: []byte(`package probes
 

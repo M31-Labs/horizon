@@ -326,6 +326,30 @@ type Event struct {
 	}
 }
 
+func TestSourceFormatsTypeGroups(t *testing.T) {
+	got, err := Source(parser.SourceFile{Path: "types.hzn", Bytes: []byte(`package probes
+type(
+Pid=u32
+Event struct{pid Pid}
+)
+`)})
+	if err != nil {
+		t.Fatalf("Source: %v", err)
+	}
+	want := `package probes
+
+type (
+    Pid = u32
+    Event struct {
+        pid Pid
+    }
+)
+`
+	if string(got) != want {
+		t.Fatalf("formatted source mismatch\nwant:\n%s\ngot:\n%s", want, got)
+	}
+}
+
 func TestSourceFormatsSwitchStatements(t *testing.T) {
 	got, err := Source(parser.SourceFile{Path: "switch.hzn", Bytes: []byte(`package probes
 @xdp

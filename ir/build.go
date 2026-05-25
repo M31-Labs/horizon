@@ -24,6 +24,8 @@ func FromAST(file ast.File) (Program, []diag.Diagnostic) {
 				continue
 			}
 			program.Structs = append(program.Structs, buildStruct(d, aliases))
+		case ast.TypeGroupDecl:
+			program.Structs = append(program.Structs, buildStructGroup(d, aliases)...)
 		case ast.ConstDecl:
 			program.Constants = append(program.Constants, buildConst(d, aliases))
 		case ast.ConstGroupDecl:
@@ -51,11 +53,18 @@ func FromAST(file ast.File) (Program, []diag.Diagnostic) {
 func typeAliases(file ast.File) map[string]ast.TypeRef {
 	aliases := map[string]ast.TypeRef{}
 	for _, decl := range file.Decls {
-		typeDecl, ok := decl.(ast.TypeDecl)
-		if !ok || !typeDecl.IsAlias() || typeDecl.Name == "" {
-			continue
+		switch d := decl.(type) {
+		case ast.TypeDecl:
+			if d.IsAlias() && d.Name != "" {
+				aliases[d.Name] = d.Alias
+			}
+		case ast.TypeGroupDecl:
+			for _, typeDecl := range d.Types {
+				if typeDecl.IsAlias() && typeDecl.Name != "" {
+					aliases[typeDecl.Name] = typeDecl.Alias
+				}
+			}
 		}
-		aliases[typeDecl.Name] = typeDecl.Alias
 	}
 	return aliases
 }
@@ -141,6 +150,17 @@ func buildStruct(decl ast.TypeDecl, aliases map[string]ast.TypeRef) Struct {
 			Type: buildType(field.Type, aliases),
 			Span: field.Span,
 		})
+	}
+	return out
+}
+
+func buildStructGroup(decl ast.TypeGroupDecl, aliases map[string]ast.TypeRef) []Struct {
+	out := make([]Struct, 0, len(decl.Types))
+	for _, typ := range decl.Types {
+		if typ.IsAlias() {
+			continue
+		}
+		out = append(out, buildStruct(typ, aliases))
 	}
 	return out
 }

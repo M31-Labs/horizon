@@ -21,102 +21,116 @@ func Check(file ast.File) []diag.Diagnostic {
 
 func CheckPackage(files []ast.File) [][]diag.Diagnostic {
 	diags := make([][]diag.Diagnostic, len(files))
+	index := newPackageDeclIndex()
 	env := NewEnv()
-	knownTypes := builtinTypes()
-	structs := builtinStructs()
-	maps := map[string]ast.MapDecl{}
-	consts := map[string]ast.ConstDecl{}
-	capabilities := map[string]ast.CapabilityDecl{}
-	userStructs := map[string]ast.TypeDecl{}
-	typeAliases := map[string]ast.TypeRef{}
-	funcs := map[string]ast.FuncDecl{}
 	for i, file := range files {
-		if file.Package == "" {
-			diags[i] = append(diags[i], diag.Diagnostic{
-				Code:     "HZN1001",
-				Severity: diag.SeverityError,
-				Message:  "missing package declaration",
-				Primary:  file.Span,
-			})
-		}
-		for _, decl := range file.Decls {
-			name := declName(decl)
-			if name != "" && !declarePackageName(&diags[i], env, name, decl) {
-				continue
-			}
-			if typed, ok := decl.(ast.TypeDecl); ok && typed.Name != "" {
-				knownTypes[typed.Name] = true
-				if typed.IsAlias() {
-					typeAliases[typed.Name] = typed.Alias
-				} else {
-					structs[typed.Name] = typed
-					userStructs[typed.Name] = typed
-				}
-			}
-			if enum, ok := decl.(ast.EnumDecl); ok {
-				for _, value := range enum.Values {
-					if value.Name == "" {
-						continue
-					}
-					if !declarePackageName(&diags[i], env, value.Name, value) {
-						continue
-					}
-					consts[value.Name] = enumValueConst(enum, value)
-				}
-			}
-			if group, ok := decl.(ast.ConstGroupDecl); ok {
-				for _, constant := range group.Consts {
-					if constant.Name == "" || !declarePackageName(&diags[i], env, constant.Name, constant) {
-						continue
-					}
-					consts[constant.Name] = constant
-				}
-			}
-			if mapped, ok := decl.(ast.MapDecl); ok && mapped.Name != "" {
-				maps[mapped.Name] = mapped
-			}
-			if constant, ok := decl.(ast.ConstDecl); ok && constant.Name != "" {
-				consts[constant.Name] = constant
-			}
-			if capability, ok := decl.(ast.CapabilityDecl); ok && capability.Name != "" {
-				capabilities[capability.Name] = capability
-			}
-			if fn, ok := decl.(ast.FuncDecl); ok && fn.Name != "" {
-				funcs[fn.Name] = fn
-			}
-		}
+		collectPackageFileDecls(file, &index, env, &diags[i])
 	}
-	files = resolveTypeAliasesInFiles(files, typeAliases)
+	files = resolveTypeAliasesInFiles(files, index.typeAliases)
 	resolved := indexResolvedDecls(files)
-	structs = resolved.structs
-	maps = resolved.maps
-	consts = resolved.consts
-	capabilities = resolved.capabilities
-	userStructs = resolved.userStructs
-	funcs = resolved.funcs
-	callGraphDiags := validateFunctionCallGraph(funcs)
+	callGraphDiags := validateFunctionCallGraph(resolved.funcs)
 	for i, file := range files {
 		for _, decl := range file.Decls {
 			switch d := decl.(type) {
 			case ast.TypeDecl:
-				diags[i] = append(diags[i], validateTypeDecl(d, knownTypes, structs, userStructs, typeAliases)...)
+				diags[i] = append(diags[i], validateTypeDecl(d, index.knownTypes, resolved.structs, resolved.userStructs, index.typeAliases)...)
+			case ast.TypeGroupDecl:
+				diags[i] = append(diags[i], validateTypeGroupDecl(d, index.knownTypes, resolved.structs, resolved.userStructs, index.typeAliases)...)
 			case ast.MapDecl:
-				diags[i] = append(diags[i], validateMapDecl(d, knownTypes, userStructs, consts)...)
+				diags[i] = append(diags[i], validateMapDecl(d, index.knownTypes, resolved.userStructs, resolved.consts)...)
 			case ast.FuncDecl:
-				diags[i] = append(diags[i], validateFuncDecl(d, knownTypes, maps, structs, userStructs, consts, funcs, capabilities)...)
+				diags[i] = append(diags[i], validateFuncDecl(d, index.knownTypes, resolved.maps, resolved.structs, resolved.userStructs, resolved.consts, resolved.funcs, resolved.capabilities)...)
 				diags[i] = append(diags[i], callGraphDiags[d.Name]...)
 			case ast.ConstDecl:
-				diags[i] = append(diags[i], validateConstDecl(d, knownTypes)...)
+				diags[i] = append(diags[i], validateConstDecl(d, index.knownTypes)...)
 			case ast.ConstGroupDecl:
-				diags[i] = append(diags[i], validateConstGroupDecl(d, knownTypes)...)
+				diags[i] = append(diags[i], validateConstGroupDecl(d, index.knownTypes)...)
 			case ast.EnumDecl:
-				diags[i] = append(diags[i], validateEnumDecl(d, knownTypes)...)
+				diags[i] = append(diags[i], validateEnumDecl(d, index.knownTypes)...)
 			case ast.CapabilityDecl:
 				diags[i] = append(diags[i], validateCapabilityDecl(d)...)
 			}
 		}
 	}
 	return diags
+}
+
+type packageDeclIndex struct {
+	knownTypes  map[string]bool
+	typeAliases map[string]ast.TypeRef
+}
+
+func newPackageDeclIndex() packageDeclIndex {
+	return packageDeclIndex{
+		knownTypes:  builtinTypes(),
+		typeAliases: map[string]ast.TypeRef{},
+	}
+}
+
+func collectPackageFileDecls(file ast.File, index *packageDeclIndex, env *Env, diags *[]diag.Diagnostic) {
+	if file.Package == "" {
+		*diags = append(*diags, diag.Diagnostic{
+			Code:     "HZN1001",
+			Severity: diag.SeverityError,
+			Message:  "missing package declaration",
+			Primary:  file.Span,
+		})
+	}
+	for _, decl := range file.Decls {
+		collectPackageDecl(decl, index, env, diags)
+	}
+}
+
+func collectPackageDecl(decl ast.Decl, index *packageDeclIndex, env *Env, diags *[]diag.Diagnostic) {
+	name := declName(decl)
+	if name != "" && !declarePackageName(diags, env, name, decl) {
+		return
+	}
+	switch d := decl.(type) {
+	case ast.TypeDecl:
+		collectTypeDecl(d, index)
+	case ast.TypeGroupDecl:
+		collectTypeGroupDecl(d, index, env, diags)
+	case ast.EnumDecl:
+		collectEnumDecl(d, env, diags)
+	case ast.ConstGroupDecl:
+		collectConstGroupDecl(d, env, diags)
+	}
+}
+
+func collectTypeDecl(decl ast.TypeDecl, index *packageDeclIndex) {
+	if decl.Name == "" {
+		return
+	}
+	index.knownTypes[decl.Name] = true
+	if decl.IsAlias() {
+		index.typeAliases[decl.Name] = decl.Alias
+	}
+}
+
+func collectTypeGroupDecl(decl ast.TypeGroupDecl, index *packageDeclIndex, env *Env, diags *[]diag.Diagnostic) {
+	for _, typ := range decl.Types {
+		if typ.Name == "" || !declarePackageName(diags, env, typ.Name, typ) {
+			continue
+		}
+		collectTypeDecl(typ, index)
+	}
+}
+
+func collectEnumDecl(decl ast.EnumDecl, env *Env, diags *[]diag.Diagnostic) {
+	for _, value := range decl.Values {
+		if value.Name == "" || !declarePackageName(diags, env, value.Name, value) {
+			continue
+		}
+	}
+}
+
+func collectConstGroupDecl(decl ast.ConstGroupDecl, env *Env, diags *[]diag.Diagnostic) {
+	for _, constant := range decl.Consts {
+		if constant.Name == "" || !declarePackageName(diags, env, constant.Name, constant) {
+			continue
+		}
+	}
 }
 
 func declarePackageName(diags *[]diag.Diagnostic, env *Env, name string, decl DeclRef) bool {
@@ -205,6 +219,8 @@ func indexResolvedDecl(index *resolvedDeclIndex, decl ast.Decl) {
 			index.structs[d.Name] = d
 			index.userStructs[d.Name] = d
 		}
+	case ast.TypeGroupDecl:
+		indexResolvedTypeGroup(index, d)
 	case ast.MapDecl:
 		if d.Name != "" {
 			index.maps[d.Name] = d
@@ -224,6 +240,15 @@ func indexResolvedDecl(index *resolvedDeclIndex, decl ast.Decl) {
 	case ast.FuncDecl:
 		if d.Name != "" {
 			index.funcs[d.Name] = d
+		}
+	}
+}
+
+func indexResolvedTypeGroup(index *resolvedDeclIndex, decl ast.TypeGroupDecl) {
+	for _, typ := range decl.Types {
+		if !typ.IsAlias() && typ.Name != "" {
+			index.structs[typ.Name] = typ
+			index.userStructs[typ.Name] = typ
 		}
 	}
 }
@@ -265,6 +290,16 @@ func resolveTypeAliasesInFile(file ast.File, aliases map[string]ast.TypeRef) ast
 			}
 			for j := range d.Fields {
 				d.Fields[j].Type = resolveTypeAliasRef(d.Fields[j].Type, aliases, map[string]bool{})
+			}
+			file.Decls[i] = d
+		case ast.TypeGroupDecl:
+			for j := range d.Types {
+				if d.Types[j].IsAlias() {
+					continue
+				}
+				for k := range d.Types[j].Fields {
+					d.Types[j].Fields[k].Type = resolveTypeAliasRef(d.Types[j].Fields[k].Type, aliases, map[string]bool{})
+				}
 			}
 			file.Decls[i] = d
 		case ast.MapDecl:
@@ -606,6 +641,23 @@ func validateTypeDecl(decl ast.TypeDecl, known map[string]bool, structs map[stri
 				Suggest:  "Horizon structs are finite by-value records; keep recursive relationships in keyed maps instead of embedding the same record type",
 			})
 		}
+	}
+	return diags
+}
+
+func validateTypeGroupDecl(decl ast.TypeGroupDecl, known map[string]bool, structs map[string]ast.TypeDecl, userStructs map[string]ast.TypeDecl, aliases map[string]ast.TypeRef) []diag.Diagnostic {
+	if len(decl.Types) == 0 {
+		return []diag.Diagnostic{{
+			Code:     "HZN1113",
+			Severity: diag.SeverityError,
+			Message:  "type group must declare at least one type",
+			Primary:  decl.Span,
+			Suggest:  "write `type Name struct { ... }` or add one or more aliases or structs inside the group",
+		}}
+	}
+	var diags []diag.Diagnostic
+	for _, typ := range decl.Types {
+		diags = append(diags, validateTypeDecl(typ, known, structs, userStructs, aliases)...)
 	}
 	return diags
 }

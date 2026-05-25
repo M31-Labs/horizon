@@ -19,7 +19,7 @@
 (function_declaration
   name: (identifier) @name) @definition.function
 
-(type_declaration
+(type_spec
   name: (identifier) @name) @definition.type
 
 (field_declaration

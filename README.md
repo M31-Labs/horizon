@@ -17,6 +17,7 @@ It keeps the kernel-side language deliberately small:
 - boolean literals and typed boolean expressions
 - package-scoped declarations across multiple `.hzn` files
 - source-level scalar type aliases such as `type Port = u16`
+- grouped type declarations for related aliases and records
 - integer constants with optional scalar widths
 - grouped constants for related limits, flags, and action values
 - signed integer literals such as `-1` for signed scalar fields and helpers
@@ -124,14 +125,19 @@ Aliases are authoring names only: generated C uses the underlying BPF scalar
 type, and aliases cannot hide pointers, resource handles, context types, packet
 headers, maps, or structs.
 
-```go
-type Pid = u32
-type Port = u16
+Aliases and related records can be grouped when that makes the domain model
+easier to scan.
 
-type SocketEvent struct {
-    pid  Pid
-    port Port
-}
+```go
+type (
+    Pid = u32
+    Port = u16
+
+    SocketEvent struct {
+        pid  Pid
+        port Port
+    }
+)
 ```
 
 Related constants can be grouped without changing their C-facing type. This is
@@ -563,6 +569,7 @@ Horizon makes verifier-sensitive behavior explicit before clang runs:
 - grouped constants are package-scoped constants with the same scalar, bool, and literal rules as standalone constants
 - enum values are explicit typed integer constants; there is no implicit iota or untyped C enum widening
 - type aliases are source-level names for scalar and bool widths only; they cannot target structs, pointer syntax, compiler-owned context/header types, or resource-bearing values
+- grouped type declarations are package-scoped type declarations with the same alias and struct rules as standalone types
 - `var` declarations require an explicit scalar, bool, or declared struct type and cannot store nullable resources or compiler-owned packet/context types
 - `switch` values must be scalar or bool, case values must be constant and type-compatible, and Horizon emits explicit C `break` statements so cases never fall through
 - sectionless functions are user helpers, not eBPF programs; they are emitted as `static __always_inline` C, must be non-recursive, and currently accept and return only scalar or bool values

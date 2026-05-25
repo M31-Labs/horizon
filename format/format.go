@@ -151,6 +151,8 @@ func (b *builder) decl(decl ast.Decl) {
 	switch d := decl.(type) {
 	case ast.TypeDecl:
 		b.typeDecl(d)
+	case ast.TypeGroupDecl:
+		b.typeGroupDecl(d)
 	case ast.ConstDecl:
 		b.constDecl(d)
 	case ast.ConstGroupDecl:
@@ -191,6 +193,34 @@ func (b *builder) decl(decl ast.Decl) {
 		b.indent--
 		b.lineWithComment("}", d.Span.End.Line)
 	}
+}
+
+func (b *builder) typeGroupDecl(decl ast.TypeGroupDecl) {
+	b.lineWithComment("type (", decl.Span.Start.Line)
+	b.indent++
+	for _, t := range decl.Types {
+		b.flushCommentsBefore(t.Span.Start.Line)
+		b.typeGroupSpec(t)
+	}
+	b.flushCommentsBefore(decl.Span.End.Line)
+	b.indent--
+	b.lineWithComment(")", decl.Span.End.Line)
+}
+
+func (b *builder) typeGroupSpec(decl ast.TypeDecl) {
+	if decl.IsAlias() {
+		b.lineWithComment(typeSpec(decl), decl.Span.Start.Line)
+		return
+	}
+	b.lineWithComment(decl.Name+" struct {", decl.Span.Start.Line)
+	b.indent++
+	for _, field := range decl.Fields {
+		b.flushCommentsBefore(field.Span.Start.Line)
+		b.lineWithComment(field.Name+" "+typeRef(field.Type), field.Span.Start.Line)
+	}
+	b.flushCommentsBefore(decl.Span.End.Line)
+	b.indent--
+	b.lineWithComment("}", decl.Span.End.Line)
 }
 
 func (b *builder) constDecl(decl ast.ConstDecl) {
@@ -243,7 +273,7 @@ func funcHeaderLine(decl ast.FuncDecl) int {
 
 func (b *builder) typeDecl(decl ast.TypeDecl) {
 	if decl.IsAlias() {
-		b.lineWithComment("type "+decl.Name+" = "+typeRef(decl.Alias), decl.Span.Start.Line)
+		b.lineWithComment("type "+typeSpec(decl), decl.Span.Start.Line)
 		return
 	}
 	b.lineWithComment("type "+decl.Name+" struct {", decl.Span.Start.Line)
@@ -255,6 +285,13 @@ func (b *builder) typeDecl(decl ast.TypeDecl) {
 	b.flushCommentsBefore(decl.Span.End.Line)
 	b.indent--
 	b.lineWithComment("}", decl.Span.End.Line)
+}
+
+func typeSpec(decl ast.TypeDecl) string {
+	if decl.IsAlias() {
+		return decl.Name + " = " + typeRef(decl.Alias)
+	}
+	return decl.Name + " struct {"
 }
 
 func (b *builder) stmts(stmts []ast.Stmt) {
