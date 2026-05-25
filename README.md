@@ -117,6 +117,9 @@ enum Verdict i32 {
     VerdictDrop = 1
 }
 
+capability ExecObserve danger observe = "kernel.process.exec.observe"
+
+@capability(ExecObserve)
 @tracepoint("sched:sched_process_exec")
 func OnExec(ctx tracepoint.Exec) i32 {
     if bpf.current_pid() == 0 {
@@ -163,6 +166,9 @@ preferred shape for nullable resources because Horizon tracks lookup, reserve,
 and packet-header ownership from the helper call.
 
 ```go
+capability ExecObserve danger observe = "kernel.process.exec.observe"
+
+@capability(ExecObserve)
 @tracepoint("sched:sched_process_exec")
 func OnExec(ctx tracepoint.Exec) i32 {
     var pid u32 = bpf.current_pid()
@@ -177,6 +183,9 @@ integer or bool literals, package constants, enum values, or compiler-known
 action/protocol constants.
 
 ```go
+capability WebDrop danger drop = "kernel.network.xdp.drop"
+
+@capability(WebDrop)
 @xdp
 func DropWeb(ctx xdp.Context) i32 {
     tcp := xdp.tcp(ctx)
@@ -202,6 +211,9 @@ type Count struct {
 
 map Counts hash[u32, Count]
 
+capability ExecCount danger observe = "kernel.process.exec.count"
+
+@capability(ExecCount)
 @tracepoint("sched:sched_process_exec")
 func OnExec(ctx tracepoint.Exec) i32 {
     pid := bpf.current_pid()
@@ -236,6 +248,9 @@ func normalize_pid(pid u32) u32 {
     return 1
 }
 
+capability ExecObserve danger observe = "kernel.process.exec.observe"
+
+@capability(ExecObserve)
 @tracepoint("sched:sched_process_exec")
 func OnExec(ctx tracepoint.Exec) i32 {
     pid := normalize_pid(bpf.current_pid())
@@ -273,6 +288,9 @@ type Count struct {
 
 map ExecCounts percpu_hash[u32, Count]
 
+capability ExecCount danger observe = "kernel.process.exec.count"
+
+@capability(ExecCount)
 @tracepoint("sched:sched_process_exec")
 func CountExec(ctx tracepoint.Exec) i32 {
     pid := bpf.current_pid()
@@ -369,6 +387,7 @@ func OnOpen(ctx kprobe.Context) i32 {
     return 0
 }
 
+@capability(FileOpenObserve)
 @kretprobe("do_sys_openat2")
 func OnOpenReturn(ctx kretprobe.Context) i32 {
     rc := kretprobe.ret(ctx)
