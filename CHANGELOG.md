@@ -6,6 +6,24 @@ All notable changes to Horizon are documented in this file. Format follows
 
 ## [Unreleased]
 
+## [v0.1.1] — 2026-05-25
+
+### Fixed
+- **HZN1326 (security):** capability names in the reserved `kernel.*`
+  namespace must end in a recognized leaf word (`observe`, `mutate`,
+  `drop`, `block`, `privileged`, `deny`, or `allow`). Previously, names
+  like `kernel.network.connect.grant` silently passed validation with
+  arbitrary danger levels, producing manifests whose names didn't match
+  their semantics. Closes the false-acceptance hole reported in the
+  Horizon × Continuum dogfood pass on 2026-05-25. See
+  spec.horizon-continuum-integration.v1 §A.1.
+
+### Changed
+- `examples/execcount` capability renamed from
+  `kernel.process.exec.count` to `kernel.process.exec.count.observe`
+  to conform to the new leaf rule. No userspace API change. README
+  sample code blocks updated to match.
+
 ## [v0.1.0] — 2026-05-25
 
 ### Added
