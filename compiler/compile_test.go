@@ -156,7 +156,7 @@ func DropTCP(ctx xdp.Context) i32 {
 func TestAnalyzeCapabilityNameDangerSuffixFloorsManifestDanger(t *testing.T) {
 	result := analyzeSource(t, "capability.hzn", `package probes
 
-@capability("kernel.network.connect.block")
+@capability("kernel.process.exec.block")
 @tracepoint("sched:sched_process_exec")
 func OnExec(ctx tracepoint.Exec) i32 {
     return 0
@@ -247,15 +247,27 @@ func OnExec(ctx tracepoint.Exec) i32 {
 func TestAnalyzeRejectsCapabilityAliasDangerBelowNameSuffix(t *testing.T) {
 	result := analyzeSource(t, "capability.hzn", `package probes
 
-capability ConnectObserve danger observe = "kernel.network.connect.block"
+capability ExecBlock danger observe = "kernel.process.exec.block"
 
-@capability(ConnectObserve)
+@capability(ExecBlock)
 @tracepoint("sched:sched_process_exec")
 func OnExec(ctx tracepoint.Exec) i32 {
     return 0
 }
 `)
 	requireDiagnosticCode(t, result, "HZN1324")
+}
+
+func TestAnalyzeRejectsCapabilityNamespaceMismatch(t *testing.T) {
+	result := analyzeSource(t, "capability.hzn", `package probes
+
+@capability("kernel.process.exec.observe")
+@xdp
+func DropTCP(ctx xdp.Context) i32 {
+    return xdp.Pass
+}
+`)
+	requireDiagnosticCode(t, result, "HZN2502")
 }
 
 func TestAnalyzeRejectsDuplicateDeclarationsAcrossFiles(t *testing.T) {

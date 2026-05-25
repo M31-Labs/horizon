@@ -463,6 +463,18 @@ func TestValidateRejectsUnsupportedEnumValues(t *testing.T) {
 			Package:      "probes",
 			Capabilities: []Capability{{Name: "kernel.process.exec.observe", Kind: "source", Danger: "destroy", Program: "OnExec", Section: "tracepoint/sched/sched_process_exec"}},
 		},
+		"capability namespace": {
+			Schema:   SchemaV0,
+			Package:  "probes",
+			Programs: []Program{{Name: "Drop", Kind: "xdp", Section: "xdp"}},
+			Capabilities: []Capability{{
+				Name:    "kernel.process.exec.observe",
+				Kind:    "source",
+				Danger:  "observe",
+				Program: "Drop",
+				Section: "xdp",
+			}},
+		},
 		"unknown helper requirement": {
 			Schema:       SchemaV0,
 			Package:      "probes",

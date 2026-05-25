@@ -87,8 +87,8 @@ func validateManifestHeader(m Manifest) error {
 	return nil
 }
 
-func indexManifestPrograms(programSpecs []Program) (map[string]bool, error) {
-	programs := map[string]bool{}
+func indexManifestPrograms(programSpecs []Program) (map[string]Program, error) {
+	programs := map[string]Program{}
 	for _, program := range programSpecs {
 		if program.Name == "" {
 			return nil, validationErrorf("capability manifest program name is required")
@@ -102,7 +102,7 @@ func indexManifestPrograms(programSpecs []Program) (map[string]bool, error) {
 		if program.Section == "" {
 			return nil, validationErrorf("capability manifest program %q section is required", program.Name)
 		}
-		programs[program.Name] = true
+		programs[program.Name] = program
 	}
 	return programs, nil
 }
@@ -203,7 +203,7 @@ func validateManifestMapTypeRefs(maps map[string]Map, types map[string]bool) err
 	return nil
 }
 
-func validateManifestCapabilities(caps []Capability, programs map[string]bool, maps map[string]Map, types map[string]bool) error {
+func validateManifestCapabilities(caps []Capability, programs map[string]Program, maps map[string]Map, types map[string]bool) error {
 	validateSchemaRefs := len(types) > 0
 	for _, cap := range caps {
 		if cap.Name == "" {
@@ -224,11 +224,17 @@ func validateManifestCapabilities(caps []Capability, programs map[string]bool, m
 		if cap.Program == "" {
 			return validationErrorf("capability %q program is required", cap.Name)
 		}
-		if len(programs) > 0 && !programs[cap.Program] {
+		program, ok := programs[cap.Program]
+		if len(programs) > 0 && !ok {
 			return validationErrorf("capability %q references unknown program %q", cap.Name, cap.Program)
 		}
 		if cap.Section == "" {
 			return validationErrorf("capability %q section is required", cap.Name)
+		}
+		if ok {
+			if err := validateCapabilityNamespace(cap, program); err != nil {
+				return err
+			}
 		}
 		if err := validateRequirements(cap.Requirements); err != nil {
 			return validationErrorf("capability %q requirements: %v", cap.Name, err)
@@ -245,6 +251,68 @@ func validateManifestCapabilities(caps []Capability, programs map[string]bool, m
 		}
 	}
 	return nil
+}
+
+func validateCapabilityNamespace(cap Capability, program Program) error {
+	if cap.Name == "" || !strings.HasPrefix(cap.Name, "kernel.") {
+		return nil
+	}
+	want := expectedKernelCapabilityPrefix(program)
+	if want == "" || strings.HasPrefix(cap.Name, want) {
+		return nil
+	}
+	return validationErrorf("capability %q does not match %s program %q", cap.Name, programSectionDescription(program), cap.Program)
+}
+
+func expectedKernelCapabilityPrefix(program Program) string {
+	attach := manifestProgramAttach(program)
+	switch program.Kind {
+	case "tracepoint":
+		if attach == "sched:sched_process_exec" {
+			return "kernel.process.exec."
+		}
+	case "xdp":
+		return "kernel.network.xdp."
+	case "tc":
+		return "kernel.network.tc."
+	case "cgroup":
+		if attach == "connect4" || attach == "connect6" {
+			return "kernel.network.connect."
+		}
+	case "lsm":
+		if attach == "file_open" {
+			return "kernel.file.open."
+		}
+	case "kprobe", "kretprobe":
+		switch attach {
+		case "do_sys_openat2":
+			return "kernel.file.open."
+		case "tcp_v4_connect":
+			return "kernel.network.tcp.connect."
+		}
+	}
+	return ""
+}
+
+func manifestProgramAttach(program Program) string {
+	if program.Attach != "" {
+		return program.Attach
+	}
+	prefix := program.Kind + "/"
+	if strings.HasPrefix(program.Section, prefix) {
+		return strings.TrimPrefix(program.Section, prefix)
+	}
+	return ""
+}
+
+func programSectionDescription(program Program) string {
+	if program.Section != "" {
+		return program.Section
+	}
+	if program.Attach != "" {
+		return program.Kind + "/" + program.Attach
+	}
+	return program.Kind
 }
 
 func validationErrorf(format string, args ...any) error {
