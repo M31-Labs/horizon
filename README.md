@@ -38,6 +38,7 @@ It keeps the kernel-side language deliberately small:
 - compiler-known kernel helpers
 - typed kprobe argument and kretprobe return helpers
 - readable generated BPF C
+- generated BPF C and Go bindings marked as generated artifacts
 - embedded gotreesitter highlight, locals, and symbol queries for editor integrations
 - source maps with declaration and function/section context for diagnostics
 - typed Go bindings and Continuum capability manifests
@@ -656,6 +657,7 @@ Horizon makes verifier-sensitive behavior explicit before clang runs:
 - cgroup context reads lower through typed generated wrappers, so generated C diagnostics map back to the authored `cgroup.*` helper call
 - LSM programs must declare an explicit hook such as `@lsm("file_open")` and return named actions such as `lsm.Allow` and `lsm.Deny`, not raw integers
 - generated C emits only the helper and map wrappers the program actually uses
+- generated BPF C and Go bindings include standard generated-file headers so downstream tools and reviewers can distinguish authored source from artifacts
 - generated C validation only permits Horizon-owned `SEC(...)` shapes for license, maps, and supported program sections
 - generated C validation permits raw `bpf_*` calls only inside compiler-owned helper or map wrappers, never inside source-authored helper functions
 - generated map wrappers source-map back to the authored `lookup`, `update`, `delete`, `reserve`, `submit`, or `discard` call
