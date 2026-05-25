@@ -6,7 +6,7 @@ All notable changes to Horizon are documented in this file. Format follows
 
 ## [Unreleased]
 
-## [v0.1.0] — TBD
+## [v0.1.0] — 2026-05-25
 
 ### Added
 - First tagged release of Horizon. Pre-alpha graduated to the v0.x line.
