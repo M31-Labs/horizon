@@ -635,6 +635,7 @@ Horizon makes verifier-sensitive behavior explicit before clang runs:
 - short variable declarations introduce fresh local names only; use `=` to update existing locals, and do not shadow maps or compiler namespaces
 - every program must return an explicit `i32` on every control-flow path
 - bare `return` is rejected; tracing programs should use `return 0`, while packet and policy programs should return named actions
+- tracepoints must use `category:event` attach strings, and kprobe, kretprobe, and LSM attach strings must be non-empty section tokens rather than path-like fragments
 - only bounded counted loops with numeric literal or integer const upper bounds are accepted
 - helper availability is checked against the program kind
 - `hzn check`, `hzn emit-c`, `hzn bindgen`, `hzn workbench`, `hzn build`, and `hzn capabilities` reject attachable programs without capability coverage
@@ -651,6 +652,7 @@ Horizon makes verifier-sensitive behavior explicit before clang runs:
 - cgroup context reads lower through typed generated wrappers, so generated C diagnostics map back to the authored `cgroup.*` helper call
 - LSM programs must declare an explicit hook such as `@lsm("file_open")` and return named actions such as `lsm.Allow` and `lsm.Deny`, not raw integers
 - generated C emits only the helper and map wrappers the program actually uses
+- generated C validation only permits Horizon-owned `SEC(...)` shapes for license, maps, and supported program sections
 - generated C validation permits raw `bpf_*` calls only inside compiler-owned helper or map wrappers, never inside source-authored helper functions
 - generated map wrappers source-map back to the authored `lookup`, `update`, `delete`, `reserve`, `submit`, or `discard` call
 - generated BPF C is compiled with clang warnings treated as errors

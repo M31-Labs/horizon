@@ -965,6 +965,17 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 					Message:  "@tracepoint requires one string argument",
 					Primary:  attr.Span,
 				})
+				break
+			}
+			attach := attrStringArg(attr)
+			if !validTracepointAttach(attach) {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1325",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("@tracepoint attach %q must use category:event form", attach),
+					Primary:  attr.Span,
+					Suggest:  `use an explicit tracepoint such as @tracepoint("sched:sched_process_exec")`,
+				})
 			}
 		case "xdp":
 			if len(attr.Args) != 0 {
@@ -1033,6 +1044,14 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 					Primary:  attr.Span,
 					Suggest:  `use an explicit hook such as @lsm("file_open")`,
 				})
+			} else if !validAttachToken(attrStringArg(attr)) {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1325",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("@lsm hook %q is not a valid section token", attrStringArg(attr)),
+					Primary:  attr.Span,
+					Suggest:  `use a kernel hook token such as @lsm("file_open")`,
+				})
 			}
 		case "kprobe":
 			if !attrHasStringArg(attr) {
@@ -1042,6 +1061,17 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 					Message:  "@kprobe requires one kernel symbol string argument",
 					Primary:  attr.Span,
 				})
+				break
+			}
+			symbol := attrStringArg(attr)
+			if !validAttachToken(symbol) {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1325",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("@kprobe symbol %q is not a valid section token", symbol),
+					Primary:  attr.Span,
+					Suggest:  `use a non-empty kernel symbol such as @kprobe("do_sys_openat2")`,
+				})
 			}
 		case "kretprobe":
 			if !attrHasStringArg(attr) {
@@ -1050,6 +1080,17 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 					Severity: diag.SeverityError,
 					Message:  "@kretprobe requires one kernel symbol string argument",
 					Primary:  attr.Span,
+				})
+				break
+			}
+			symbol := attrStringArg(attr)
+			if !validAttachToken(symbol) {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1325",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("@kretprobe symbol %q is not a valid section token", symbol),
+					Primary:  attr.Span,
+					Suggest:  `use a non-empty kernel symbol such as @kretprobe("do_sys_openat2")`,
 				})
 			}
 		case "capability":
@@ -1132,6 +1173,23 @@ func validateCapabilityDecl(decl ast.CapabilityDecl) []diag.Diagnostic {
 		Suggest:  `use a stable capability string such as "kernel.process.exec.observe"`,
 	})
 	return diags
+}
+
+func validTracepointAttach(attach string) bool {
+	category, event, ok := strings.Cut(attach, ":")
+	return ok && validAttachToken(category) && validAttachToken(event)
+}
+
+func validAttachToken(token string) bool {
+	if token == "" {
+		return false
+	}
+	if strings.ContainsAny(token, "/:") {
+		return false
+	}
+	return !strings.ContainsFunc(token, func(r rune) bool {
+		return r == 0 || r == '"' || r == '\'' || r == '\\' || r == '`' || r <= ' '
+	})
 }
 
 func validCapabilityDanger(danger string) bool {

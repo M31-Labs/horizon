@@ -66,6 +66,23 @@ func TestValidateCRejectsDirectBPFHelperOutsideWrapper(t *testing.T) {
 	}
 }
 
+func TestValidateCRejectsUnsupportedBPFSection(t *testing.T) {
+	source := strings.Replace(validGeneratedCForValidation(),
+		`SEC("tracepoint/sched/sched_process_exec")`,
+		`SEC("tracepoint/sched:sched_process_exec")`, 1)
+	err := ValidateC(source)
+	if err == nil {
+		t.Fatalf("ValidateC succeeded for malformed BPF section")
+	}
+	var validation CValidationError
+	if !errors.As(err, &validation) {
+		t.Fatalf("error = %T, want CValidationError", err)
+	}
+	if validation.Rule != "section_name" {
+		t.Fatalf("rule = %q, want section_name", validation.Rule)
+	}
+}
+
 func TestValidateCAllowsBPFHelperInsideTypedWrapper(t *testing.T) {
 	if err := ValidateC(validGeneratedCForValidation()); err != nil {
 		t.Fatalf("ValidateC: %v", err)

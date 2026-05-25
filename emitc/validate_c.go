@@ -47,8 +47,10 @@ func validateCShape(source string) error {
 		if strings.TrimRight(line, " \t") != line {
 			return CValidationError{Rule: "trailing_whitespace", Line: lineNo, Message: "line has trailing whitespace"}
 		}
-		if strings.Contains(line, `SEC("")`) {
-			return CValidationError{Rule: "section_name", Line: lineNo, Message: "generated C has an empty BPF section name"}
+		for _, section := range cSectionNames(line) {
+			if err := validateCSectionName(section, lineNo); err != nil {
+				return err
+			}
 		}
 		clean, err := state.cleanLine(line, lineNo)
 		if err != nil {
@@ -149,6 +151,93 @@ func allowedDirectBPFMacro(name string) bool {
 	default:
 		return false
 	}
+}
+
+func cSectionNames(line string) []string {
+	var names []string
+	for {
+		idx := strings.Index(line, "SEC(")
+		if idx < 0 {
+			return names
+		}
+		line = line[idx+len("SEC("):]
+		line = strings.TrimLeft(line, " \t")
+		if !strings.HasPrefix(line, `"`) {
+			continue
+		}
+		line = line[1:]
+		var name strings.Builder
+		escaped := false
+		for i := 0; i < len(line); i++ {
+			ch := line[i]
+			if escaped {
+				name.WriteByte(ch)
+				escaped = false
+				continue
+			}
+			switch ch {
+			case '\\':
+				escaped = true
+			case '"':
+				names = append(names, name.String())
+				line = line[i+1:]
+				goto next
+			default:
+				name.WriteByte(ch)
+			}
+		}
+		return names
+	next:
+	}
+}
+
+func validateCSectionName(section string, lineNo int) error {
+	if section == "" {
+		return CValidationError{Rule: "section_name", Line: lineNo, Message: "generated C has an empty BPF section name"}
+	}
+	switch section {
+	case "license", ".maps", "xdp":
+		return nil
+	case "tc/ingress", "tc/egress", "cgroup/connect4", "cgroup/connect6":
+		return nil
+	}
+	switch {
+	case strings.HasPrefix(section, "tracepoint/"):
+		if validCTracepointSection(section) {
+			return nil
+		}
+	case strings.HasPrefix(section, "kprobe/"), strings.HasPrefix(section, "kretprobe/"), strings.HasPrefix(section, "lsm/"):
+		if validCNamedSection(section) {
+			return nil
+		}
+	}
+	return CValidationError{
+		Rule:    "section_name",
+		Line:    lineNo,
+		Message: fmt.Sprintf("generated C has unsupported BPF section %q", section),
+	}
+}
+
+func validCTracepointSection(section string) bool {
+	parts := strings.Split(section, "/")
+	return len(parts) == 3 && validCSectionToken(parts[1]) && validCSectionToken(parts[2])
+}
+
+func validCNamedSection(section string) bool {
+	_, name, ok := strings.Cut(section, "/")
+	return ok && validCSectionToken(name)
+}
+
+func validCSectionToken(token string) bool {
+	if token == "" {
+		return false
+	}
+	if strings.ContainsAny(token, "/:") {
+		return false
+	}
+	return !strings.ContainsFunc(token, func(r rune) bool {
+		return r == 0 || r == '"' || r == '\'' || r == '\\' || r == '`' || r <= ' '
+	})
 }
 
 func isCIdentByte(ch byte) bool {

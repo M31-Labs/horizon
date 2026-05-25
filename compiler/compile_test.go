@@ -1097,6 +1097,70 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	requireDiagnosticCode(t, result, "HZN1302")
 }
 
+func TestAnalyzeRejectsMalformedAttachStrings(t *testing.T) {
+	tests := map[string]struct {
+		source string
+		code   string
+	}{
+		"tracepoint missing category event separator": {
+			code: "HZN1325",
+			source: `package probes
+
+@tracepoint("sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    return 0
+}
+`,
+		},
+		"tracepoint slash form": {
+			code: "HZN1325",
+			source: `package probes
+
+@tracepoint("sched/sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    return 0
+}
+`,
+		},
+		"empty kprobe symbol": {
+			code: "HZN1325",
+			source: `package probes
+
+@kprobe("")
+func OnOpen(ctx kprobe.Context) i32 {
+    return 0
+}
+`,
+		},
+		"empty kretprobe symbol": {
+			code: "HZN1325",
+			source: `package probes
+
+@kretprobe("")
+func OnOpenReturn(ctx kretprobe.Context) i32 {
+    return 0
+}
+`,
+		},
+		"lsm hook with path separator": {
+			code: "HZN1325",
+			source: `package probes
+
+@lsm("file/open")
+func OnFileOpen(ctx lsm.Context) i32 {
+    return lsm.Allow
+}
+`,
+		},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			result := analyzeSource(t, "section.hzn", test.source)
+			requireDiagnosticCode(t, result, test.code)
+		})
+	}
+}
+
 func TestAnalyzeRejectsHashLookupDereferenceWithoutNilCheck(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "counts.hzn")
