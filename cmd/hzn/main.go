@@ -20,6 +20,8 @@ func run(args []string) error {
 	}
 	cmd, rest := args[0], args[1:]
 	switch cmd {
+	case "new":
+		return runNew(rest)
 	case "check":
 		return runCheck(rest)
 	case "emit-c":
@@ -47,7 +49,7 @@ func run(args []string) error {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "Usage: hzn <check|fmt|workbench|build|doctor|version|emit-c|bindgen|diagnose|capabilities> [path] [flags]")
+	fmt.Fprintln(os.Stderr, "Usage: hzn <new|check|fmt|workbench|build|doctor|version|emit-c|bindgen|diagnose|capabilities> [path] [flags]")
 }
 
 func pathArg(fs *flag.FlagSet) string {
@@ -83,7 +85,7 @@ func flagNeedsValue(arg string) bool {
 	if len(arg) >= 2 && arg[0:2] == "--" {
 		arg = arg[1:]
 	}
-	for _, name := range []string{"-o", "-map", "-generated", "-package", "-capabilities"} {
+	for _, name := range []string{"-o", "-map", "-generated", "-package", "-capabilities", "-template", "-capability"} {
 		if arg == name || len(arg) > len(name) && arg[:len(name)+1] == name+"=" {
 			return arg == name
 		}

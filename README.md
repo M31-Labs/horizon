@@ -477,6 +477,8 @@ func DenyFileOpen(ctx lsm.Context) i32 {
 ```sh
 hzn check ./examples/execwatch
 hzn check ./examples/execwatch -json
+hzn new ./scratch/execwatch
+hzn new ./scratch/xdpdrop -template xdpdrop
 hzn fmt ./examples/execwatch
 hzn fmt ./examples -w
 hzn fmt ./examples -check
@@ -514,6 +516,13 @@ hzn diagnose dist/exec.verifier.log --map dist/exec.hznmap.json -json -fail-on-e
 `hzn fmt` gives `.hzn` files a canonical AST-based style for local editing and
 CI. Use `-w` to update files in place and `-check` to fail when files need
 formatting. The formatter preserves standalone and inline line comments.
+
+`hzn new` creates an opinionated starter `.hzn` program that already follows
+Horizon's safety rules: named capabilities, explicit danger, typed helpers,
+nil-checked resources, and named packet actions. The default `execwatch`
+template emits a tracepoint/ringbuf source program; `-template xdpdrop` emits
+a minimal XDP packet policy starter. Generated starters are meant to pass
+`hzn check`, `hzn fmt -check`, and `hzn workbench` immediately.
 
 `hzn workbench` is the authoring path: it validates source and writes readable
 BPF C, a source map, typed Go bindings, a capability manifest, diagnostics, and
