@@ -7,6 +7,27 @@ in one workbench.
 Horizon is not a Go compiler. It is a small Go-shaped DSL for writing
 verifier-friendly eBPF programs that lower to readable BPF C.
 
+## What Horizon solves
+
+**Verifier errors are cryptic.** Horizon emits source maps with every
+build. `hzn diagnose` remaps clang and verifier logs back through those
+source maps and adds Horizon-specific remediation hints for nil checks,
+ringbuf lifetimes, bounded loops, helper availability, and stack usage.
+
+**Resource lifetimes are implicit.** Ringbuf reservations, map lookups,
+and packet headers are first-class resource types with tracked states
+(`maybe_nil → live → consumed`). Missing nil checks, double submits,
+writes after submit, and live-on-return are rejected before clang runs.
+
+**Build pipelines are scattered.** `hzn workbench` produces readable BPF
+C, source maps, typed Go bindings, a capability manifest, diagnostics, and
+a report with provenance — in one command. `hzn build` adds clang
+compilation.
+
+**Object files do not explain their power.** Every program declares a
+capability with explicit danger metadata (`observe`, `mutate`, `drop`,
+`block`, `privileged`). The generated manifest carries the contract.
+
 It keeps the kernel-side language deliberately small:
 
 - tracepoint programs
