@@ -17,6 +17,11 @@ func runCapabilities(args []string) error {
 	if err != nil {
 		return err
 	}
+	coverageDiagnostics := diagnosticsWithSourceContext(capabilityCoverageDiagnostics(result.Program), result.Files)
+	if diag.HasErrors(coverageDiagnostics) {
+		printDiagnostics(coverageDiagnostics)
+		return errDiagnostics(len(coverageDiagnostics))
+	}
 	manifest := capability.FromIR(result.Program)
 	if err := capability.Validate(manifest); err != nil {
 		if d, ok := capability.DiagnosticForError(err); ok {

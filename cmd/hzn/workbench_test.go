@@ -237,6 +237,84 @@ func TestWorkbenchJSONOutputForInvalidInput(t *testing.T) {
 	}
 }
 
+func TestWorkbenchRejectsProgramWithoutCapabilityCoverage(t *testing.T) {
+	outDir := t.TempDir()
+	input := filepath.Join(t.TempDir(), "nocap.hzn")
+	if err := os.WriteFile(input, []byte(`package probes
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    return 0
+}
+`), 0o600); err != nil {
+		t.Fatalf("write input: %v", err)
+	}
+
+	stdout, err := captureStdout(t, func() error {
+		return run([]string{"workbench", input, "-o", outDir, "-json"})
+	})
+	if err == nil {
+		t.Fatal("run workbench -json succeeded, want missing capability diagnostic")
+	}
+
+	var report workbenchReport
+	if err := json.Unmarshal([]byte(stdout), &report); err != nil {
+		t.Fatalf("unmarshal stdout report: %v\n%s", err, stdout)
+	}
+	if report.Status != "diagnostic_error" {
+		t.Fatalf("status = %q, want diagnostic_error", report.Status)
+	}
+	if report.DiagnosticCount != 1 || !hasDiagnosticCode(report.Diagnostics, "HZN3301") {
+		t.Fatalf("diagnostics = %#v, want HZN3301", report.Diagnostics)
+	}
+	if report.Diagnostics[0].Source == nil || !strings.Contains(report.Diagnostics[0].Source.Text, `@tracepoint("sched:sched_process_exec")`) {
+		t.Fatalf("diagnostic source = %#v, want section source context", report.Diagnostics[0].Source)
+	}
+	if len(report.Artifacts) != 2 {
+		t.Fatalf("artifacts = %d, want diagnostics and report only", len(report.Artifacts))
+	}
+	for _, name := range []string{
+		"nocap.diagnostics.json",
+		"nocap.report.json",
+	} {
+		if _, err := os.Stat(filepath.Join(outDir, name)); err != nil {
+			t.Fatalf("missing diagnostic artifact %s: %v", name, err)
+		}
+	}
+	for _, name := range []string{
+		"nocap.bpf.c",
+		"nocap.hznmap.json",
+		"nocap.bindings.go",
+		"nocap.cap.json",
+		"nocap.bpf.o",
+	} {
+		if _, err := os.Stat(filepath.Join(outDir, name)); !os.IsNotExist(err) {
+			t.Fatalf("generated artifact %s should not exist for missing capability: %v", name, err)
+		}
+	}
+}
+
+func TestCapabilitiesRejectsProgramWithoutCapabilityCoverage(t *testing.T) {
+	input := filepath.Join(t.TempDir(), "nocap.hzn")
+	if err := os.WriteFile(input, []byte(`package probes
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    return 0
+}
+`), 0o600); err != nil {
+		t.Fatalf("write input: %v", err)
+	}
+
+	output, err := runQuietly(t, []string{"capabilities", input})
+	if err == nil {
+		t.Fatal("run capabilities succeeded, want missing capability diagnostic")
+	}
+	if !strings.Contains(output, "HZN3301") {
+		t.Fatalf("output = %q, want HZN3301", output)
+	}
+}
+
 func TestWorkbenchWritesDiagnosticReportForSyntaxError(t *testing.T) {
 	outDir := t.TempDir()
 	sourcePath := filepath.Join(t.TempDir(), "syntax_error.hzn")
@@ -433,6 +511,13 @@ func TestWorkbenchReportsEmitterDiagnostics(t *testing.T) {
 				Body: []ir.Block{{
 					Statements: []ir.Statement{{Kind: "while"}},
 				}},
+			}},
+			Capabilities: []ir.Capability{{
+				Name:    "kernel.process.exec.observe",
+				Kind:    ir.CapabilitySource,
+				Danger:  ir.DangerObserve,
+				Program: "Bad",
+				Section: "tracepoint/sched/sched_process_exec",
 			}},
 		},
 	}

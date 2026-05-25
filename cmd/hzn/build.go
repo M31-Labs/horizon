@@ -22,7 +22,7 @@ func runBuild(args []string) error {
 		PackageName: *packageName,
 		Compile:     true,
 	})
-	if err != nil && diag.HasErrors(report.Diagnostics) {
+	if diag.HasErrors(report.Diagnostics) {
 		printDiagnostics(report.Diagnostics)
 		return errDiagnostics(report.DiagnosticCount)
 	}

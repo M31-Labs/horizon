@@ -69,6 +69,9 @@ import bpf "m31labs.dev/horizon/runtime/kernel"
 
 const Negative i32 = -1
 
+capability FileOpenObserve danger observe = "kernel.file.open.observe"
+
+@capability(FileOpenObserve)
 @kprobe("do_sys_openat2")
 func OnOpen(ctx kprobe.Context) i32 {
     dfd := i32(kprobe.arg1(ctx))
@@ -79,6 +82,7 @@ func OnOpen(ctx kprobe.Context) i32 {
     return 0
 }
 
+@capability(FileOpenObserve)
 @kretprobe("do_sys_openat2")
 func OnOpenReturn(ctx kretprobe.Context) i32 {
     rc := kretprobe.ret(ctx)
@@ -113,6 +117,9 @@ func TestTCCompileSmoke(t *testing.T) {
 	srcDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(srcDir, "tc.hzn"), []byte(`package probes
 
+capability TCObserve danger observe = "kernel.network.tc.observe"
+
+@capability(TCObserve)
 @tc("ingress")
 func PassIngress(ctx tc.Context) i32 {
     return tc.OK
@@ -142,6 +149,9 @@ func TestAuthoredContextParamCompileSmoke(t *testing.T) {
 	srcDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(srcDir, "xdp.hzn"), []byte(`package probes
 
+capability XDPPass danger observe = "kernel.network.xdp.observe"
+
+@capability(XDPPass)
 @xdp
 func Pass(packet xdp.Context) i32 {
     if eth := xdp.eth(packet); eth != nil {
@@ -175,6 +185,9 @@ func TestCgroupConnectCompileSmoke(t *testing.T) {
 	srcDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(srcDir, "connect.hzn"), []byte(`package probes
 
+capability ConnectBlock danger block = "kernel.network.connect.block"
+
+@capability(ConnectBlock)
 @cgroup("connect4")
 func BlockSMTP(ctx cgroup.Connect) i32 {
     if cgroup.family(ctx) != cgroup.FamilyIPv4 {
@@ -219,6 +232,9 @@ func TestLSMCompileSmoke(t *testing.T) {
 	srcDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(srcDir, "lsm.hzn"), []byte(`package probes
 
+capability FileOpenObserve danger observe = "kernel.file.open.observe"
+
+@capability(FileOpenObserve)
 @lsm("file_open")
 func AllowFileOpen(ctx lsm.Context) i32 {
     return lsm.Allow
@@ -256,6 +272,9 @@ type Flags struct {
 
 map FlagsByPID hash[u32, Flags]
 
+capability ExecObserve danger observe = "kernel.process.exec.observe"
+
+@capability(ExecObserve)
 @tracepoint("sched:sched_process_exec")
 func OnExec(ctx tracepoint.Exec) i32 {
     pid := bpf.current_pid()
@@ -288,6 +307,9 @@ func TestConstBoundedLoopCompileSmoke(t *testing.T) {
 
 const MaxSamples u32 = 4
 
+capability ExecObserve danger observe = "kernel.process.exec.observe"
+
+@capability(ExecObserve)
 @tracepoint("sched:sched_process_exec")
 func OnExec(ctx tracepoint.Exec) i32 {
     for i := 0; i < MaxSamples; i++ {
@@ -320,6 +342,9 @@ type file struct {
 
 map Files hash[u32, file]
 
+capability ExecObserve danger observe = "kernel.process.exec.observe"
+
+@capability(ExecObserve)
 @tracepoint("sched:sched_process_exec")
 func OnExec(ctx tracepoint.Exec) i32 {
     pid := bpf.current_pid()
