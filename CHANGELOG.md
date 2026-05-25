@@ -6,6 +6,29 @@ All notable changes to Horizon are documented in this file. Format follows
 
 ## [Unreleased]
 
+## [v0.1.2] — 2026-05-25
+
+### Added
+- Canonical capability-namespace registry (`internal/registry/`)
+  vendored from `~/.hyphae/spaces/m31labs-horizon/specs/capability-namespaces-v1.json`.
+  Identifies which kernel attach surfaces map to which `kernel.*`
+  namespace prefixes, and which leaf words are allowed per
+  (namespace, attach surface). Both Horizon and Continuum vendor the
+  same registry as the single source of truth.
+- LSM `bprm_check_security` and `task_kill` attach strings now
+  recognized by `ExpectedKernelCapabilityPrefix` (introduced by the
+  v0.1.0 Continuum dogfood pass).
+- Drift test (`capability/registry_drift_test.go`) pins
+  `ExpectedKernelCapabilityPrefix` against the registry — adding a
+  switch arm without a matching registry entry (or vice versa) fails
+  CI.
+- Contract test (`compiler/registry_contract_test.go`) walks every
+  example, compiles it, and validates the emitted manifest's
+  capabilities against the registry.
+
+### Reference
+- spec.horizon-continuum-integration.v1 §A.3 + §A.4 (emit side).
+
 ## [v0.1.1] — 2026-05-25
 
 ### Fixed
