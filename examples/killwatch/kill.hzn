@@ -1,0 +1,9 @@
+package probes
+
+capability KillObserve danger observe = "kernel.process.kill.observe"
+
+@capability(KillObserve)
+@lsm("task_kill")
+func ObserveTaskKill(ctx lsm.Context) i32 {
+    return lsm.Allow
+}

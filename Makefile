@@ -4,6 +4,7 @@ HZN_EXAMPLES := \
 	./examples/execwatch \
 	./examples/execcount \
 	./examples/execdeny \
+	./examples/killwatch \
 	./examples/lsmfile \
 	./examples/openwatch \
 	./examples/tcpconnect \
