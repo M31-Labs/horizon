@@ -215,6 +215,43 @@ func TestDoctorNotReadyWithUnsatisfiedCapabilityManifestRequirements(t *testing.
 	requireDoctorCheck(t, report, "host feature cgroup_v2", "error")
 }
 
+func TestDoctorChecksPerCapabilityManifestRequirements(t *testing.T) {
+	cfg := doctorManifestConfig(t, 0)
+	cfg.KernelRelease = func() (string, error) { return "5.4.0-test", nil }
+	cfg.TracefsPaths = []string{filepath.Join(t.TempDir(), "missing-tracefs")}
+
+	report := runDoctorChecks(cfg, capability.Manifest{
+		Schema:  capability.SchemaV0,
+		Package: "probes",
+		Capabilities: []capability.Capability{{
+			Name:    "kernel.process.exec.observe",
+			Kind:    "source",
+			Danger:  "observe",
+			Program: "OnExec",
+			Section: "tracepoint/sched:sched_process_exec",
+			Requirements: &capability.Requirements{
+				Programs:    []capability.FeatureRequirement{{Name: "tracepoint", MinKernel: "4.7"}},
+				Maps:        []capability.FeatureRequirement{{Name: "ringbuf", MinKernel: "5.8"}},
+				Helpers:     []capability.FeatureRequirement{{Name: "bpf_ringbuf_reserve", MinKernel: "5.8"}},
+				Permissions: []string{"bpf_program_load", "bpf_program_load"},
+				Features:    []string{"tracefs", "tracefs"},
+			},
+		}},
+	})
+	if report.Ready {
+		t.Fatalf("ready = true, want false for unsatisfied per-capability requirements")
+	}
+	requireDoctorCheck(t, report, "kernel >= 5.8", "error")
+	requireDoctorCheck(t, report, "permission bpf_program_load", "error")
+	requireDoctorCheck(t, report, "host feature tracefs", "error")
+	if countDoctorChecks(report, "permission bpf_program_load") != 1 {
+		t.Fatalf("checks = %#v, want permission requirement deduplicated", report.Checks)
+	}
+	if countDoctorChecks(report, "host feature tracefs") != 1 {
+		t.Fatalf("checks = %#v, want feature requirement deduplicated", report.Checks)
+	}
+}
+
 func TestDoctorReadsCapabilityManifest(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "exec.cap.json")
 	manifest := capability.Manifest{
@@ -303,6 +340,16 @@ func requireDoctorCheck(t *testing.T, report doctorReport, name string, status s
 		}
 	}
 	t.Fatalf("missing doctor check %q in %#v", name, report.Checks)
+}
+
+func countDoctorChecks(report doctorReport, name string) int {
+	count := 0
+	for _, check := range report.Checks {
+		if check.Name == name {
+			count++
+		}
+	}
+	return count
 }
 
 func writeExecutable(t *testing.T, path string) {

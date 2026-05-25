@@ -567,7 +567,8 @@ requires libbpf's `bpf_core_read.h` and a `vmlinux.h` that includes
 headers including CO-RE helpers, bpftool/LLVM utilities, kernel BTF, and a
 usable `vmlinux.h`. With `-capabilities`, it also reads a generated capability
 manifest and checks the target host against the manifest's minimum kernel,
-permission, and attach-feature requirements.
+permission, and attach-feature requirements, including per-capability
+requirements when a manifest carries them.
 Use `make setup-vmlinux` on BTF-enabled Linux hosts to generate
 `/usr/local/include/vmlinux.h`.
 

@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -159,10 +160,10 @@ func readDoctorCapabilityManifest(path string) (capability.Manifest, error) {
 }
 
 func addCapabilityManifestChecks(report *doctorReport, cfg doctorConfig, manifest capability.Manifest) {
-	if manifest.Requirements == nil {
+	reqs := combinedManifestRequirements(manifest)
+	if reqs.MinKernel == "" && len(reqs.Permissions) == 0 && len(reqs.Features) == 0 {
 		return
 	}
-	reqs := manifest.Requirements
 	if reqs.MinKernel != "" {
 		report.add(checkKernelRequirement(cfg, reqs.MinKernel))
 	}
@@ -172,6 +173,66 @@ func addCapabilityManifestChecks(report *doctorReport, cfg doctorConfig, manifes
 	for _, feature := range reqs.Features {
 		report.add(checkHostFeatureRequirement(cfg, feature))
 	}
+}
+
+func combinedManifestRequirements(manifest capability.Manifest) capability.Requirements {
+	var out capability.Requirements
+	if manifest.Requirements != nil {
+		mergeDoctorRequirements(&out, *manifest.Requirements)
+	}
+	for _, cap := range manifest.Capabilities {
+		if cap.Requirements != nil {
+			mergeDoctorRequirements(&out, *cap.Requirements)
+		}
+	}
+	out.Permissions = sortedDoctorSet(out.Permissions)
+	out.Features = sortedDoctorSet(out.Features)
+	return out
+}
+
+func mergeDoctorRequirements(dst *capability.Requirements, src capability.Requirements) {
+	dst.MinKernel = maxDoctorKernel(dst.MinKernel, src.MinKernel)
+	for _, items := range [][]capability.FeatureRequirement{src.Programs, src.Maps, src.Helpers} {
+		for _, item := range items {
+			dst.MinKernel = maxDoctorKernel(dst.MinKernel, item.MinKernel)
+		}
+	}
+	dst.Permissions = append(dst.Permissions, src.Permissions...)
+	dst.Features = append(dst.Features, src.Features...)
+}
+
+func maxDoctorKernel(a string, b string) string {
+	if a == "" {
+		return b
+	}
+	if b == "" {
+		return a
+	}
+	if compareKernelRelease(a, b) < 0 {
+		return b
+	}
+	return a
+}
+
+func sortedDoctorSet(items []string) []string {
+	if len(items) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	for _, item := range items {
+		if item != "" {
+			seen[item] = true
+		}
+	}
+	if len(seen) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(seen))
+	for item := range seen {
+		out = append(out, item)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func (r *doctorReport) add(check doctorCheck) {
