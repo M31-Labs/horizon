@@ -48,6 +48,24 @@ It keeps the kernel-side language deliberately small:
 .hzn -> gotreesitter parser -> AST -> BPF IR -> validation -> C -> clang -> .bpf.o -> bindings + capabilities
 ```
 
+## Install
+
+Until the `m31labs.dev/horizon` vanity import metadata is live, install the CLI
+from a clone:
+
+```sh
+git clone https://github.com/M31-Labs/horizon.git
+cd horizon
+go install ./cmd/hzn
+```
+
+After the vanity import path is serving Go metadata, tagged releases will be
+installable with:
+
+```sh
+go install m31labs.dev/horizon/cmd/hzn@latest
+```
+
 ## Example
 
 ```go
