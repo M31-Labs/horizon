@@ -54,7 +54,9 @@ func validateCShape(source string) error {
 		if err != nil {
 			return err
 		}
-		if err := validateCLine(clean, lineNo, state.inStaticInline()); err != nil {
+		inlineName := staticInlineFunctionName(strings.TrimSpace(clean))
+		allowDirectBPFHelpers := state.allowsDirectBPFHelpers() || allowsDirectBPFCallsInStaticInline(inlineName)
+		if err := validateCLine(clean, lineNo, allowDirectBPFHelpers); err != nil {
 			return err
 		}
 		if err := state.updateScope(clean, lineNo); err != nil {
@@ -101,7 +103,7 @@ func validateCLine(clean string, lineNo int, inStaticInline bool) error {
 			return CValidationError{Rule: banned.rule, Line: lineNo, Message: banned.message}
 		}
 	}
-	if helper, ok := firstDisallowedDirectBPFCall(trimmed); ok && !inStaticInline && !startsStaticInlineFunction(trimmed) {
+	if helper, ok := firstDisallowedDirectBPFCall(trimmed); ok && !inStaticInline {
 		return CValidationError{
 			Rule:    "helper_wrappers",
 			Line:    lineNo,
@@ -154,17 +156,18 @@ func isCIdentByte(ch byte) bool {
 }
 
 type cScanState struct {
-	inBlockComment   bool
-	blockCommentLine int
-	braceDepth       int
-	parenDepth       int
-	bracketDepth     int
-	staticBaseDepth  int
-	staticActive     bool
+	inBlockComment        bool
+	blockCommentLine      int
+	braceDepth            int
+	parenDepth            int
+	bracketDepth          int
+	staticBaseDepth       int
+	staticActive          bool
+	staticAllowsBPFHelper bool
 }
 
-func (s *cScanState) inStaticInline() bool {
-	return s.staticActive
+func (s *cScanState) allowsDirectBPFHelpers() bool {
+	return s.staticActive && s.staticAllowsBPFHelper
 }
 
 func (s *cScanState) cleanLine(line string, lineNo int) (string, error) {
@@ -243,10 +246,11 @@ func (s *cScanState) cleanLine(line string, lineNo int) (string, error) {
 }
 
 func (s *cScanState) updateScope(clean string, lineNo int) error {
-	enterStatic := startsStaticInlineFunction(strings.TrimSpace(clean))
-	if enterStatic {
+	inlineName := staticInlineFunctionName(strings.TrimSpace(clean))
+	if inlineName != "" {
 		s.staticActive = true
 		s.staticBaseDepth = s.braceDepth
+		s.staticAllowsBPFHelper = allowsDirectBPFCallsInStaticInline(inlineName)
 	}
 	for i := 0; i < len(clean); i++ {
 		switch clean[i] {
@@ -275,10 +279,46 @@ func (s *cScanState) updateScope(clean string, lineNo int) error {
 	}
 	if s.staticActive && s.braceDepth <= s.staticBaseDepth {
 		s.staticActive = false
+		s.staticAllowsBPFHelper = false
 	}
 	return nil
 }
 
-func startsStaticInlineFunction(line string) bool {
-	return strings.HasPrefix(line, "static __always_inline ") && strings.Contains(line, "{")
+func staticInlineFunctionName(line string) string {
+	const prefix = "static __always_inline "
+	if !strings.HasPrefix(line, prefix) || !strings.Contains(line, "{") {
+		return ""
+	}
+	open := strings.IndexByte(line, '(')
+	if open < 0 {
+		return ""
+	}
+	beforeParams := strings.TrimSpace(line[:open])
+	end := len(beforeParams)
+	for end > 0 && !isCIdentByte(beforeParams[end-1]) {
+		end--
+	}
+	start := end
+	for start > 0 && isCIdentByte(beforeParams[start-1]) {
+		start--
+	}
+	if start == end {
+		return ""
+	}
+	return beforeParams[start:end]
+}
+
+func allowsDirectBPFCallsInStaticInline(name string) bool {
+	if name == "" || strings.HasPrefix(name, "hzn_fn_") {
+		return false
+	}
+	if strings.HasPrefix(name, "hzn_") {
+		return true
+	}
+	for _, suffix := range []string{"_lookup", "_update", "_delete", "_reserve", "_submit", "_discard"} {
+		if strings.HasSuffix(name, suffix) {
+			return true
+		}
+	}
+	return false
 }

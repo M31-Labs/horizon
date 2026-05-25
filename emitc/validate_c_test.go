@@ -72,6 +72,35 @@ func TestValidateCAllowsBPFHelperInsideTypedWrapper(t *testing.T) {
 	}
 }
 
+func TestValidateCRejectsDirectBPFHelperInsideUserHelper(t *testing.T) {
+	source := strings.Replace(validGeneratedCForValidation(), "hzn_pid", "hzn_fn_pid", 2)
+	err := ValidateC(source)
+	if err == nil {
+		t.Fatalf("ValidateC succeeded for direct bpf helper call inside user helper")
+	}
+	var validation CValidationError
+	if !errors.As(err, &validation) {
+		t.Fatalf("error = %T, want CValidationError", err)
+	}
+	if validation.Rule != "helper_wrappers" {
+		t.Fatalf("rule = %q, want helper_wrappers", validation.Rule)
+	}
+}
+
+func TestValidateCAllowsBPFHelperInsideTypedMapWrapper(t *testing.T) {
+	source := strings.Replace(validGeneratedCForValidation(),
+		`static __always_inline __u64 hzn_pid(void) {
+    return bpf_get_current_pid_tgid();
+}`,
+		`static __always_inline __u64 *Counts_lookup(__u32 key) {
+    return bpf_map_lookup_elem(&Counts, &key);
+}`, 1)
+	source = strings.Replace(source, "hzn_pid();", "Counts_lookup(0);", 1)
+	if err := ValidateC(source); err != nil {
+		t.Fatalf("ValidateC: %v", err)
+	}
+}
+
 func TestValidateCRejectsUnbalancedGeneratedC(t *testing.T) {
 	source := strings.TrimSuffix(validGeneratedCForValidation(), "}\n")
 	err := ValidateC(source)
