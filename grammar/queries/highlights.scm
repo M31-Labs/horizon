@@ -54,7 +54,7 @@
 (map_declaration
   name: (identifier) @variable)
 
-(const_declaration
+(const_spec
   name: (identifier) @constant)
 
 (enum_declaration

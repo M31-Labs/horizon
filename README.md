@@ -18,6 +18,7 @@ It keeps the kernel-side language deliberately small:
 - package-scoped declarations across multiple `.hzn` files
 - source-level scalar type aliases such as `type Port = u16`
 - integer constants with optional scalar widths
+- grouped constants for related limits, flags, and action values
 - signed integer literals such as `-1` for signed scalar fields and helpers
 - scoped `if name := expr; condition` declarations for short-lived nullable resources
 - ringbuf event output
@@ -131,6 +132,18 @@ type SocketEvent struct {
     pid  Pid
     port Port
 }
+```
+
+Related constants can be grouped without changing their C-facing type. This is
+useful for map sizes, packet ports, bit masks, and other named verifier-visible
+limits.
+
+```go
+const (
+    CountEntries u32 = 4096
+    HTTPS Port = 443
+    BucketMask u32 = 0x0f
+)
 ```
 
 Use `var` when a local needs an explicit C-facing type. `:=` remains the
@@ -547,6 +560,7 @@ Horizon makes verifier-sensitive behavior explicit before clang runs:
 - dynamic shift counts must be proven non-negative and below the shifted value width with a simple guard
 - constants can carry scalar widths, and generated C preserves those widths
 - constants are immutable; use locals for values that change inside a program
+- grouped constants are package-scoped constants with the same scalar, bool, and literal rules as standalone constants
 - enum values are explicit typed integer constants; there is no implicit iota or untyped C enum widening
 - type aliases are source-level names for scalar and bool widths only; they cannot target structs, pointer syntax, compiler-owned context/header types, or resource-bearing values
 - `var` declarations require an explicit scalar, bool, or declared struct type and cannot store nullable resources or compiler-owned packet/context types

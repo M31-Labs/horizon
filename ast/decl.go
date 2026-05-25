@@ -84,6 +84,16 @@ func (d ConstDecl) GetSpan() span.Span {
 	return d.Span
 }
 
+type ConstGroupDecl struct {
+	Consts []ConstDecl
+	Span   span.Span
+}
+
+func (ConstGroupDecl) declNode() {}
+func (d ConstGroupDecl) GetSpan() span.Span {
+	return d.Span
+}
+
 type EnumDecl struct {
 	Name   string
 	Type   TypeRef

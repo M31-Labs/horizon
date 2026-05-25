@@ -11,7 +11,10 @@ const queryFixture = `package probes
 
 import bpf "m31labs.dev/horizon/runtime/kernel"
 
-const EventBytes u32 = 262144
+const (
+    EventBytes u32 = 262144
+    HTTPS Port = 443
+)
 
 enum PacketAction i32 {
     PacketPass = 2
@@ -35,7 +38,7 @@ map Events ringbuf[Event]
 @xdp
 func DropTCP(ctx xdp.Context) i32 {
     // keep packet access typed and nil-checked
-    var port Port = 443
+    var port Port = HTTPS
     tcp := xdp.tcp(ctx)
     if tcp == nil {
         return xdp.Pass
@@ -88,14 +91,14 @@ func TestLocalsQueryCapturesScopesDefinitionsAndReferences(t *testing.T) {
 	assertCaptureContains(t, captures, "local.definition.function", "DropTCP")
 	assertCaptureContains(t, captures, "local.definition.type", "Port", "Event")
 	assertCaptureContains(t, captures, "local.definition.enum", "PacketAction")
-	assertCaptureContains(t, captures, "local.definition.constant", "EventBytes")
+	assertCaptureContains(t, captures, "local.definition.constant", "EventBytes", "HTTPS")
 	assertCaptureContains(t, captures, "local.definition.constant", "PacketPass", "PacketDrop")
 	assertCaptureContains(t, captures, "local.definition.capability", "DropCapability")
 	assertCaptureContains(t, captures, "local.definition.map", "Events")
 	assertCaptureContains(t, captures, "local.definition.parameter", "ctx")
 	assertCaptureContains(t, captures, "local.definition.var", "tcp", "port")
 	assertCaptureContains(t, captures, "local.definition.namespace", "bpf")
-	assertCaptureContains(t, captures, "local.reference", "tcp", "ctx", "xdp", "DropCapability", "port")
+	assertCaptureContains(t, captures, "local.reference", "tcp", "ctx", "xdp", "DropCapability", "HTTPS", "port")
 	if len(captures["local.scope"]) < 4 {
 		t.Fatalf("local.scope captures = %d, want at least source, block, and switch case scopes", len(captures["local.scope"]))
 	}
@@ -104,7 +107,7 @@ func TestLocalsQueryCapturesScopesDefinitionsAndReferences(t *testing.T) {
 func TestSymbolsQueryCapturesAuthoringOutline(t *testing.T) {
 	captures := queryCaptures(t, SymbolsQuery, []byte(queryFixture))
 
-	assertCaptureContains(t, captures, "name", "probes", "bpf", "EventBytes", "PacketAction", "PacketPass", "PacketDrop", "DropCapability", "Port", "Event", "pid", "port", "ok", "Events", "max_entries", "capability", "xdp", "DropTCP")
+	assertCaptureContains(t, captures, "name", "probes", "bpf", "EventBytes", "HTTPS", "PacketAction", "PacketPass", "PacketDrop", "DropCapability", "Port", "Event", "pid", "port", "ok", "Events", "max_entries", "capability", "xdp", "DropTCP")
 	if len(captures["definition.function"]) == 0 {
 		t.Fatal("definition.function captures = 0, want function outline entry")
 	}

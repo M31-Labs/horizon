@@ -172,12 +172,36 @@ func buildAttributeValue(parsed *parser.File, n *gotreesitter.Node) Expr {
 	}
 }
 
-func buildConstDecl(parsed *parser.File, n *gotreesitter.Node) ConstDecl {
-	value := n.ChildByFieldName("value", parsed.Lang)
+func buildConstDecl(parsed *parser.File, n *gotreesitter.Node) Decl {
+	specs := namedDescendantsOfType(parsed, n, "const_spec")
+	if len(specs) == 1 && !hasDirectToken(parsed, n, "(") {
+		return buildConstSpec(parsed, specs[0])
+	}
+	group := ConstGroupDecl{Span: spanForNode(parsed.Source.FileID, n)}
+	for _, spec := range specs {
+		group.Consts = append(group.Consts, buildConstSpec(parsed, spec))
+	}
+	return group
+}
+
+func hasDirectToken(parsed *parser.File, n *gotreesitter.Node, token string) bool {
+	if n == nil {
+		return false
+	}
+	for i := 0; i < int(n.ChildCount()); i++ {
+		child := n.Child(i)
+		if child != nil && !child.IsNamed() && text(parsed, child) == token {
+			return true
+		}
+	}
+	return false
+}
+
+func buildConstSpec(parsed *parser.File, n *gotreesitter.Node) ConstDecl {
 	return ConstDecl{
 		Name:  text(parsed, n.ChildByFieldName("name", parsed.Lang)),
 		Type:  buildTypeRef(parsed, n.ChildByFieldName("type", parsed.Lang)),
-		Value: buildExpr(parsed, value),
+		Value: buildExpr(parsed, n.ChildByFieldName("value", parsed.Lang)),
 		Span:  spanForNode(parsed.Source.FileID, n),
 	}
 }

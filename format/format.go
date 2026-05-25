@@ -152,12 +152,9 @@ func (b *builder) decl(decl ast.Decl) {
 	case ast.TypeDecl:
 		b.typeDecl(d)
 	case ast.ConstDecl:
-		line := "const " + d.Name
-		if !d.Type.IsZero() {
-			line += " " + typeRef(d.Type)
-		}
-		line += " = " + expr(d.Value)
-		b.lineWithComment(line, d.Span.Start.Line)
+		b.constDecl(d)
+	case ast.ConstGroupDecl:
+		b.constGroupDecl(d)
 	case ast.EnumDecl:
 		b.lineWithComment("enum "+d.Name+" "+typeRef(d.Type)+" {", d.Span.Start.Line)
 		b.indent++
@@ -194,6 +191,31 @@ func (b *builder) decl(decl ast.Decl) {
 		b.indent--
 		b.lineWithComment("}", d.Span.End.Line)
 	}
+}
+
+func (b *builder) constDecl(decl ast.ConstDecl) {
+	b.lineWithComment("const "+constSpec(decl), decl.Span.Start.Line)
+}
+
+func (b *builder) constGroupDecl(decl ast.ConstGroupDecl) {
+	b.lineWithComment("const (", decl.Span.Start.Line)
+	b.indent++
+	for _, c := range decl.Consts {
+		b.flushCommentsBefore(c.Span.Start.Line)
+		b.lineWithComment(constSpec(c), c.Span.Start.Line)
+	}
+	b.flushCommentsBefore(decl.Span.End.Line)
+	b.indent--
+	b.lineWithComment(")", decl.Span.End.Line)
+}
+
+func constSpec(decl ast.ConstDecl) string {
+	line := decl.Name
+	if !decl.Type.IsZero() {
+		line += " " + typeRef(decl.Type)
+	}
+	line += " = " + expr(decl.Value)
+	return line
 }
 
 func mapLine(decl ast.MapDecl) int {

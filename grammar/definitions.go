@@ -58,6 +58,23 @@ func defineDeclarations(g *grammargen.Grammar) {
 
 	g.Define("const_declaration", grammargen.Seq(
 		grammargen.Str("const"),
+		grammargen.Choice(
+			grammargen.Sym("const_spec"),
+			grammargen.Seq(
+				grammargen.Str("("),
+				grammargen.Repeat(grammargen.Sym("_terminator")),
+				grammargen.Repeat(grammargen.Seq(
+					grammargen.Sym("const_spec"),
+					grammargen.Repeat1(grammargen.Sym("_terminator")),
+				)),
+				grammargen.Optional(grammargen.Sym("const_spec")),
+				grammargen.Repeat(grammargen.Sym("_terminator")),
+				grammargen.Str(")"),
+			),
+		),
+	))
+
+	g.Define("const_spec", grammargen.Seq(
 		grammargen.Field("name", grammargen.Sym("identifier")),
 		grammargen.Optional(grammargen.Field("type", grammargen.Sym("type_ref"))),
 		grammargen.Str("="),

@@ -201,6 +201,28 @@ enum Verdict i32 {
 	}
 }
 
+func TestSourceFormatsConstGroups(t *testing.T) {
+	got, err := Source(parser.SourceFile{Path: "consts.hzn", Bytes: []byte(`package probes
+const(
+HTTP u16=80
+HTTPS u16=443
+)
+`)})
+	if err != nil {
+		t.Fatalf("Source: %v", err)
+	}
+	want := `package probes
+
+const (
+    HTTP u16 = 80
+    HTTPS u16 = 443
+)
+`
+	if string(got) != want {
+		t.Fatalf("formatted source mismatch\nwant:\n%s\ngot:\n%s", want, got)
+	}
+}
+
 func TestSourceFormatsSignedIntegerLiterals(t *testing.T) {
 	got, err := Source(parser.SourceFile{Path: "signed.hzn", Bytes: []byte(`package probes
 const Negative i32=-1

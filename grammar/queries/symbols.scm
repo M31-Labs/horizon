@@ -4,7 +4,7 @@
 (import_declaration
   alias: (identifier) @name) @definition.import
 
-(const_declaration
+(const_spec
   name: (identifier) @name) @definition.constant
 
 (enum_declaration

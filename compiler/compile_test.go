@@ -1364,6 +1364,68 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	}
 }
 
+func TestAnalyzeAllowsConstGroups(t *testing.T) {
+	result := analyzeSource(t, "counts.hzn", `package probes
+
+type Bucket = u32
+
+const (
+    CountEntries u32 = 128
+    FirstSeen u64 = 1
+    BucketMask Bucket = 0x0f
+)
+
+type Count struct {
+    seen u64
+}
+
+@max_entries(CountEntries)
+map Counts hash[Bucket, Count]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    pid := bpf.current_pid()
+    bucket := pid & BucketMask
+    if Counts.update(bucket, Count{seen: FirstSeen}) != 0 {
+        return 0
+    }
+    return 0
+}
+`)
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+	if len(result.Program.Constants) != 3 {
+		t.Fatalf("constants = %#v, want three grouped constants", result.Program.Constants)
+	}
+	if len(result.Program.Maps) != 1 || result.Program.Maps[0].MaxEntries != "128" {
+		t.Fatalf("maps = %#v, want grouped const max_entries resolved", result.Program.Maps)
+	}
+	if result.Program.Constants[2].Type.Name != "u32" {
+		t.Fatalf("BucketMask type = %#v, want alias lowered to u32", result.Program.Constants[2].Type)
+	}
+}
+
+func TestAnalyzeRejectsDuplicateConstGroupName(t *testing.T) {
+	result := analyzeSource(t, "counts.hzn", `package probes
+
+const (
+    CountEntries = 128
+    CountEntries = 256
+)
+`)
+	requireDiagnosticCode(t, result, "HZN1002")
+}
+
+func TestAnalyzeRejectsEmptyConstGroup(t *testing.T) {
+	result := analyzeSource(t, "counts.hzn", `package probes
+
+const (
+)
+`)
+	requireDiagnosticCode(t, result, "HZN1109")
+}
+
 func TestAnalyzeAllowsTypedEnumValuesInExpressions(t *testing.T) {
 	result := analyzeSource(t, "verdict.hzn", `package probes
 

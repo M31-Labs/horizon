@@ -540,6 +540,40 @@ const HTTPS u16 = 443
 	}
 }
 
+func TestBuildConstGroupDeclaration(t *testing.T) {
+	parsed, err := parser.ParseSource(parser.SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
+
+const (
+    HTTP u16 = 80
+    HTTPS u16 = 443
+)
+`)})
+	if err != nil {
+		t.Fatalf("ParseSource: %v", err)
+	}
+	file, err := Build(parsed)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(file.Decls) != 1 {
+		t.Fatalf("decls = %d, want 1", len(file.Decls))
+	}
+	group, ok := file.Decls[0].(ConstGroupDecl)
+	if !ok {
+		t.Fatalf("decl[0] = %T, want ConstGroupDecl", file.Decls[0])
+	}
+	if len(group.Consts) != 2 {
+		t.Fatalf("consts = %#v, want two", group.Consts)
+	}
+	value, ok := group.Consts[1].Value.(IntExpr)
+	if !ok {
+		t.Fatalf("const value = %T, want IntExpr", group.Consts[1].Value)
+	}
+	if group.Consts[0].Name != "HTTP" || group.Consts[0].Type.Name != "u16" || group.Consts[1].Name != "HTTPS" || value.Value != "443" {
+		t.Fatalf("const group = %#v value=%#v, want HTTP and HTTPS u16", group, value)
+	}
+}
+
 func TestBuildEnumDeclaration(t *testing.T) {
 	parsed, err := parser.ParseSource(parser.SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
 

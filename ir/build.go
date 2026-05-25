@@ -26,6 +26,8 @@ func FromAST(file ast.File) (Program, []diag.Diagnostic) {
 			program.Structs = append(program.Structs, buildStruct(d, aliases))
 		case ast.ConstDecl:
 			program.Constants = append(program.Constants, buildConst(d, aliases))
+		case ast.ConstGroupDecl:
+			program.Constants = append(program.Constants, buildConstGroup(d, aliases)...)
 		case ast.EnumDecl:
 			program.Constants = append(program.Constants, buildEnumConsts(d, aliases)...)
 		case ast.CapabilityDecl:
@@ -108,6 +110,14 @@ func buildConst(decl ast.ConstDecl, aliases map[string]ast.TypeRef) Const {
 		Value: buildExpr(decl.Value),
 		Span:  decl.Span,
 	}
+}
+
+func buildConstGroup(decl ast.ConstGroupDecl, aliases map[string]ast.TypeRef) []Const {
+	out := make([]Const, 0, len(decl.Consts))
+	for _, constant := range decl.Consts {
+		out = append(out, buildConst(constant, aliases))
+	}
+	return out
 }
 
 func buildEnumConsts(decl ast.EnumDecl, aliases map[string]ast.TypeRef) []Const {

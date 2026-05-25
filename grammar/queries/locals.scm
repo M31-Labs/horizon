@@ -10,7 +10,7 @@
 (type_declaration
   name: (identifier) @local.definition.type)
 
-(const_declaration
+(const_spec
   name: (identifier) @local.definition.constant)
 
 (enum_declaration

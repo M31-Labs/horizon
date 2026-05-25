@@ -2,7 +2,9 @@ package probes
 
 type Port = u16
 
-const HTTPS Port = 443
+const (
+    HTTPS Port = 443
+)
 
 @capability("kernel.network.xdp.drop")
 @xdp

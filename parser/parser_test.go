@@ -237,8 +237,36 @@ func F(ctx xdp.Context) i32 {
 	if countNamedDescendants(file.Tree.RootNode(), file.Lang, "const_declaration") != 1 {
 		t.Fatalf("const count = %d, want 1; tree: %s", countNamedDescendants(file.Tree.RootNode(), file.Lang, "const_declaration"), file.Tree.RootNode().SExpr(file.Lang))
 	}
+	if countNamedDescendants(file.Tree.RootNode(), file.Lang, "const_spec") != 1 {
+		t.Fatalf("const spec count = %d, want 1; tree: %s", countNamedDescendants(file.Tree.RootNode(), file.Lang, "const_spec"), file.Tree.RootNode().SExpr(file.Lang))
+	}
 	if countNamedDescendants(file.Tree.RootNode(), file.Lang, "function_declaration") != 1 {
 		t.Fatalf("function count = %d, want 1; tree: %s", countNamedDescendants(file.Tree.RootNode(), file.Lang, "function_declaration"), file.Tree.RootNode().SExpr(file.Lang))
+	}
+}
+
+func TestParseConstGroup(t *testing.T) {
+	src := SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
+
+const (
+    HTTP u16 = 80
+    HTTPS u16 = 443
+)
+
+@xdp
+func F(ctx xdp.Context) i32 {
+    return xdp.Pass
+}
+`)}
+	file, err := ParseSource(src)
+	if err != nil {
+		t.Fatalf("ParseSource: %v", err)
+	}
+	if countNamedDescendants(file.Tree.RootNode(), file.Lang, "const_declaration") != 1 {
+		t.Fatalf("const declaration count = %d, want 1; tree: %s", countNamedDescendants(file.Tree.RootNode(), file.Lang, "const_declaration"), file.Tree.RootNode().SExpr(file.Lang))
+	}
+	if countNamedDescendants(file.Tree.RootNode(), file.Lang, "const_spec") != 2 {
+		t.Fatalf("const spec count = %d, want 2; tree: %s", countNamedDescendants(file.Tree.RootNode(), file.Lang, "const_spec"), file.Tree.RootNode().SExpr(file.Lang))
 	}
 }
 

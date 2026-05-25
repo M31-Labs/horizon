@@ -41,30 +41,9 @@ func CheckPackage(files []ast.File) [][]diag.Diagnostic {
 		}
 		for _, decl := range file.Decls {
 			name := declName(decl)
-			if name == "" {
+			if name != "" && !declarePackageName(&diags[i], env, name, decl) {
 				continue
 			}
-			if compilerNamespace(name) {
-				diags[i] = append(diags[i], diag.Diagnostic{
-					Code:     "HZN1004",
-					Severity: diag.SeverityError,
-					Message:  fmt.Sprintf("declaration %q conflicts with a compiler namespace", name),
-					Primary:  decl.GetSpan(),
-					Suggest:  "compiler namespaces such as bpf, xdp, tc, cgroup, lsm, kprobe, kretprobe, and tracepoint are reserved",
-				})
-				continue
-			}
-			if prev, ok := env.Decl(name); ok {
-				diags[i] = append(diags[i], diag.Diagnostic{
-					Code:     "HZN1002",
-					Severity: diag.SeverityError,
-					Message:  fmt.Sprintf("duplicate declaration %q", name),
-					Primary:  decl.GetSpan(),
-					Notes:    []string{fmt.Sprintf("previous declaration at line %d", prev.GetSpan().Start.Line)},
-				})
-				continue
-			}
-			env.Add(name, decl)
 			if typed, ok := decl.(ast.TypeDecl); ok && typed.Name != "" {
 				knownTypes[typed.Name] = true
 				if typed.IsAlias() {
@@ -79,28 +58,18 @@ func CheckPackage(files []ast.File) [][]diag.Diagnostic {
 					if value.Name == "" {
 						continue
 					}
-					if compilerNamespace(value.Name) {
-						diags[i] = append(diags[i], diag.Diagnostic{
-							Code:     "HZN1004",
-							Severity: diag.SeverityError,
-							Message:  fmt.Sprintf("declaration %q conflicts with a compiler namespace", value.Name),
-							Primary:  value.Span,
-							Suggest:  "compiler namespaces such as bpf, xdp, tc, cgroup, lsm, kprobe, kretprobe, and tracepoint are reserved",
-						})
+					if !declarePackageName(&diags[i], env, value.Name, value) {
 						continue
 					}
-					if prev, ok := env.Decl(value.Name); ok {
-						diags[i] = append(diags[i], diag.Diagnostic{
-							Code:     "HZN1002",
-							Severity: diag.SeverityError,
-							Message:  fmt.Sprintf("duplicate declaration %q", value.Name),
-							Primary:  value.Span,
-							Notes:    []string{fmt.Sprintf("previous declaration at line %d", prev.GetSpan().Start.Line)},
-						})
-						continue
-					}
-					env.Add(value.Name, value)
 					consts[value.Name] = enumValueConst(enum, value)
+				}
+			}
+			if group, ok := decl.(ast.ConstGroupDecl); ok {
+				for _, constant := range group.Consts {
+					if constant.Name == "" || !declarePackageName(&diags[i], env, constant.Name, constant) {
+						continue
+					}
+					consts[constant.Name] = constant
 				}
 			}
 			if mapped, ok := decl.(ast.MapDecl); ok && mapped.Name != "" {
@@ -138,6 +107,8 @@ func CheckPackage(files []ast.File) [][]diag.Diagnostic {
 				diags[i] = append(diags[i], callGraphDiags[d.Name]...)
 			case ast.ConstDecl:
 				diags[i] = append(diags[i], validateConstDecl(d, knownTypes)...)
+			case ast.ConstGroupDecl:
+				diags[i] = append(diags[i], validateConstGroupDecl(d, knownTypes)...)
 			case ast.EnumDecl:
 				diags[i] = append(diags[i], validateEnumDecl(d, knownTypes)...)
 			case ast.CapabilityDecl:
@@ -146,6 +117,31 @@ func CheckPackage(files []ast.File) [][]diag.Diagnostic {
 		}
 	}
 	return diags
+}
+
+func declarePackageName(diags *[]diag.Diagnostic, env *Env, name string, decl DeclRef) bool {
+	if compilerNamespace(name) {
+		*diags = append(*diags, diag.Diagnostic{
+			Code:     "HZN1004",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("declaration %q conflicts with a compiler namespace", name),
+			Primary:  decl.GetSpan(),
+			Suggest:  "compiler namespaces such as bpf, xdp, tc, cgroup, lsm, kprobe, kretprobe, and tracepoint are reserved",
+		})
+		return false
+	}
+	if prev, ok := env.Decl(name); ok {
+		*diags = append(*diags, diag.Diagnostic{
+			Code:     "HZN1002",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("duplicate declaration %q", name),
+			Primary:  decl.GetSpan(),
+			Notes:    []string{fmt.Sprintf("previous declaration at line %d", prev.GetSpan().Start.Line)},
+		})
+		return false
+	}
+	env.Add(name, decl)
+	return true
 }
 
 func declName(decl ast.Decl) string {
@@ -217,6 +213,8 @@ func indexResolvedDecl(index *resolvedDeclIndex, decl ast.Decl) {
 		if d.Name != "" {
 			index.consts[d.Name] = d
 		}
+	case ast.ConstGroupDecl:
+		indexResolvedConstGroup(index, d)
 	case ast.EnumDecl:
 		indexResolvedEnum(index, d)
 	case ast.CapabilityDecl:
@@ -226,6 +224,14 @@ func indexResolvedDecl(index *resolvedDeclIndex, decl ast.Decl) {
 	case ast.FuncDecl:
 		if d.Name != "" {
 			index.funcs[d.Name] = d
+		}
+	}
+}
+
+func indexResolvedConstGroup(index *resolvedDeclIndex, decl ast.ConstGroupDecl) {
+	for _, constant := range decl.Consts {
+		if constant.Name != "" {
+			index.consts[constant.Name] = constant
 		}
 	}
 }
@@ -267,6 +273,11 @@ func resolveTypeAliasesInFile(file ast.File, aliases map[string]ast.TypeRef) ast
 			file.Decls[i] = d
 		case ast.ConstDecl:
 			d.Type = resolveTypeAliasRef(d.Type, aliases, map[string]bool{})
+			file.Decls[i] = d
+		case ast.ConstGroupDecl:
+			for j := range d.Consts {
+				d.Consts[j].Type = resolveTypeAliasRef(d.Consts[j].Type, aliases, map[string]bool{})
+			}
 			file.Decls[i] = d
 		case ast.EnumDecl:
 			d.Type = resolveTypeAliasRef(d.Type, aliases, map[string]bool{})
@@ -759,6 +770,23 @@ func validateConstDecl(decl ast.ConstDecl, known map[string]bool) []diag.Diagnos
 		); ok {
 			diags = append(diags, d)
 		}
+	}
+	return diags
+}
+
+func validateConstGroupDecl(decl ast.ConstGroupDecl, known map[string]bool) []diag.Diagnostic {
+	if len(decl.Consts) == 0 {
+		return []diag.Diagnostic{{
+			Code:     "HZN1109",
+			Severity: diag.SeverityError,
+			Message:  "const group must declare at least one constant",
+			Primary:  decl.Span,
+			Suggest:  "write `const Name u32 = 1` or add one or more constants inside the group",
+		}}
+	}
+	var diags []diag.Diagnostic
+	for _, constant := range decl.Consts {
+		diags = append(diags, validateConstDecl(constant, known)...)
 	}
 	return diags
 }

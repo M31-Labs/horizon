@@ -157,8 +157,8 @@ func TestEmitSourceMapIncludesGeneratedHelperWrappers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Emit xdpdrop: %v", err)
 	}
-	assertSourceMapLine(t, out, "static __always_inline __u64 hzn_xdp_l4_offset", "xdp_helper_wrapper", 10)
-	assertSourceMapLine(t, out, "static __always_inline struct hzn_xdp_tcp *hzn_xdp_tcp", "xdp_helper_wrapper", 10)
+	assertSourceMapLine(t, out, "static __always_inline __u64 hzn_xdp_l4_offset", "xdp_helper_wrapper", 12)
+	assertSourceMapLine(t, out, "static __always_inline struct hzn_xdp_tcp *hzn_xdp_tcp", "xdp_helper_wrapper", 12)
 
 	result, err = compiler.AnalyzePath("../examples/cgroupconnect")
 	if err != nil {
@@ -802,6 +802,50 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	for _, want := range []string{
 		"static const __u32 hzn_const_FirstSeen = 1;",
 		"if (Counts_update(pid, hzn_const_FirstSeen) != 0) {",
+	} {
+		if !strings.Contains(out.Code, want) {
+			t.Fatalf("generated C missing %q:\n%s", want, out.Code)
+		}
+	}
+}
+
+func TestEmitConstGroups(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "counts.hzn")
+	if err := os.WriteFile(path, []byte(`package probes
+
+const (
+    FirstSeen u32 = 1
+    BucketMask u32 = 0x0f
+)
+
+map Counts hash[u32, u32]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    pid := bpf.current_pid()
+    bucket := pid & BucketMask
+    if Counts.update(bucket, FirstSeen) != 0 {
+        return 0
+    }
+    return 0
+}
+`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	result, err := compiler.AnalyzePath(dir)
+	if err != nil {
+		t.Fatalf("AnalyzePath: %v", err)
+	}
+	out, err := Emit(result.Program)
+	if err != nil {
+		t.Fatalf("Emit: %v", err)
+	}
+	for _, want := range []string{
+		"static const __u32 hzn_const_FirstSeen = 1;",
+		"static const __u32 hzn_const_BucketMask = 0x0f;",
+		"__u32 bucket = pid & hzn_const_BucketMask;",
+		"if (Counts_update(bucket, hzn_const_FirstSeen) != 0) {",
 	} {
 		if !strings.Contains(out.Code, want) {
 			t.Fatalf("generated C missing %q:\n%s", want, out.Code)
