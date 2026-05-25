@@ -66,6 +66,30 @@ It keeps the kernel-side language deliberately small:
 - source maps with declaration and function/section context for diagnostics
 - typed Go bindings and Continuum capability manifests
 
+## The Workbench
+
+`hzn workbench` is the authoring path. One command, every artifact:
+
+```sh
+hzn workbench ./examples/execwatch -o dist
+```
+
+produces:
+
+- Readable BPF C (`exec.bpf.c`).
+- Source map (`exec.hznmap.json`) for clang and verifier diagnostics.
+- Typed Go bindings (`bindings.go`) wrapping `cilium/ebpf` with typed
+  map, ringbuf, and attach helpers.
+- Capability manifest (`exec.cap.json`) — see "Capability manifests" below.
+- Diagnostics (`exec.diagnostics.json`) including source-line context and
+  Horizon-specific remediation hints.
+- Report (`exec.report.json`) with artifact hashes, sizes, generator
+  provenance, and a summary of programs, maps, capability danger levels,
+  and minimum kernel requirements.
+
+Use `-compile` to also run clang and emit `.bpf.o`. Use `-preflight` to
+run host readiness checks against the generated manifest.
+
 ## Pipeline
 
 ```text
