@@ -70,6 +70,7 @@ import bpf "m31labs.dev/horizon/runtime/kernel"
 const Negative i32 = -1
 
 capability FileOpenObserve danger observe = "kernel.file.open.observe"
+capability FileOpenReturnObserve danger observe = "kernel.file.open.return.observe"
 
 @capability(FileOpenObserve)
 @kprobe("do_sys_openat2")
@@ -82,7 +83,7 @@ func OnOpen(ctx kprobe.Context) i32 {
     return 0
 }
 
-@capability(FileOpenObserve)
+@capability(FileOpenReturnObserve)
 @kretprobe("do_sys_openat2")
 func OnOpenReturn(ctx kretprobe.Context) i32 {
     rc := kretprobe.ret(ctx)

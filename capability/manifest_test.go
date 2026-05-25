@@ -9,7 +9,7 @@ import (
 
 func TestValidateManifest(t *testing.T) {
 	m := NewManifest("probes")
-	m.Programs = append(m.Programs, Program{Name: "OnExec", Kind: "tracepoint", Attach: "sched:sched_process_exec", Section: "tracepoint/sched:sched_process_exec"})
+	m.Programs = append(m.Programs, Program{Name: "OnExec", Kind: "tracepoint", Attach: "sched:sched_process_exec", Section: "tracepoint/sched:sched_process_exec", Capabilities: []string{"kernel.process.exec.observe"}})
 	m.Capabilities = append(m.Capabilities, Capability{Name: "kernel.process.exec.observe", Kind: "source", Danger: "observe", Program: "OnExec", Section: "tracepoint/sched:sched_process_exec"})
 	if err := Validate(m); err != nil {
 		t.Fatalf("Validate: %v", err)
@@ -355,6 +355,13 @@ func TestFromIRIncludesProgramRuntimeRequirements(t *testing.T) {
 					Name:    "Program",
 					Section: ir.Section{Kind: tt.kind, Attach: "attach"},
 				}},
+				Capabilities: []ir.Capability{{
+					Name:    "test.runtime.requirement.observe",
+					Kind:    ir.CapabilitySource,
+					Danger:  ir.DangerObserve,
+					Program: "Program",
+					Section: string(tt.kind),
+				}},
 			})
 			if err := Validate(m); err != nil {
 				t.Fatalf("Validate: %v", err)
@@ -567,9 +574,69 @@ func TestValidateRejectsUnsupportedEnumValues(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsProgramCapabilityIndexMismatches(t *testing.T) {
+	execCap := Capability{Name: "kernel.process.exec.observe", Kind: "source", Danger: "observe", Program: "OnExec", Section: "tracepoint/sched:sched_process_exec"}
+	countCap := Capability{Name: "kernel.process.exec.count", Kind: "source", Danger: "observe", Program: "OnExec", Section: "tracepoint/sched:sched_process_exec"}
+	dropCap := Capability{Name: "kernel.network.xdp.drop", Kind: "source", Danger: "drop", Program: "Drop", Section: "xdp"}
+	tests := map[string]Manifest{
+		"missing program capability list": {
+			Schema:       SchemaV0,
+			Package:      "probes",
+			Programs:     []Program{{Name: "OnExec", Kind: "tracepoint", Section: "tracepoint/sched:sched_process_exec"}},
+			Capabilities: []Capability{execCap},
+		},
+		"unknown listed capability": {
+			Schema:       SchemaV0,
+			Package:      "probes",
+			Programs:     []Program{{Name: "OnExec", Kind: "tracepoint", Section: "tracepoint/sched:sched_process_exec", Capabilities: []string{"kernel.process.exec.observe"}}},
+			Capabilities: []Capability{},
+		},
+		"duplicate listed capability": {
+			Schema:       SchemaV0,
+			Package:      "probes",
+			Programs:     []Program{{Name: "OnExec", Kind: "tracepoint", Section: "tracepoint/sched:sched_process_exec", Capabilities: []string{"kernel.process.exec.observe", "kernel.process.exec.observe"}}},
+			Capabilities: []Capability{execCap},
+		},
+		"wrong owner": {
+			Schema:  SchemaV0,
+			Package: "probes",
+			Programs: []Program{
+				{Name: "OnExec", Kind: "tracepoint", Section: "tracepoint/sched:sched_process_exec", Capabilities: []string{"kernel.network.xdp.drop"}},
+				{Name: "Drop", Kind: "xdp", Section: "xdp", Capabilities: []string{"kernel.network.xdp.drop"}},
+			},
+			Capabilities: []Capability{dropCap},
+		},
+		"top-level capability missing from program list": {
+			Schema:       SchemaV0,
+			Package:      "probes",
+			Programs:     []Program{{Name: "OnExec", Kind: "tracepoint", Section: "tracepoint/sched:sched_process_exec", Capabilities: []string{"kernel.process.exec.observe"}}},
+			Capabilities: []Capability{execCap, countCap},
+		},
+		"duplicate top-level capability": {
+			Schema:       SchemaV0,
+			Package:      "probes",
+			Programs:     []Program{{Name: "OnExec", Kind: "tracepoint", Section: "tracepoint/sched:sched_process_exec", Capabilities: []string{"kernel.process.exec.observe"}}},
+			Capabilities: []Capability{execCap, execCap},
+		},
+		"empty listed capability": {
+			Schema:       SchemaV0,
+			Package:      "probes",
+			Programs:     []Program{{Name: "OnExec", Kind: "tracepoint", Section: "tracepoint/sched:sched_process_exec", Capabilities: []string{""}}},
+			Capabilities: []Capability{execCap},
+		},
+	}
+	for name, manifest := range tests {
+		t.Run(name, func(t *testing.T) {
+			if err := Validate(manifest); err == nil {
+				t.Fatal("Validate succeeded, want program capability index error")
+			}
+		})
+	}
+}
+
 func TestValidateAllowsPerCPUAndLRUMapKinds(t *testing.T) {
 	m := NewManifest("probes")
-	m.Programs = append(m.Programs, Program{Name: "OnExec", Kind: "tracepoint", Section: "tracepoint/sched:sched_process_exec"})
+	m.Programs = append(m.Programs, Program{Name: "OnExec", Kind: "tracepoint", Section: "tracepoint/sched:sched_process_exec", Capabilities: []string{"kernel.process.exec.count"}})
 	m.Maps = append(m.Maps,
 		Map{Name: "Counts", Kind: "percpu_hash", Key: "u32", Value: "u64", MaxEntries: "128"},
 		Map{Name: "Slots", Kind: "percpu_array", Key: "u32", Value: "u64"},
@@ -591,7 +658,7 @@ func TestValidateAllowsPerCPUAndLRUMapKinds(t *testing.T) {
 
 func TestValidateRejectsMissingTypeSchema(t *testing.T) {
 	m := NewManifest("probes")
-	m.Programs = append(m.Programs, Program{Name: "OnExec", Kind: "tracepoint", Section: "tracepoint/sched:sched_process_exec"})
+	m.Programs = append(m.Programs, Program{Name: "OnExec", Kind: "tracepoint", Section: "tracepoint/sched:sched_process_exec", Capabilities: []string{"kernel.process.exec.observe"}})
 	m.Maps = append(m.Maps, Map{Name: "Events", Kind: "ringbuf", Value: "Event"})
 	m.Types = append(m.Types, TypeSchema{Name: "OtherEvent", Kind: "struct"})
 	m.Capabilities = append(m.Capabilities, Capability{

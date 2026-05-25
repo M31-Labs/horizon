@@ -205,9 +205,13 @@ func validateManifestMapTypeRefs(maps map[string]Map, types map[string]bool) err
 
 func validateManifestCapabilities(caps []Capability, programs map[string]Program, maps map[string]Map, types map[string]bool) error {
 	validateSchemaRefs := len(types) > 0
+	capabilities := map[string]Capability{}
 	for _, cap := range caps {
 		if cap.Name == "" {
 			return validationErrorf("capability manifest capability name is required")
+		}
+		if _, exists := capabilities[cap.Name]; exists {
+			return validationErrorf("capability manifest capability %q is declared more than once", cap.Name)
 		}
 		if cap.Kind == "" {
 			return validationErrorf("capability %q kind is required", cap.Name)
@@ -249,13 +253,50 @@ func validateManifestCapabilities(caps []Capability, programs map[string]Program
 				return validationErrorf("capability %q references unknown map %q", cap.Name, name)
 			}
 		}
+		capabilities[cap.Name] = cap
 	}
-	return nil
+	return validateManifestProgramCapabilities(programs, capabilities)
 }
 
 func validateCapabilityNamespace(cap Capability, program Program) error {
 	if _, mismatch := KernelCapabilityNamespaceMismatch(cap.Name, program.Kind, program.Attach, program.Section); mismatch {
 		return validationErrorf("capability %q does not match %s program %q", cap.Name, ProgramSectionDescription(program.Kind, program.Attach, program.Section), cap.Program)
+	}
+	return nil
+}
+
+func validateManifestProgramCapabilities(programs map[string]Program, capabilities map[string]Capability) error {
+	if len(programs) == 0 {
+		return nil
+	}
+	listedByProgram := map[string]map[string]bool{}
+	for _, program := range programs {
+		if len(program.Capabilities) == 0 {
+			return validationErrorf("capability manifest program %q must list at least one capability", program.Name)
+		}
+		listed := map[string]bool{}
+		for _, name := range program.Capabilities {
+			if name == "" {
+				return validationErrorf("capability manifest program %q lists an empty capability", program.Name)
+			}
+			if listed[name] {
+				return validationErrorf("capability manifest program %q lists capability %q more than once", program.Name, name)
+			}
+			cap, ok := capabilities[name]
+			if !ok {
+				return validationErrorf("capability manifest program %q lists unknown capability %q", program.Name, name)
+			}
+			if cap.Program != program.Name {
+				return validationErrorf("capability manifest program %q lists capability %q owned by program %q", program.Name, name, cap.Program)
+			}
+			listed[name] = true
+		}
+		listedByProgram[program.Name] = listed
+	}
+	for _, cap := range capabilities {
+		if listed := listedByProgram[cap.Program]; listed != nil && !listed[cap.Name] {
+			return validationErrorf("capability %q for program %q is missing from the program capability list", cap.Name, cap.Program)
+		}
 	}
 	return nil
 }

@@ -15,6 +15,7 @@ func ValidateCapabilities(program ir.Program) []diag.Diagnostic {
 	for _, fn := range program.Functions {
 		functions[fn.Name] = fn
 	}
+	seen := map[string]ir.Capability{}
 	for _, cap := range program.Capabilities {
 		if cap.Name == "" {
 			diags = append(diags, diag.Diagnostic{
@@ -22,6 +23,10 @@ func ValidateCapabilities(program ir.Program) []diag.Diagnostic {
 				Severity: diag.SeverityError,
 				Message:  "capability name is required",
 			})
+		} else if first, ok := seen[cap.Name]; ok {
+			diags = append(diags, duplicateCapabilityDiagnostic(cap, first, functions))
+		} else {
+			seen[cap.Name] = cap
 		}
 		fn, ok := functions[cap.Program]
 		if cap.Program == "" || !ok {
@@ -37,6 +42,27 @@ func ValidateCapabilities(program ir.Program) []diag.Diagnostic {
 		}
 	}
 	return diags
+}
+
+func duplicateCapabilityDiagnostic(cap ir.Capability, first ir.Capability, functions map[string]ir.Function) diag.Diagnostic {
+	primary := cap.Span
+	if primary.IsZero() {
+		if fn, ok := functions[cap.Program]; ok {
+			primary = fn.Span
+		}
+	}
+	firstProgram := first.Program
+	if firstProgram == "" {
+		firstProgram = "another program"
+	}
+	return diag.Diagnostic{
+		Code:     "HZN2503",
+		Severity: diag.SeverityError,
+		Message:  fmt.Sprintf("capability %q is declared more than once", cap.Name),
+		Primary:  primary,
+		Notes:    []string{fmt.Sprintf("first declaration belongs to %q", firstProgram)},
+		Suggest:  "give each attachable program a distinct capability name so generated manifests stay unambiguous",
+	}
 }
 
 func capabilityNamespaceDiagnostic(cap ir.Capability, fn ir.Function) (diag.Diagnostic, bool) {

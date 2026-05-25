@@ -86,6 +86,30 @@ func TestValidateCapabilitiesAllowsMatchingKnownKernelNamespace(t *testing.T) {
 	}
 }
 
+func TestValidateCapabilitiesRejectsDuplicateCapabilityNames(t *testing.T) {
+	program := ir.Program{
+		Functions: []ir.Function{
+			{Name: "Open", Section: ir.Section{Kind: ir.ProgramKprobe, Attach: "do_sys_openat2"}},
+			{Name: "OpenReturn", Section: ir.Section{Kind: ir.ProgramKretprobe, Attach: "do_sys_openat2"}},
+		},
+		Capabilities: []ir.Capability{
+			{Name: "kernel.file.open.observe", Program: "Open"},
+			{Name: "kernel.file.open.observe", Program: "OpenReturn"},
+		},
+	}
+
+	diags := ValidateCapabilities(program)
+	if len(diags) != 1 {
+		t.Fatalf("diagnostics = %#v, want duplicate capability diagnostic", diags)
+	}
+	if diags[0].Code != "HZN2503" || diags[0].Severity != diag.SeverityError {
+		t.Fatalf("diagnostic = %#v, want HZN2503 error", diags[0])
+	}
+	if diags[0].Suggest == "" || len(diags[0].Notes) == 0 {
+		t.Fatalf("diagnostic = %#v, want actionable duplicate capability message", diags[0])
+	}
+}
+
 func TestValidateCapabilitiesLeavesCustomAndUnknownAttachNamespacesExtensible(t *testing.T) {
 	program := ir.Program{
 		Functions: []ir.Function{
