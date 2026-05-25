@@ -1,0 +1,42 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.24.x'
+      - name: Run Go CI
+        run: make ci-go
+      - name: Install clang/libbpf dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a \
+            apt-get install -y -qq --no-install-recommends clang llvm libbpf-dev
+      - name: Prepare vmlinux.h (stub)
+        run: |
+          printf '%s\n' '#define __VMLINUX_H__' | sudo tee /usr/local/include/vmlinux.h >/dev/null
+      - name: Build examples
+        run: make build-examples
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --notes-file <(awk "/^## \\[$TAG\\]/,/^## \\[/" CHANGELOG.md | sed '$d') \
+            --verify-tag
