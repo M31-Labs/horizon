@@ -11,7 +11,9 @@ type OpenEvent struct {
 
 map OpenEvents ringbuf[OpenEvent]
 
-@capability("kernel.file.open.observe")
+capability FileOpenObserve danger observe = "kernel.file.open.observe"
+
+@capability(FileOpenObserve)
 @kprobe("do_sys_openat2")
 func OnOpen(ctx kprobe.Context) i32 {
     event := OpenEvents.reserve()

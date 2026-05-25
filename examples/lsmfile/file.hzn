@@ -1,6 +1,8 @@
 package probes
 
-@capability("kernel.file.open.observe")
+capability FileOpenObserve danger observe = "kernel.file.open.observe"
+
+@capability(FileOpenObserve)
 @lsm("file_open")
 func ObserveFileOpen(ctx lsm.Context) i32 {
     return lsm.Allow

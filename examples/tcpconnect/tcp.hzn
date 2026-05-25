@@ -10,7 +10,9 @@ type TCPConnectEvent struct {
 
 map TCPConnectEvents ringbuf[TCPConnectEvent]
 
-@capability("kernel.network.tcp.connect.observe")
+capability TCPConnectObserve danger observe = "kernel.network.tcp.connect.observe"
+
+@capability(TCPConnectObserve)
 @kprobe("tcp_v4_connect")
 func OnTCPConnect(ctx kprobe.Context) i32 {
     event := TCPConnectEvents.reserve()

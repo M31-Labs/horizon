@@ -12,7 +12,9 @@ type ExecEvent struct {
 
 map ExecEvents ringbuf[ExecEvent]
 
-@capability("kernel.process.exec.observe")
+capability ExecObserve danger observe = "kernel.process.exec.observe"
+
+@capability(ExecObserve)
 @tracepoint("sched:sched_process_exec")
 func OnExec(ctx tracepoint.Exec) i32 {
     event := ExecEvents.reserve()

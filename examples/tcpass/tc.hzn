@@ -1,6 +1,8 @@
 package probes
 
-@capability("kernel.network.tc.observe")
+capability TCObserve danger observe = "kernel.network.tc.observe"
+
+@capability(TCObserve)
 @tc("ingress")
 func PassIngress(ctx tc.Context) i32 {
     return tc.OK

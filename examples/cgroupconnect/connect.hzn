@@ -1,6 +1,8 @@
 package probes
 
-@capability("kernel.network.connect.block")
+capability ConnectBlock danger block = "kernel.network.connect.block"
+
+@capability(ConnectBlock)
 @cgroup("connect4")
 func BlockSMTP(ctx cgroup.Connect) i32 {
     if cgroup.family(ctx) != cgroup.FamilyIPv4 {

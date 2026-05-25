@@ -216,7 +216,7 @@ func TestDiagnoseMapsHelperWrapperDiagnosticToAuthoredCall(t *testing.T) {
 	if len(diagnostics) != 1 {
 		t.Fatalf("diagnostics = %d, want 1", len(diagnostics))
 	}
-	if got, want := diagnostics[0].Primary.Start.Line, 24; got != want {
+	if got, want := diagnostics[0].Primary.Start.Line, 26; got != want {
 		t.Fatalf("primary line = %d, want %d; diagnostic = %#v", got, want, diagnostics[0])
 	}
 	if diagnostics[0].Source == nil || !strings.Contains(diagnostics[0].Source.Text, "bpf.probe_read_user_str") {
@@ -265,7 +265,7 @@ func TestDiagnoseMapsCgroupContextWrapperDiagnosticToAuthoredCall(t *testing.T) 
 	if len(diagnostics) != 1 {
 		t.Fatalf("diagnostics = %d, want 1", len(diagnostics))
 	}
-	if got, want := diagnostics[0].Primary.Start.Line, 12; got != want {
+	if got, want := diagnostics[0].Primary.Start.Line, 14; got != want {
 		t.Fatalf("primary line = %d, want %d; diagnostic = %#v", got, want, diagnostics[0])
 	}
 	if diagnostics[0].Source == nil || !strings.Contains(diagnostics[0].Source.Text, "cgroup.dst_port") {
@@ -314,7 +314,7 @@ func TestDiagnoseMapsMapWrapperDiagnosticToAuthoredCall(t *testing.T) {
 	if len(diagnostics) != 1 {
 		t.Fatalf("diagnostics = %d, want 1", len(diagnostics))
 	}
-	if got, want := diagnostics[0].Primary.Start.Line, 17; got != want {
+	if got, want := diagnostics[0].Primary.Start.Line, 19; got != want {
 		t.Fatalf("primary line = %d, want %d; diagnostic = %#v", got, want, diagnostics[0])
 	}
 	if diagnostics[0].Source == nil || !strings.Contains(diagnostics[0].Source.Text, "ExecCounts.lookup") {

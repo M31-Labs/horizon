@@ -10,7 +10,9 @@ type Count struct {
 
 map ExecCounts hash[u32, Count]
 
-@capability("kernel.process.exec.count")
+capability ExecCount danger observe = "kernel.process.exec.count"
+
+@capability(ExecCount)
 @tracepoint("sched:sched_process_exec")
 func OnExec(ctx tracepoint.Exec) i32 {
     pid := bpf.current_pid()

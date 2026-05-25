@@ -65,7 +65,9 @@ type ExecEvent struct {
 
 map ExecEvents ringbuf[ExecEvent]
 
-@capability("kernel.process.exec.observe")
+capability ExecObserve danger observe = "kernel.process.exec.observe"
+
+@capability(ExecObserve)
 @tracepoint("sched:sched_process_exec")
 func OnExec(ctx tracepoint.Exec) i32 {
     event := ExecEvents.reserve()
@@ -345,7 +347,9 @@ type OpenEvent struct {
 
 map OpenEvents ringbuf[OpenEvent]
 
-@capability("kernel.file.open.observe")
+capability FileOpenObserve danger observe = "kernel.file.open.observe"
+
+@capability(FileOpenObserve)
 @kprobe("do_sys_openat2")
 func OnOpen(ctx kprobe.Context) i32 {
     event := OpenEvents.reserve()
@@ -380,7 +384,9 @@ not raw integers.
 ```go
 package probes
 
-@capability("kernel.network.tc.observe")
+capability TCObserve danger observe = "kernel.network.tc.observe"
+
+@capability(TCObserve)
 @tc("ingress")
 func PassIngress(ctx tc.Context) i32 {
     return tc.OK
@@ -394,7 +400,9 @@ of making authors poke raw `struct bpf_sock_addr` fields.
 ```go
 package probes
 
-@capability("kernel.network.connect.block")
+capability ConnectBlock danger block = "kernel.network.connect.block"
+
+@capability(ConnectBlock)
 @cgroup("connect4")
 func BlockSMTP(ctx cgroup.Connect) i32 {
     if cgroup.family(ctx) != cgroup.FamilyIPv4 {
@@ -416,7 +424,9 @@ allow/deny actions so authoring stays explicit about security impact.
 ```go
 package probes
 
-@capability("kernel.file.open.block")
+capability FileOpenBlock danger block = "kernel.file.open.block"
+
+@capability(FileOpenBlock)
 @lsm("file_open")
 func DenyFileOpen(ctx lsm.Context) i32 {
     return lsm.Deny

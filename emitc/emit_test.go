@@ -110,10 +110,10 @@ func TestEmitSourceMapIncludesDeclarations(t *testing.T) {
 
 	assertSourceMapLine(t, out, "struct hzn_type_ExecEvent {", "struct", 5)
 	assertSourceMapLine(t, out, `} ExecEvents SEC(".maps");`, "map", 13)
-	assertSourceMapLine(t, out, "static __always_inline __u32 hzn_current_ppid(void)", "helper_wrapper", 24)
-	assertSourceMapLine(t, out, "static __always_inline long hzn_current_comm(void *dst, __u32 size)", "helper_wrapper", 26)
-	assertSourceMapLine(t, out, "static __always_inline struct hzn_type_ExecEvent *ExecEvents_reserve(void)", "map_wrapper", 18)
-	assertSourceMapLine(t, out, "int OnExec(struct trace_event_raw_sched_process_exec *ctx)", "function", 15)
+	assertSourceMapLine(t, out, "static __always_inline __u32 hzn_current_ppid(void)", "helper_wrapper", 26)
+	assertSourceMapLine(t, out, "static __always_inline long hzn_current_comm(void *dst, __u32 size)", "helper_wrapper", 28)
+	assertSourceMapLine(t, out, "static __always_inline struct hzn_type_ExecEvent *ExecEvents_reserve(void)", "map_wrapper", 20)
+	assertSourceMapLine(t, out, "int OnExec(struct trace_event_raw_sched_process_exec *ctx)", "function", 17)
 
 	result, err = compiler.AnalyzePath("../examples/execcount")
 	if err != nil {
@@ -135,8 +135,8 @@ func TestEmitSourceMapIncludesGeneratedHelperWrappers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Emit execwatch: %v", err)
 	}
-	assertSourceMapLine(t, out, "static __always_inline struct hzn_type_ExecEvent *ExecEvents_reserve", "map_wrapper", 18)
-	assertSourceMapLine(t, out, "static __always_inline void ExecEvents_submit", "map_wrapper", 27)
+	assertSourceMapLine(t, out, "static __always_inline struct hzn_type_ExecEvent *ExecEvents_reserve", "map_wrapper", 20)
+	assertSourceMapLine(t, out, "static __always_inline void ExecEvents_submit", "map_wrapper", 29)
 
 	result, err = compiler.AnalyzePath("../examples/openwatch")
 	if err != nil {
@@ -146,8 +146,8 @@ func TestEmitSourceMapIncludesGeneratedHelperWrappers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Emit openwatch: %v", err)
 	}
-	assertSourceMapLine(t, out, "static __always_inline long hzn_probe_read_user_str", "helper_wrapper", 24)
-	assertSourceMapLine(t, out, "static __always_inline __u64 hzn_kprobe_arg2", "probe_context_wrapper", 24)
+	assertSourceMapLine(t, out, "static __always_inline long hzn_probe_read_user_str", "helper_wrapper", 26)
+	assertSourceMapLine(t, out, "static __always_inline __u64 hzn_kprobe_arg2", "probe_context_wrapper", 26)
 
 	result, err = compiler.AnalyzePath("../examples/xdpdrop")
 	if err != nil {
@@ -168,8 +168,8 @@ func TestEmitSourceMapIncludesGeneratedHelperWrappers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Emit cgroupconnect: %v", err)
 	}
-	assertSourceMapLine(t, out, "static __always_inline __u32 hzn_cgroup_family", "cgroup_context_wrapper", 6)
-	assertSourceMapLine(t, out, "static __always_inline __u16 hzn_cgroup_dst_port", "cgroup_context_wrapper", 12)
+	assertSourceMapLine(t, out, "static __always_inline __u32 hzn_cgroup_family", "cgroup_context_wrapper", 8)
+	assertSourceMapLine(t, out, "static __always_inline __u16 hzn_cgroup_dst_port", "cgroup_context_wrapper", 14)
 
 	result, err = compiler.AnalyzePath("../examples/execcount")
 	if err != nil {
@@ -179,8 +179,8 @@ func TestEmitSourceMapIncludesGeneratedHelperWrappers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Emit execcount: %v", err)
 	}
-	assertSourceMapLine(t, out, "static __always_inline struct hzn_type_Count *ExecCounts_lookup", "map_wrapper", 17)
-	assertSourceMapLine(t, out, "static __always_inline long ExecCounts_update", "map_wrapper", 19)
+	assertSourceMapLine(t, out, "static __always_inline struct hzn_type_Count *ExecCounts_lookup", "map_wrapper", 19)
+	assertSourceMapLine(t, out, "static __always_inline long ExecCounts_update", "map_wrapper", 21)
 }
 
 func TestEmitBoundedForClause(t *testing.T) {

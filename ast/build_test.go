@@ -24,8 +24,8 @@ func TestBuildExecwatchAST(t *testing.T) {
 	if got, want := file.Imports[0].Alias, "bpf"; got != want {
 		t.Fatalf("import alias = %q, want %q", got, want)
 	}
-	if len(file.Decls) != 3 {
-		t.Fatalf("decls = %d, want 3", len(file.Decls))
+	if len(file.Decls) != 4 {
+		t.Fatalf("decls = %d, want 4", len(file.Decls))
 	}
 
 	typeDecl, ok := file.Decls[0].(TypeDecl)
@@ -54,9 +54,17 @@ func TestBuildExecwatchAST(t *testing.T) {
 		t.Fatalf("map decl = %#v, want ringbuf ExecEvent", mapDecl)
 	}
 
-	fn, ok := file.Decls[2].(FuncDecl)
+	capabilityDecl, ok := file.Decls[2].(CapabilityDecl)
 	if !ok {
-		t.Fatalf("decl[2] = %T, want FuncDecl", file.Decls[2])
+		t.Fatalf("decl[2] = %T, want CapabilityDecl", file.Decls[2])
+	}
+	if capabilityDecl.Name != "ExecObserve" || capabilityDecl.Value != "kernel.process.exec.observe" || capabilityDecl.Danger != "observe" {
+		t.Fatalf("capability decl = %#v, want ExecObserve observe alias", capabilityDecl)
+	}
+
+	fn, ok := file.Decls[3].(FuncDecl)
+	if !ok {
+		t.Fatalf("decl[3] = %T, want FuncDecl", file.Decls[3])
 	}
 	if fn.Name != "OnExec" || fn.Return.Name != "i32" {
 		t.Fatalf("func = %#v, want OnExec returning i32", fn)
