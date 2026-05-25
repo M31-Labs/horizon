@@ -29,8 +29,13 @@ func ExpectedKernelCapabilityPrefix(kind string, attach string, section string) 
 			return "kernel.network.connect."
 		}
 	case "lsm":
-		if attach == "file_open" {
+		switch attach {
+		case "file_open":
 			return "kernel.file.open."
+		case "bprm_check_security":
+			return "kernel.process.exec."
+		case "task_kill":
+			return "kernel.process.kill."
 		}
 	case "kprobe", "kretprobe":
 		switch attach {
