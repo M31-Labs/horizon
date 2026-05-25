@@ -1,0 +1,27 @@
+name: Verifier error I couldn't fix
+description: A clang or kernel-verifier error that hzn diagnose couldn't make actionable.
+title: "[verifier] "
+labels: ["verifier", "diagnostics"]
+body:
+  - type: textarea
+    id: source
+    attributes:
+      label: The .hzn source
+      description: Paste the program (or a minimal reproducer).
+      render: go
+    validations:
+      required: true
+  - type: textarea
+    id: verifier_log
+    attributes:
+      label: The verifier or clang log
+      description: Paste the log from `hzn build` or `hzn diagnose`.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What were you trying to express?
+      description: One or two sentences on the capability you intended to author.
+    validations:
+      required: true

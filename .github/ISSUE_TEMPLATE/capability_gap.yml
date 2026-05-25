@@ -1,0 +1,25 @@
+name: Capability gap
+description: A kernel capability you wanted to express but Horizon couldn't model cleanly.
+title: "[capability-gap] "
+labels: ["capability-gap", "v0.x-planning"]
+body:
+  - type: textarea
+    id: capability
+    attributes:
+      label: The capability
+      description: Describe what you wanted to observe, mutate, block, or drop.
+    validations:
+      required: true
+  - type: textarea
+    id: attempted
+    attributes:
+      label: What you tried in Horizon
+      description: Paste the .hzn you attempted, even if incomplete.
+      render: go
+  - type: textarea
+    id: friction
+    attributes:
+      label: Where Horizon got in the way
+      description: What construct was missing, awkward, or rejected?
+    validations:
+      required: true
