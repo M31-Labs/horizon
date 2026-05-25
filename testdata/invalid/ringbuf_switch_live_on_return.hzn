@@ -1,0 +1,22 @@
+package invalid
+
+type Event struct {
+    pid u32
+}
+
+map Events ringbuf[Event]
+
+@tracepoint("sched:sched_process_exec")
+func Bad(ctx tracepoint.Exec) i32 {
+    event := Events.reserve()
+    if event == nil {
+        return 0
+    }
+    pid := bpf.current_pid()
+    switch pid {
+        case 0:
+            Events.submit(event)
+        default:
+    }
+    return 0
+}

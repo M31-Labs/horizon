@@ -602,6 +602,7 @@ func TestAnalyzeInvalidRingbufPrograms(t *testing.T) {
 		"../testdata/invalid/ringbuf_write_after_submit.hzn":             "HZN2103",
 		"../testdata/invalid/ringbuf_double_submit.hzn":                  "HZN2102",
 		"../testdata/invalid/ringbuf_live_on_return.hzn":                 "HZN2104",
+		"../testdata/invalid/ringbuf_switch_live_on_return.hzn":          "HZN2104",
 		"../testdata/invalid/unbounded_loop.hzn":                         "HZN2200",
 		"../testdata/invalid/current_comm_bad_arg.hzn":                   "HZN1415",
 		"../testdata/invalid/unknown_event_field.hzn":                    "HZN1406",
