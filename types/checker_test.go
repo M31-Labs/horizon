@@ -102,6 +102,38 @@ func BlockSMTP(ctx cgroup.Connect) i32 {
 	}
 }
 
+func TestCapabilityUnknownLeaf(t *testing.T) {
+	file := parseTestFile(t, `package probes
+
+capability ConnectGrant danger block = "kernel.network.connect.grant"
+
+@cgroup("connect4")
+func BlockSMTP(ctx cgroup.Connect) i32 {
+    return cgroup.Allow
+}
+`)
+	diags := Check(file)
+	if !slices.ContainsFunc(diags, func(d diag.Diagnostic) bool { return d.Code == "HZN1326" }) {
+		t.Fatalf("diagnostics = %#v, want HZN1326", diags)
+	}
+}
+
+func TestCapabilityRecognizedLeafAllowed(t *testing.T) {
+	file := parseTestFile(t, `package probes
+
+capability ConnectBlock danger block = "kernel.network.connect.block"
+
+@cgroup("connect4")
+func BlockSMTP(ctx cgroup.Connect) i32 {
+    return cgroup.Allow
+}
+`)
+	diags := Check(file)
+	if slices.ContainsFunc(diags, func(d diag.Diagnostic) bool { return d.Code == "HZN1326" }) {
+		t.Fatalf("diagnostics = %#v, want no HZN1326", diags)
+	}
+}
+
 func parseTestFile(t *testing.T, source string) ast.File {
 	t.Helper()
 	parsed, err := parser.ParseSource(parser.SourceFile{Path: "inline.hzn", Bytes: []byte(source)})

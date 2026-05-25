@@ -1163,6 +1163,15 @@ func validateCapabilityDecl(decl ast.CapabilityDecl) []diag.Diagnostic {
 				Suggest:  fmt.Sprintf("declare danger %s or choose a capability name that matches the intended impact", floor),
 			})
 		}
+		if strings.HasPrefix(decl.Value, "kernel.") && !recognizedCapabilityLeaf(decl.Value) {
+			diags = append(diags, diag.Diagnostic{
+				Code:     "HZN1326",
+				Severity: diag.SeverityError,
+				Message:  fmt.Sprintf("capability %q uses an unrecognized leaf in the reserved kernel.* namespace", decl.Value),
+				Primary:  decl.Span,
+				Suggest:  "use a recognized leaf word: observe, mutate, drop, block, privileged, deny, or allow",
+			})
+		}
 		return diags
 	}
 	diags = append(diags, diag.Diagnostic{
@@ -1212,6 +1221,27 @@ func capabilityNameDanger(name string) DangerLevel {
 		return DangerLevel(name)
 	default:
 		return ""
+	}
+}
+
+// recognizedCapabilityLeaf reports whether name's final dotted segment is a
+// recognized danger or action leaf word. Used to gate kernel.* capabilities
+// against the false-acceptance hole described in
+// spec.horizon-continuum-integration.v1 §A.1.
+func recognizedCapabilityLeaf(name string) bool {
+	leaf := name
+	for {
+		_, suffix, ok := strings.Cut(leaf, ".")
+		if !ok {
+			break
+		}
+		leaf = suffix
+	}
+	switch leaf {
+	case "observe", "mutate", "drop", "block", "privileged", "deny", "allow":
+		return true
+	default:
+		return false
 	}
 }
 
