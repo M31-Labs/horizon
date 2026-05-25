@@ -1103,16 +1103,36 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 }
 
 func validateCapabilityDecl(decl ast.CapabilityDecl) []diag.Diagnostic {
+	var diags []diag.Diagnostic
 	if decl.Value != "" {
-		return nil
+		if decl.Danger != "" && !validCapabilityDanger(decl.Danger) {
+			diags = append(diags, diag.Diagnostic{
+				Code:     "HZN1323",
+				Severity: diag.SeverityError,
+				Message:  fmt.Sprintf("capability alias %q declares unsupported danger %q", decl.Name, decl.Danger),
+				Primary:  decl.Span,
+				Suggest:  "use one of observe, mutate, drop, block, or privileged",
+			})
+		}
+		return diags
 	}
-	return []diag.Diagnostic{{
+	diags = append(diags, diag.Diagnostic{
 		Code:     "HZN1322",
 		Severity: diag.SeverityError,
 		Message:  fmt.Sprintf("capability alias %q must name a capability", decl.Name),
 		Primary:  decl.Span,
 		Suggest:  `use a stable capability string such as "kernel.process.exec.observe"`,
-	}}
+	})
+	return diags
+}
+
+func validCapabilityDanger(danger string) bool {
+	switch DangerLevel(danger) {
+	case DangerObserve, DangerMutate, DangerDrop, DangerBlock, DangerPrivileged:
+		return true
+	default:
+		return false
+	}
 }
 
 func validateCapabilityAttr(attr ast.Attr, capabilities map[string]ast.CapabilityDecl) []diag.Diagnostic {

@@ -16,7 +16,7 @@ func FromAST(file ast.File) (Program, []diag.Diagnostic) {
 		Func Function
 	}
 	var funcs []functionDecl
-	capabilityAliases := map[string]string{}
+	capabilityAliases := map[string]capabilityAlias{}
 	for _, decl := range file.Decls {
 		switch d := decl.(type) {
 		case ast.TypeDecl:
@@ -33,7 +33,10 @@ func FromAST(file ast.File) (Program, []diag.Diagnostic) {
 		case ast.EnumDecl:
 			program.Constants = append(program.Constants, buildEnumConsts(d, aliases)...)
 		case ast.CapabilityDecl:
-			capabilityAliases[d.Name] = d.Value
+			capabilityAliases[d.Name] = capabilityAlias{
+				Name:   d.Value,
+				Danger: DangerLevel(d.Danger),
+			}
 		case ast.MapDecl:
 			program.Maps = append(program.Maps, buildMap(d, aliases))
 		case ast.FuncDecl:
@@ -324,13 +327,19 @@ func buildExprs(exprs []ast.Expr) []Expr {
 	return out
 }
 
-func buildCapabilities(decl ast.FuncDecl, fn Function, maps []Map, capabilityAliases map[string]string) []Capability {
+type capabilityAlias struct {
+	Name   string
+	Danger DangerLevel
+}
+
+func buildCapabilities(decl ast.FuncDecl, fn Function, maps []Map, capabilityAliases map[string]capabilityAlias) []Capability {
 	var out []Capability
 	for _, attr := range decl.Attrs {
 		if attr.Name != "capability" {
 			continue
 		}
-		name := capabilityArg(attr, capabilityAliases)
+		name, danger := capabilityArg(attr, capabilityAliases)
+		danger = declaredDanger(danger, inferDanger(fn))
 		access := mapAccesses(fn, maps)
 		out = append(out, Capability{
 			Name:    name,
@@ -339,7 +348,7 @@ func buildCapabilities(decl ast.FuncDecl, fn Function, maps []Map, capabilityAli
 			Section: manifestSection(fn.Section),
 			Emits:   access.Emits,
 			Maps:    access.Maps,
-			Danger:  inferDanger(fn),
+			Danger:  danger,
 		})
 	}
 	return out
@@ -452,17 +461,18 @@ func stringArg(attr ast.Attr) string {
 	return ""
 }
 
-func capabilityArg(attr ast.Attr, aliases map[string]string) string {
+func capabilityArg(attr ast.Attr, aliases map[string]capabilityAlias) (string, DangerLevel) {
 	if len(attr.Args) == 0 {
-		return ""
+		return "", ""
 	}
 	switch value := attr.Args[0].(type) {
 	case ast.StringExpr:
-		return value.Value
+		return value.Value, ""
 	case ast.IdentExpr:
-		return aliases[value.Name]
+		alias := aliases[value.Name]
+		return alias.Name, alias.Danger
 	default:
-		return ""
+		return "", ""
 	}
 }
 
@@ -658,12 +668,20 @@ func inferDanger(fn Function) DangerLevel {
 	return danger
 }
 
+func declaredDanger(declared DangerLevel, inferred DangerLevel) DangerLevel {
+	if declared == "" {
+		return inferred
+	}
+	return moreDangerous(declared, inferred)
+}
+
 func moreDangerous(current DangerLevel, next DangerLevel) DangerLevel {
 	rank := map[DangerLevel]int{
-		DangerObserve: 0,
-		DangerMutate:  1,
-		DangerDrop:    2,
-		DangerBlock:   3,
+		DangerObserve:    0,
+		DangerMutate:     1,
+		DangerDrop:       2,
+		DangerBlock:      3,
+		DangerPrivileged: 4,
 	}
 	if rank[next] > rank[current] {
 		return next

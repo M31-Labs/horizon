@@ -157,8 +157,8 @@ func TestEmitSourceMapIncludesGeneratedHelperWrappers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Emit xdpdrop: %v", err)
 	}
-	assertSourceMapLine(t, out, "static __always_inline __u64 hzn_xdp_l4_offset", "xdp_helper_wrapper", 14)
-	assertSourceMapLine(t, out, "static __always_inline struct hzn_xdp_tcp *hzn_xdp_tcp", "xdp_helper_wrapper", 14)
+	assertSourceMapLine(t, out, "static __always_inline __u64 hzn_xdp_l4_offset", "xdp_helper_wrapper", 16)
+	assertSourceMapLine(t, out, "static __always_inline struct hzn_xdp_tcp *hzn_xdp_tcp", "xdp_helper_wrapper", 16)
 
 	result, err = compiler.AnalyzePath("../examples/cgroupconnect")
 	if err != nil {

@@ -21,7 +21,7 @@ enum PacketAction i32 {
     PacketDrop = 1
 }
 
-capability DropCapability = "kernel.network.xdp.drop"
+capability DropCapability danger drop = "kernel.network.xdp.drop"
 
 type (
     Port = u16
@@ -73,7 +73,7 @@ func TestQueriesCompile(t *testing.T) {
 func TestHighlightsQueryCoversCurrentLanguageSurface(t *testing.T) {
 	captures := queryCaptures(t, HighlightsQuery, []byte(queryFixture))
 
-	assertCaptureContains(t, captures, "keyword", "package", "import", "const", "enum", "capability", "type", "struct", "map", "func", "var", "if", "switch", "case", "default", "return")
+	assertCaptureContains(t, captures, "keyword", "package", "import", "const", "enum", "capability", "danger", "type", "struct", "map", "func", "var", "if", "switch", "case", "default", "return")
 	assertCaptureContains(t, captures, "attribute", "max_entries", "capability", "xdp")
 	assertCaptureContains(t, captures, "comment", "// keep packet access typed and nil-checked")
 	assertCaptureContains(t, captures, "string", `"m31labs.dev/horizon/runtime/kernel"`, `"kernel.network.xdp.drop"`)

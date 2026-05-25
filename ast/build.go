@@ -236,9 +236,10 @@ func buildEnumDecl(parsed *parser.File, n *gotreesitter.Node) EnumDecl {
 
 func buildCapabilityDecl(parsed *parser.File, n *gotreesitter.Node) CapabilityDecl {
 	return CapabilityDecl{
-		Name:  text(parsed, n.ChildByFieldName("name", parsed.Lang)),
-		Value: strings.Trim(text(parsed, n.ChildByFieldName("value", parsed.Lang)), `"`),
-		Span:  spanForNode(parsed.Source.FileID, n),
+		Name:   text(parsed, n.ChildByFieldName("name", parsed.Lang)),
+		Value:  strings.Trim(text(parsed, n.ChildByFieldName("value", parsed.Lang)), `"`),
+		Danger: text(parsed, n.ChildByFieldName("danger", parsed.Lang)),
+		Span:   spanForNode(parsed.Source.FileID, n),
 	}
 }
 

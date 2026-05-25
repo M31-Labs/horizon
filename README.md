@@ -33,7 +33,7 @@ It keeps the kernel-side language deliberately small:
 - explicitly typed constants such as `const Port u16 = 443`
 - signed constants such as `const Errno i32 = -1`
 - typed enum value groups for named integer actions and flags
-- named capability aliases such as `capability ExecObserve = "kernel.process.exec.observe"`
+- named capability aliases with explicit danger metadata such as `capability ExecObserve danger observe = "kernel.process.exec.observe"`
 - scalar user helper functions that lower to `static __always_inline` C
 - compiler-known kernel helpers
 - typed kprobe argument and kretprobe return helpers
@@ -87,12 +87,15 @@ func OnExec(ctx tracepoint.Exec) i32 {
 Stateful programs can use typed maps. Lookup results are nullable and must be
 checked before dereference.
 
-Capability strings can be named once at package scope and referenced from
-entrypoint attributes. This keeps the source readable while preserving the
-manifest's stable Continuum capability name.
+Capability strings can be named once at package scope with explicit danger
+metadata and referenced from entrypoint attributes. This keeps the source
+readable while preserving the manifest's stable Continuum capability name.
+When explicit danger is omitted, Horizon infers it from the program body; when
+it is present, the manifest uses the more dangerous of the declaration and the
+program's inferred behavior.
 
 ```go
-capability ExecObserve = "kernel.process.exec.observe"
+capability ExecObserve danger observe = "kernel.process.exec.observe"
 
 @capability(ExecObserve)
 @tracepoint("sched:sched_process_exec")
@@ -305,7 +308,9 @@ arithmetic or integer returns.
 ```go
 package probes
 
-@capability("kernel.network.xdp.drop")
+capability DropCapability danger drop = "kernel.network.xdp.drop"
+
+@capability(DropCapability)
 @xdp
 func DropTCP(ctx xdp.Context) i32 {
     tcp := xdp.tcp(ctx)
@@ -579,6 +584,7 @@ Horizon makes verifier-sensitive behavior explicit before clang runs:
 - bare `return` is rejected; tracing programs should use `return 0`, while packet and policy programs should return named actions
 - only bounded counted loops with numeric literal or integer const upper bounds are accepted
 - helper availability is checked against the program kind
+- capability aliases can declare `observe`, `mutate`, `drop`, `block`, or `privileged` danger; manifests never understate the inferred program danger
 - kprobe arguments, safe user string reads, and kretprobe return registers are exposed through typed helper calls, not direct `pt_regs` access
 - packet headers returned by `xdp.eth(ctx)`, `xdp.ipv4(ctx)`, `xdp.tcp(ctx)`, and `xdp.udp(ctx)` must be nil-checked before field access
 - XDP programs must return named actions such as `xdp.Pass` and `xdp.Drop`, not raw integers

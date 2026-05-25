@@ -84,7 +84,7 @@ map Events ringbuf[Event]
 func TestAnalyzeCapabilityAliasResolvesManifestName(t *testing.T) {
 	result := analyzeSource(t, "capability.hzn", `package probes
 
-capability ExecObserve = "kernel.process.exec.observe"
+capability ExecObserve danger observe = "kernel.process.exec.observe"
 
 @capability(ExecObserve)
 @tracepoint("sched:sched_process_exec")
@@ -102,13 +102,62 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	if got, want := manifest.Capabilities[0].Name, "kernel.process.exec.observe"; got != want {
 		t.Fatalf("capability name = %q, want %q", got, want)
 	}
+	if got, want := manifest.Capabilities[0].Danger, "observe"; got != want {
+		t.Fatalf("capability danger = %q, want %q", got, want)
+	}
+}
+
+func TestAnalyzeCapabilityAliasExplicitDangerRaisesManifestDanger(t *testing.T) {
+	result := analyzeSource(t, "capability.hzn", `package probes
+
+capability DropCapability danger drop = "kernel.network.xdp.drop"
+
+@capability(DropCapability)
+@xdp
+func DropTCP(ctx xdp.Context) i32 {
+    return xdp.Pass
+}
+`)
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+	manifest := capability.FromIR(result.Program)
+	if len(manifest.Capabilities) != 1 {
+		t.Fatalf("capabilities = %#v, want one", manifest.Capabilities)
+	}
+	if got, want := manifest.Capabilities[0].Danger, "drop"; got != want {
+		t.Fatalf("capability danger = %q, want %q", got, want)
+	}
+}
+
+func TestAnalyzeCapabilityAliasDangerCannotUnderstateInferredDanger(t *testing.T) {
+	result := analyzeSource(t, "capability.hzn", `package probes
+
+capability ObserveCapability danger observe = "kernel.network.xdp.observe"
+
+@capability(ObserveCapability)
+@xdp
+func DropTCP(ctx xdp.Context) i32 {
+    return xdp.Drop
+}
+`)
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+	manifest := capability.FromIR(result.Program)
+	if len(manifest.Capabilities) != 1 {
+		t.Fatalf("capabilities = %#v, want one", manifest.Capabilities)
+	}
+	if got, want := manifest.Capabilities[0].Danger, "drop"; got != want {
+		t.Fatalf("capability danger = %q, want inferred floor %q", got, want)
+	}
 }
 
 func TestAnalyzeCapabilityAliasCanBeSharedAcrossFiles(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "a_capability.hzn"), []byte(`package probes
 
-capability ExecObserve = "kernel.process.exec.observe"
+capability ExecObserve danger observe = "kernel.process.exec.observe"
 `), 0o600); err != nil {
 		t.Fatalf("WriteFile capability: %v", err)
 	}
@@ -158,6 +207,20 @@ func OnExec(ctx tracepoint.Exec) i32 {
 }
 `)
 	requireDiagnosticCode(t, result, "HZN1322")
+}
+
+func TestAnalyzeRejectsUnsupportedCapabilityDanger(t *testing.T) {
+	result := analyzeSource(t, "capability.hzn", `package probes
+
+capability ExecObserve danger destroy = "kernel.process.exec.observe"
+
+@capability(ExecObserve)
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    return 0
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1323")
 }
 
 func TestAnalyzeRejectsDuplicateDeclarationsAcrossFiles(t *testing.T) {

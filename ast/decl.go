@@ -127,9 +127,10 @@ func (v EnumValue) GetSpan() span.Span {
 }
 
 type CapabilityDecl struct {
-	Name  string
-	Value string
-	Span  span.Span
+	Name   string
+	Value  string
+	Danger string
+	Span   span.Span
 }
 
 func (CapabilityDecl) declNode() {}

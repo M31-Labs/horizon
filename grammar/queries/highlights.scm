@@ -4,6 +4,7 @@
 (const_declaration "const" @keyword)
 (enum_declaration "enum" @keyword)
 (capability_declaration "capability" @keyword)
+(capability_declaration "danger" @keyword)
 (function_declaration "func" @keyword)
 (map_declaration "map" @keyword)
 (struct_type "struct" @keyword)

@@ -168,7 +168,7 @@ func (b *builder) decl(decl ast.Decl) {
 		b.indent--
 		b.lineWithComment("}", d.Span.End.Line)
 	case ast.CapabilityDecl:
-		b.lineWithComment("capability "+d.Name+" = "+strconv.Quote(d.Value), d.Span.Start.Line)
+		b.lineWithComment(capabilityDecl(d), d.Span.Start.Line)
 	case ast.MapDecl:
 		for _, attr := range d.Attrs {
 			b.lineWithComment(attrText(attr), attr.Span.Start.Line)
@@ -245,6 +245,15 @@ func constSpec(decl ast.ConstDecl) string {
 		line += " " + typeRef(decl.Type)
 	}
 	line += " = " + expr(decl.Value)
+	return line
+}
+
+func capabilityDecl(decl ast.CapabilityDecl) string {
+	line := "capability " + decl.Name
+	if decl.Danger != "" {
+		line += " danger " + decl.Danger
+	}
+	line += " = " + strconv.Quote(decl.Value)
 	return line
 }
 

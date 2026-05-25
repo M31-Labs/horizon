@@ -156,7 +156,7 @@ map ConstCounts hash[u32, u32]
 
 func TestSourceFormatsCapabilityAliases(t *testing.T) {
 	got, err := Source(parser.SourceFile{Path: "capabilities.hzn", Bytes: []byte(`package probes
-capability ExecObserve="kernel.process.exec.observe"
+capability ExecObserve danger observe="kernel.process.exec.observe"
 @capability(ExecObserve)
 @tracepoint("sched:sched_process_exec")
 func OnExec(ctx tracepoint.Exec)i32{return 0}
@@ -166,7 +166,7 @@ func OnExec(ctx tracepoint.Exec)i32{return 0}
 	}
 	want := `package probes
 
-capability ExecObserve = "kernel.process.exec.observe"
+capability ExecObserve danger observe = "kernel.process.exec.observe"
 
 @capability(ExecObserve)
 @tracepoint("sched:sched_process_exec")

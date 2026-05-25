@@ -158,7 +158,7 @@ type (
 func TestBuildCapabilityAlias(t *testing.T) {
 	parsed, err := parser.ParseSource(parser.SourceFile{Path: "inline.hzn", Bytes: []byte(`package probes
 
-capability ExecObserve = "kernel.process.exec.observe"
+capability ExecObserve danger observe = "kernel.process.exec.observe"
 
 @capability(ExecObserve)
 @tracepoint("sched:sched_process_exec")
@@ -180,8 +180,8 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	if !ok {
 		t.Fatalf("decl[0] = %T, want CapabilityDecl", file.Decls[0])
 	}
-	if capabilityDecl.Name != "ExecObserve" || capabilityDecl.Value != "kernel.process.exec.observe" {
-		t.Fatalf("capability decl = %#v, want ExecObserve alias", capabilityDecl)
+	if capabilityDecl.Name != "ExecObserve" || capabilityDecl.Value != "kernel.process.exec.observe" || capabilityDecl.Danger != "observe" {
+		t.Fatalf("capability decl = %#v, want ExecObserve observe alias", capabilityDecl)
 	}
 	fn := file.Decls[1].(FuncDecl)
 	arg, ok := fn.Attrs[0].Args[0].(IdentExpr)

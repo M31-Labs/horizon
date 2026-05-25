@@ -77,6 +77,29 @@ type (
 	}
 }
 
+func TestParseCapabilityDanger(t *testing.T) {
+	src := SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
+
+capability DropPackets danger drop = "kernel.network.xdp.drop"
+
+@capability(DropPackets)
+@xdp
+func F(ctx xdp.Context) i32 {
+    return xdp.Pass
+}
+`)}
+	file, err := ParseSource(src)
+	if err != nil {
+		t.Fatalf("ParseSource: %v", err)
+	}
+	if got := countNamedDescendants(file.Tree.RootNode(), file.Lang, "capability_declaration"); got != 1 {
+		t.Fatalf("capability declaration count = %d, want 1; tree: %s", got, file.Tree.RootNode().SExpr(file.Lang))
+	}
+	if got := countNamedDescendants(file.Tree.RootNode(), file.Lang, "function_declaration"); got != 1 {
+		t.Fatalf("function declaration count = %d, want 1; tree: %s", got, file.Tree.RootNode().SExpr(file.Lang))
+	}
+}
+
 func TestParseStatements(t *testing.T) {
 	src := SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
 
