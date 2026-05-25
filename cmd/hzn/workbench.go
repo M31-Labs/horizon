@@ -78,6 +78,7 @@ type workbenchOptions struct {
 type workbenchReport struct {
 	Schema                string            `json:"schema"`
 	Generator             string            `json:"generator"`
+	Tool                  toolInfo          `json:"tool"`
 	GeneratedAt           string            `json:"generated_at"`
 	Package               string            `json:"package"`
 	Sources               []sourceDetail    `json:"sources,omitempty"`
@@ -147,6 +148,7 @@ func writeWorkbenchArtifacts(result *compiler.Result, opts workbenchOptions) (wo
 	report := workbenchReport{
 		Schema:      "m31labs.dev/horizon/report/v0",
 		Generator:   "hzn workbench",
+		Tool:        currentToolInfo(),
 		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
 		Package:     result.Program.Package,
 		Sources:     sources,

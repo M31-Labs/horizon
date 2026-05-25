@@ -481,6 +481,9 @@ hzn fmt ./examples -w
 hzn fmt ./examples -check
 hzn doctor
 hzn doctor -capabilities dist/exec.cap.json
+hzn version
+hzn --version
+hzn version -json
 make setup-vmlinux
 make ci-go
 hzn workbench ./examples/execwatch -o dist
@@ -518,7 +521,8 @@ hashes. The report also includes a compact summary of source count, program
 kinds, map kinds, capability danger levels, declared type count, and the
 minimum kernel version implied by generated capabilities. Each run removes
 stale artifacts for the target output base before writing new ones, records
-replaced paths, and includes generator/timestamp provenance in the report.
+replaced paths, and includes generator, version, Go toolchain, available VCS,
+and timestamp provenance in the report.
 Workbench artifact generation requires every attachable eBPF program to declare
 at least one capability, so generated manifests cannot silently omit a program.
 Use `-preflight` when workbench should run the same host readiness checks as

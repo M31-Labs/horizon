@@ -32,6 +32,8 @@ func run(args []string) error {
 		return runFmt(rest)
 	case "doctor":
 		return runDoctor(rest)
+	case "version", "--version", "-version":
+		return runVersion(rest)
 	case "bindgen":
 		return runBindgen(rest)
 	case "diagnose":
@@ -45,7 +47,7 @@ func run(args []string) error {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "Usage: hzn <check|fmt|workbench|build|doctor|emit-c|bindgen|diagnose|capabilities> [path] [flags]")
+	fmt.Fprintln(os.Stderr, "Usage: hzn <check|fmt|workbench|build|doctor|version|emit-c|bindgen|diagnose|capabilities> [path] [flags]")
 }
 
 func pathArg(fs *flag.FlagSet) string {

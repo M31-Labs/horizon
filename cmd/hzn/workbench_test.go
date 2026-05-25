@@ -913,6 +913,18 @@ func assertReportProvenance(t *testing.T, report workbenchReport) {
 	if report.Generator != "hzn workbench" {
 		t.Fatalf("generator = %q, want hzn workbench", report.Generator)
 	}
+	if report.Tool.Name != "hzn" {
+		t.Fatalf("tool name = %q, want hzn", report.Tool.Name)
+	}
+	if report.Tool.Version == "" {
+		t.Fatal("tool version is empty")
+	}
+	if report.Tool.Module != modulePath {
+		t.Fatalf("tool module = %q, want %q", report.Tool.Module, modulePath)
+	}
+	if report.Tool.GoVersion == "" {
+		t.Fatal("tool go_version is empty")
+	}
 	if report.GeneratedAt == "" {
 		t.Fatal("generated_at is empty")
 	}
