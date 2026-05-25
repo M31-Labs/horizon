@@ -883,6 +883,23 @@ Horizon makes verifier-sensitive behavior explicit before clang runs:
 - generated C stays readable so clang and verifier logs remain inspectable
 - internal generated C constants and struct tags are prefixed to avoid collisions with kernel headers
 
+## What Horizon won't do
+
+- Compile arbitrary Go. Horizon is a Go-shaped DSL, not a Go compiler.
+- Hide the generated C. Generated BPF C is readable, source-mapped, and
+  meant to be inspected by reviewers and the verifier alike.
+- Replace clang or the verifier. Horizon checks what it can before clang
+  runs; clang and the verifier remain the source of truth on the kernel
+  side.
+- Make unsafe kernel capabilities look safe. Every program declares
+  explicit danger metadata; manifests never understate inferred danger.
+- Silently emit a capability-free object. `hzn check`, `hzn emit-c`,
+  `hzn bindgen`, `hzn workbench`, `hzn build`, and `hzn capabilities`
+  reject attachable programs without capability coverage.
+- Pretend the kernel is userspace. Verifier obligations, bounded loops,
+  resource lifetimes, and helper availability stay visible in the source
+  language.
+
 ## Status
 
 Pre-alpha. The current implementation targets tracepoint, kprobe/kretprobe, TC,
