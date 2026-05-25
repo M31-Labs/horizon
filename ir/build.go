@@ -350,6 +350,7 @@ func buildCapabilities(decl ast.FuncDecl, fn Function, maps []Map, capabilityAli
 			Emits:   access.Emits,
 			Maps:    access.Maps,
 			Danger:  danger,
+			Span:    attr.Span,
 		})
 	}
 	return out

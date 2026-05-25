@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"m31labs.dev/horizon/compiler/diag"
+	"m31labs.dev/horizon/compiler/span"
 	"m31labs.dev/horizon/ir"
 )
 
@@ -50,9 +51,16 @@ func capabilityNamespaceDiagnostic(cap ir.Capability, fn ir.Function) (diag.Diag
 		Code:     "HZN2502",
 		Severity: diag.SeverityError,
 		Message:  fmt.Sprintf("capability %q does not match %s program %q", cap.Name, sectionDescription(fn.Section), fn.Name),
-		Primary:  fn.Span,
+		Primary:  capabilityPrimarySpan(cap, fn),
 		Suggest:  fmt.Sprintf("use a kernel capability prefixed with %q, or choose an attach surface that matches the capability", want),
 	}, true
+}
+
+func capabilityPrimarySpan(cap ir.Capability, fn ir.Function) span.Span {
+	if !cap.Span.IsZero() {
+		return cap.Span
+	}
+	return fn.Span
 }
 
 func expectedKernelCapabilityPrefix(section ir.Section) string {

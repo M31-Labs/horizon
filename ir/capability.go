@@ -1,5 +1,7 @@
 package ir
 
+import "m31labs.dev/horizon/compiler/span"
+
 type CapabilityKind string
 
 const (
@@ -24,6 +26,7 @@ type Capability struct {
 	Emits   string
 	Maps    CapabilityMapAccess
 	Danger  DangerLevel
+	Span    span.Span
 }
 
 type CapabilityMapAccess struct {

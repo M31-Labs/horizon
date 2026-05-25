@@ -61,3 +61,34 @@ func OnExec(ctx tracepoint.Exec) i32 {
 		t.Fatalf("source context = %#v, want section attribute line", diagnostics[0].Source)
 	}
 }
+
+func TestCheckCapabilityNamespaceMismatchPointsAtCapability(t *testing.T) {
+	input := filepath.Join(t.TempDir(), "wrongcap.hzn")
+	if err := os.WriteFile(input, []byte(`package probes
+
+@capability("kernel.process.exec.observe")
+@xdp
+func DropTCP(ctx xdp.Context) i32 {
+    return xdp.Pass
+}
+`), 0o600); err != nil {
+		t.Fatalf("write input: %v", err)
+	}
+
+	stdout, err := captureStdout(t, func() error {
+		return run([]string{"check", input, "-json"})
+	})
+	if err == nil {
+		t.Fatal("run check -json succeeded, want capability namespace diagnostic")
+	}
+	var diagnostics []diag.Diagnostic
+	if err := json.Unmarshal([]byte(stdout), &diagnostics); err != nil {
+		t.Fatalf("unmarshal diagnostics: %v\n%s", err, stdout)
+	}
+	if len(diagnostics) != 1 || diagnostics[0].Code != "HZN2502" {
+		t.Fatalf("diagnostics = %#v, want HZN2502", diagnostics)
+	}
+	if diagnostics[0].Source == nil || !strings.Contains(diagnostics[0].Source.Text, `@capability("kernel.process.exec.observe")`) {
+		t.Fatalf("source context = %#v, want capability attribute line", diagnostics[0].Source)
+	}
+}

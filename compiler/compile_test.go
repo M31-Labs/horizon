@@ -267,7 +267,10 @@ func DropTCP(ctx xdp.Context) i32 {
     return xdp.Pass
 }
 `)
-	requireDiagnosticCode(t, result, "HZN2502")
+	diagnostic := requireDiagnosticCode(t, result, "HZN2502")
+	if diagnostic.Primary.Start.Line != 3 {
+		t.Fatalf("primary span = %#v, want @capability line", diagnostic.Primary)
+	}
 }
 
 func TestAnalyzeRejectsDuplicateDeclarationsAcrossFiles(t *testing.T) {
