@@ -1,0 +1,83 @@
+{
+  "schema": "m31labs.dev/horizon/capability-namespaces/v1",
+  "version": "1",
+  "namespaces": [
+    {
+      "namespace": "kernel.process.exec",
+      "attach_surface": "tracepoint",
+      "attach_strings": ["sched:sched_process_exec"],
+      "allowed_danger_leaves": ["observe"],
+      "introduced": "v0.1.0"
+    },
+    {
+      "namespace": "kernel.process.exec",
+      "attach_surface": "lsm",
+      "attach_strings": ["bprm_check_security"],
+      "allowed_danger_leaves": ["observe", "deny", "allow", "block"],
+      "introduced": "v0.1.0"
+    },
+    {
+      "namespace": "kernel.process.kill",
+      "attach_surface": "lsm",
+      "attach_strings": ["task_kill"],
+      "allowed_danger_leaves": ["observe", "deny", "block"],
+      "introduced": "v0.1.0"
+    },
+    {
+      "namespace": "kernel.file.open",
+      "attach_surface": "lsm",
+      "attach_strings": ["file_open"],
+      "allowed_danger_leaves": ["observe", "deny", "allow", "block"],
+      "introduced": "v0.1.0"
+    },
+    {
+      "namespace": "kernel.file.open",
+      "attach_surface": "kprobe",
+      "attach_strings": ["do_sys_openat2"],
+      "allowed_danger_leaves": ["observe"],
+      "introduced": "v0.1.0"
+    },
+    {
+      "namespace": "kernel.file.open",
+      "attach_surface": "kretprobe",
+      "attach_strings": ["do_sys_openat2"],
+      "allowed_danger_leaves": ["observe"],
+      "introduced": "v0.1.0"
+    },
+    {
+      "namespace": "kernel.network.connect",
+      "attach_surface": "cgroup",
+      "attach_strings": ["connect4", "connect6"],
+      "allowed_danger_leaves": ["observe", "deny", "allow", "block"],
+      "introduced": "v0.1.0"
+    },
+    {
+      "namespace": "kernel.network.tcp.connect",
+      "attach_surface": "kprobe",
+      "attach_strings": ["tcp_v4_connect"],
+      "allowed_danger_leaves": ["observe"],
+      "introduced": "v0.1.0"
+    },
+    {
+      "namespace": "kernel.network.tcp.connect",
+      "attach_surface": "kretprobe",
+      "attach_strings": ["tcp_v4_connect"],
+      "allowed_danger_leaves": ["observe"],
+      "introduced": "v0.1.0"
+    },
+    {
+      "namespace": "kernel.network.xdp",
+      "attach_surface": "xdp",
+      "attach_strings": [],
+      "allowed_danger_leaves": ["observe", "drop", "block"],
+      "introduced": "v0.1.0"
+    },
+    {
+      "namespace": "kernel.network.tc",
+      "attach_surface": "tc",
+      "attach_strings": ["ingress", "egress"],
+      "allowed_danger_leaves": ["observe", "drop", "block"],
+      "introduced": "v0.1.0"
+    }
+  ]
+}
