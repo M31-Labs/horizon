@@ -643,6 +643,7 @@ func TestAnalyzeInvalidRingbufPrograms(t *testing.T) {
 		"../testdata/invalid/struct_compiler_owned_field.hzn":            "HZN1110",
 		"../testdata/invalid/map_compiler_owned_value.hzn":               "HZN1110",
 		"../testdata/invalid/map_compiler_owned_key.hzn":                 "HZN1110",
+		"../testdata/invalid/capability_unknown_leaf.hzn":                "HZN1326",
 	}
 	for path, code := range tests {
 		result, err := AnalyzePath(path)

@@ -1,0 +1,9 @@
+package probes
+
+capability ConnectGrant danger block = "kernel.network.connect.grant"
+
+@capability(ConnectGrant)
+@cgroup("connect4")
+func GrantConnect(ctx cgroup.Connect) i32 {
+    return cgroup.Allow
+}
