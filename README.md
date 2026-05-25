@@ -1,6 +1,8 @@
 # Horizon
 
-Go-shaped eBPF authoring for the kernel boundary.
+A Go-shaped DSL for writing kernel capabilities — verifier-aware checks,
+readable BPF C, typed Go bindings, and Continuum capability manifests, all
+in one workbench.
 
 Horizon is not a Go compiler. It is a small Go-shaped DSL for writing
 verifier-friendly eBPF programs that lower to readable BPF C.
