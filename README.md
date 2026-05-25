@@ -815,6 +815,34 @@ requirements when a manifest carries them.
 Use `make setup-vmlinux` on BTF-enabled Linux hosts to generate
 `/usr/local/include/vmlinux.h`.
 
+## Capability manifests
+
+Every Horizon build emits a capability manifest describing what the
+program observes, emits, mutates, and needs from a target host. The
+manifest is the contract Horizon hands to Continuum for governance and
+deployment.
+
+A manifest contains:
+
+- **Programs**: each attachable program with its section, attach string,
+  declared capability name, and danger floor (`observe`, `mutate`,
+  `drop`, `block`, `privileged`).
+- **Maps**: each map's kind (ringbuf, hash, array, percpu_hash, lru_hash,
+  ...), key/value type schemas, and `@max_entries(...)` sizing.
+- **Types**: declared struct schemas with size, align, and field offsets.
+- **Emitted events**: ringbuf event names linked to their struct schema.
+- **Minimum kernel requirements**: feature versions implied by attach
+  surfaces, map kinds, and compiler-known helpers.
+- **Deploy-time requirements**: tracefs availability, XDP support, TC
+  ingress/egress, cgroup v2, BPF LSM, plus required Linux capabilities
+  per attach surface.
+
+`hzn doctor -capabilities <manifest>` checks the local host against a
+manifest before deploy. Continuum consumes the same manifest to govern
+which hosts may load which capabilities, what danger floor is acceptable
+per environment, and how a capability composes with the rest of an
+operator's policy surface.
+
 ## Safety Model
 
 Horizon makes verifier-sensitive behavior explicit before clang runs.
