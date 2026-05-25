@@ -153,6 +153,27 @@ func DropTCP(ctx xdp.Context) i32 {
 	}
 }
 
+func TestAnalyzeCapabilityNameDangerSuffixFloorsManifestDanger(t *testing.T) {
+	result := analyzeSource(t, "capability.hzn", `package probes
+
+@capability("kernel.network.connect.block")
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    return 0
+}
+`)
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+	manifest := capability.FromIR(result.Program)
+	if len(manifest.Capabilities) != 1 {
+		t.Fatalf("capabilities = %#v, want one", manifest.Capabilities)
+	}
+	if got, want := manifest.Capabilities[0].Danger, "block"; got != want {
+		t.Fatalf("capability danger = %q, want capability-name floor %q", got, want)
+	}
+}
+
 func TestAnalyzeCapabilityAliasCanBeSharedAcrossFiles(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "a_capability.hzn"), []byte(`package probes
@@ -221,6 +242,20 @@ func OnExec(ctx tracepoint.Exec) i32 {
 }
 `)
 	requireDiagnosticCode(t, result, "HZN1323")
+}
+
+func TestAnalyzeRejectsCapabilityAliasDangerBelowNameSuffix(t *testing.T) {
+	result := analyzeSource(t, "capability.hzn", `package probes
+
+capability ConnectObserve danger observe = "kernel.network.connect.block"
+
+@capability(ConnectObserve)
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    return 0
+}
+`)
+	requireDiagnosticCode(t, result, "HZN1324")
 }
 
 func TestAnalyzeRejectsDuplicateDeclarationsAcrossFiles(t *testing.T) {

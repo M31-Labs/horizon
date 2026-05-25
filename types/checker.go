@@ -1113,6 +1113,14 @@ func validateCapabilityDecl(decl ast.CapabilityDecl) []diag.Diagnostic {
 				Primary:  decl.Span,
 				Suggest:  "use one of observe, mutate, drop, block, or privileged",
 			})
+		} else if floor := capabilityNameDanger(decl.Value); decl.Danger != "" && floor != "" && dangerLess(DangerLevel(decl.Danger), floor) {
+			diags = append(diags, diag.Diagnostic{
+				Code:     "HZN1324",
+				Severity: diag.SeverityError,
+				Message:  fmt.Sprintf("capability alias %q declares danger %q but capability name implies %q", decl.Name, decl.Danger, floor),
+				Primary:  decl.Span,
+				Suggest:  fmt.Sprintf("declare danger %s or choose a capability name that matches the intended impact", floor),
+			})
 		}
 		return diags
 	}
@@ -1132,6 +1140,41 @@ func validCapabilityDanger(danger string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func capabilityNameDanger(name string) DangerLevel {
+	_, suffix, ok := strings.Cut(strings.TrimSpace(name), ".")
+	for ok {
+		name = suffix
+		_, suffix, ok = strings.Cut(name, ".")
+	}
+	switch DangerLevel(name) {
+	case DangerObserve, DangerMutate, DangerDrop, DangerBlock, DangerPrivileged:
+		return DangerLevel(name)
+	default:
+		return ""
+	}
+}
+
+func dangerLess(left DangerLevel, right DangerLevel) bool {
+	return dangerRank(left) < dangerRank(right)
+}
+
+func dangerRank(danger DangerLevel) int {
+	switch danger {
+	case DangerObserve:
+		return 0
+	case DangerMutate:
+		return 1
+	case DangerDrop:
+		return 2
+	case DangerBlock:
+		return 3
+	case DangerPrivileged:
+		return 4
+	default:
+		return -1
 	}
 }
 

@@ -339,7 +339,8 @@ func buildCapabilities(decl ast.FuncDecl, fn Function, maps []Map, capabilityAli
 			continue
 		}
 		name, danger := capabilityArg(attr, capabilityAliases)
-		danger = declaredDanger(danger, inferDanger(fn))
+		floor := moreDangerous(inferDanger(fn), capabilityNameDanger(name))
+		danger = declaredDanger(danger, floor)
 		access := mapAccesses(fn, maps)
 		out = append(out, Capability{
 			Name:    name,
@@ -673,6 +674,20 @@ func declaredDanger(declared DangerLevel, inferred DangerLevel) DangerLevel {
 		return inferred
 	}
 	return moreDangerous(declared, inferred)
+}
+
+func capabilityNameDanger(name string) DangerLevel {
+	_, suffix, ok := strings.Cut(strings.TrimSpace(name), ".")
+	for ok {
+		name = suffix
+		_, suffix, ok = strings.Cut(name, ".")
+	}
+	switch DangerLevel(name) {
+	case DangerObserve, DangerMutate, DangerDrop, DangerBlock, DangerPrivileged:
+		return DangerLevel(name)
+	default:
+		return ""
+	}
 }
 
 func moreDangerous(current DangerLevel, next DangerLevel) DangerLevel {
