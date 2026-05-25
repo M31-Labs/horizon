@@ -102,6 +102,9 @@ func indexManifestPrograms(programSpecs []Program) (map[string]Program, error) {
 		if program.Section == "" {
 			return nil, validationErrorf("capability manifest program %q section is required", program.Name)
 		}
+		if _, exists := programs[program.Name]; exists {
+			return nil, validationErrorf("capability manifest program %q is declared more than once", program.Name)
+		}
 		programs[program.Name] = program
 	}
 	return programs, nil
@@ -131,6 +134,9 @@ func indexManifestMaps(mapSpecs []Map) (map[string]Map, error) {
 				return nil, validationErrorf("capability manifest ringbuf map %q max_entries must be a power of two", mapSpec.Name)
 			}
 		}
+		if _, exists := maps[mapSpec.Name]; exists {
+			return nil, validationErrorf("capability manifest map %q is declared more than once", mapSpec.Name)
+		}
 		maps[mapSpec.Name] = mapSpec
 	}
 	return maps, nil
@@ -154,6 +160,9 @@ func indexManifestTypes(typeSpecs []TypeSchema) (map[string]bool, error) {
 		if typ.Align != nil && *typ.Align <= 0 {
 			return nil, validationErrorf("capability manifest type %q align must be positive", typ.Name)
 		}
+		if _, exists := types[typ.Name]; exists {
+			return nil, validationErrorf("capability manifest type %q is declared more than once", typ.Name)
+		}
 		types[typ.Name] = true
 	}
 	return types, nil
@@ -161,10 +170,15 @@ func indexManifestTypes(typeSpecs []TypeSchema) (map[string]bool, error) {
 
 func validateManifestTypeFields(typeSpecs []TypeSchema, types map[string]bool) error {
 	for _, typ := range typeSpecs {
+		fields := map[string]bool{}
 		for _, field := range typ.Fields {
 			if err := validateManifestTypeField(typ, field, types); err != nil {
 				return err
 			}
+			if fields[field.Name] {
+				return validationErrorf("capability manifest type %q field %q is declared more than once", typ.Name, field.Name)
+			}
+			fields[field.Name] = true
 		}
 	}
 	return nil

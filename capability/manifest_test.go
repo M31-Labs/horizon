@@ -428,6 +428,51 @@ func TestValidateRejectsInvalidTypeLayoutMetadata(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsDuplicateManifestIdentities(t *testing.T) {
+	tests := map[string]Manifest{
+		"program": {
+			Schema:  SchemaV0,
+			Package: "probes",
+			Programs: []Program{
+				{Name: "OnExec", Kind: "tracepoint", Section: "tracepoint/sched:sched_process_exec"},
+				{Name: "OnExec", Kind: "tracepoint", Section: "tracepoint/sched:sched_process_exec"},
+			},
+			Capabilities: []Capability{},
+		},
+		"map": {
+			Schema:  SchemaV0,
+			Package: "probes",
+			Maps: []Map{
+				{Name: "Events", Kind: "ringbuf", Value: "Event"},
+				{Name: "Events", Kind: "ringbuf", Value: "Event"},
+			},
+			Capabilities: []Capability{},
+		},
+		"type": {
+			Schema:  SchemaV0,
+			Package: "probes",
+			Types: []TypeSchema{
+				{Name: "Event", Kind: "struct"},
+				{Name: "Event", Kind: "struct"},
+			},
+			Capabilities: []Capability{},
+		},
+		"type field": {
+			Schema:       SchemaV0,
+			Package:      "probes",
+			Types:        []TypeSchema{{Name: "Event", Kind: "struct", Fields: []FieldSchema{{Name: "pid", Type: "u32"}, {Name: "pid", Type: "u32"}}}},
+			Capabilities: []Capability{},
+		},
+	}
+	for name, manifest := range tests {
+		t.Run(name, func(t *testing.T) {
+			if err := Validate(manifest); err == nil {
+				t.Fatal("Validate succeeded, want duplicate identity error")
+			}
+		})
+	}
+}
+
 func TestValidateRejectsUnsupportedEnumValues(t *testing.T) {
 	tests := map[string]Manifest{
 		"program kind": {

@@ -621,6 +621,7 @@ Horizon makes verifier-sensitive behavior explicit before clang runs:
 - capability names must be unique across attachable programs, keeping generated manifests unambiguous for downstream policy and deployment tooling
 - known `kernel.*` capability namespaces must match known attach surfaces, so an XDP program cannot claim a process exec capability or a cgroup connect program cannot claim a file-open capability
 - capability manifests require each program's capability list to match the top-level capability entries, so Continuum consumers can trust either index
+- capability manifest programs, maps, types, and type fields must have unique names; schema consumers never have to guess which duplicate wins
 - kprobe arguments, safe user string reads, and kretprobe return registers are exposed through typed helper calls, not direct `pt_regs` access
 - packet headers returned by `xdp.eth(ctx)`, `xdp.ipv4(ctx)`, `xdp.tcp(ctx)`, and `xdp.udp(ctx)` must be nil-checked before field access
 - XDP programs must return named actions such as `xdp.Pass` and `xdp.Drop`, not raw integers
