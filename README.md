@@ -817,7 +817,9 @@ Use `make setup-vmlinux` on BTF-enabled Linux hosts to generate
 
 ## Safety Model
 
-Horizon makes verifier-sensitive behavior explicit before clang runs:
+Horizon makes verifier-sensitive behavior explicit before clang runs.
+
+### Resource typing
 
 - ringbuf reservations must be nil-checked, submitted, or discarded exactly once
 - scoped `if name := expr; condition` declarations lower to a C block before the `if`, so nullable lookup/header/reservation locals can be kept short-lived without leaking outside the branch
@@ -826,17 +828,13 @@ Horizon makes verifier-sensitive behavior explicit before clang runs:
 - nullable map, packet, and ringbuf resource pointers cannot be copied or aliased
 - raw address-taking and explicit pointer dereference are rejected; use compiler-known resource/header helpers and direct fixed-array helper operands instead
 - source-authored pointer types such as `*u32` are rejected; nullable pointers only come from compiler-known map lookup, ringbuf reserve, and packet helpers
-- struct fields must be unique, and structs are finite by-value records; recursive struct shapes are rejected before C emission
-- stored data types for structs and keyed maps must be scalars, fixed arrays, or declared Horizon structs; compiler-owned context and packet header types stay helper-only
-- package-scoped declarations cannot use compiler namespace names such as `bpf`, `xdp`, `tc`, `cgroup`, `lsm`, `kprobe`, or `tracepoint`
-- default generated Go binding names must be valid and collision-free, so public APIs are checked as part of `hzn check`
 - ringbuf maps emit typed events and must use declared struct value types, not scalars or compiler-owned packet/header structs
-- map sizing is explicit through `@max_entries(...)`; integer constants are resolved before C emission, and ringbuf sizes must be powers of two
-- map update/delete results must be checked with an explicit comparison
 - fixed array fields are address-only; pass `&event.comm` directly to helpers instead of copying arrays
-- compiler-known helpers have typed signatures and section availability rules before C emission
+- packet headers returned by `xdp.eth(ctx)`, `xdp.ipv4(ctx)`, `xdp.tcp(ctx)`, and `xdp.udp(ctx)` must be nil-checked before field access
+
+### Type and width discipline
+
 - conditions must be typed boolean expressions; integers and pointers need explicit comparison
-- parser failures are surfaced as stable diagnostics and never produce generated C
 - integer, bitwise, comparison, and boolean operators are typed before C emission
 - integer width changes are explicit; write `u64(pid)` or `u16(port)` instead of relying on implicit C coercions
 - integer literals, literal-backed constants, and literal-backed conversions are checked against their target scalar width before C emission
@@ -853,28 +851,42 @@ Horizon makes verifier-sensitive behavior explicit before clang runs:
 - grouped type declarations are package-scoped type declarations with the same alias and struct rules as standalone types
 - `var` declarations require an explicit scalar, bool, or declared struct type and cannot store nullable resources or compiler-owned packet/context types
 - `switch` values must be scalar or bool, case values must be constant and type-compatible, and Horizon emits explicit C `break` statements so cases never fall through
-- sectionless functions are user helpers, not eBPF programs; they are emitted as `static __always_inline` C, must be non-recursive, and currently accept and return only scalar or bool values
-- eBPF entrypoint functions cannot be called like helpers; share logic through sectionless helpers so attachable programs remain explicit
 - short variable declarations introduce fresh local names only; use `=` to update existing locals, and do not shadow maps or compiler namespaces
-- every program must return an explicit `i32` on every control-flow path
-- bare `return` is rejected; tracing programs should use `return 0`, while packet and policy programs should return named actions
-- tracepoints must use `category:event` attach strings, and kprobe, kretprobe, and LSM attach strings must be non-empty section tokens rather than path-like fragments
-- only bounded counted loops with numeric literal or integer const upper bounds are accepted
-- helper availability is checked against the program kind
+
+### Capability discipline
+
 - `hzn check`, `hzn emit-c`, `hzn bindgen`, `hzn workbench`, `hzn build`, and `hzn capabilities` reject attachable programs without capability coverage
 - capability aliases can declare `observe`, `mutate`, `drop`, `block`, or `privileged` danger; manifests never understate inferred program danger or a known danger suffix in the capability name
 - capability names must be unique across attachable programs, keeping generated manifests unambiguous for downstream policy and deployment tooling
 - known `kernel.*` capability namespaces must match known attach surfaces, so an XDP program cannot claim a process exec capability or a cgroup connect program cannot claim a file-open capability
 - capability manifests require each program's capability list to match the top-level capability entries, so Continuum consumers can trust either index
 - capability manifest programs, maps, types, and type fields must have unique names; schema consumers never have to guess which duplicate wins
-- kprobe arguments, safe user string reads, and kretprobe return registers are exposed through typed helper calls, not direct `pt_regs` access
-- packet headers returned by `xdp.eth(ctx)`, `xdp.ipv4(ctx)`, `xdp.tcp(ctx)`, and `xdp.udp(ctx)` must be nil-checked before field access
+- default generated Go binding names must be valid and collision-free, so public APIs are checked as part of `hzn check`
+
+### Verifier-aware constraints
+
+- only bounded counted loops with numeric literal or integer const upper bounds are accepted
+- helper availability is checked against the program kind
+- compiler-known helpers have typed signatures and section availability rules before C emission
+- every program must return an explicit `i32` on every control-flow path
+- bare `return` is rejected; tracing programs should use `return 0`, while packet and policy programs should return named actions
+- tracepoints must use `category:event` attach strings, and kprobe, kretprobe, and LSM attach strings must be non-empty section tokens rather than path-like fragments
 - XDP programs must return named actions such as `xdp.Pass` and `xdp.Drop`, not raw integers
 - TC programs must declare `@tc("ingress")` or `@tc("egress")` and return named actions such as `tc.OK` and `tc.Shot`, not raw integers
 - cgroup connect programs must declare `@cgroup("connect4")` or `@cgroup("connect6")`, use typed context helpers such as `cgroup.protocol(ctx)` and `cgroup.dst_ip4(ctx)`, and return named actions such as `cgroup.Allow` and `cgroup.Deny`, not raw integers
 - cgroup context reads lower through typed generated wrappers, so generated C diagnostics map back to the authored `cgroup.*` helper call
 - LSM programs must declare an explicit hook such as `@lsm("file_open")` and return named actions such as `lsm.Allow` and `lsm.Deny`, not raw integers
-- generated C emits only the helper and map wrappers the program actually uses
+- kprobe arguments, safe user string reads, and kretprobe return registers are exposed through typed helper calls, not direct `pt_regs` access
+- sectionless functions are user helpers, not eBPF programs; they are emitted as `static __always_inline` C, must be non-recursive, and currently accept and return only scalar or bool values
+- eBPF entrypoint functions cannot be called like helpers; share logic through sectionless helpers so attachable programs remain explicit
+- struct fields must be unique, and structs are finite by-value records; recursive struct shapes are rejected before C emission
+- stored data types for structs and keyed maps must be scalars, fixed arrays, or declared Horizon structs; compiler-owned context and packet header types stay helper-only
+- package-scoped declarations cannot use compiler namespace names such as `bpf`, `xdp`, `tc`, `cgroup`, `lsm`, `kprobe`, or `tracepoint`
+- map sizing is explicit through `@max_entries(...)`; integer constants are resolved before C emission, and ringbuf sizes must be powers of two
+- map update/delete results must be checked with an explicit comparison
+
+### Generated-artifact discipline
+
 - generated BPF C and Go bindings include standard generated-file headers so downstream tools and reviewers can distinguish authored source from artifacts
 - generated C validation only permits Horizon-owned `SEC(...)` shapes for license, maps, and supported program sections
 - generated C validation permits raw `bpf_*` calls only inside compiler-owned helper or map wrappers, never inside source-authored helper functions
@@ -882,6 +894,8 @@ Horizon makes verifier-sensitive behavior explicit before clang runs:
 - generated BPF C is compiled with clang warnings treated as errors
 - generated C stays readable so clang and verifier logs remain inspectable
 - internal generated C constants and struct tags are prefixed to avoid collisions with kernel headers
+- generated C emits only the helper and map wrappers the program actually uses
+- parser failures are surfaced as stable diagnostics and never produce generated C
 
 ## What Horizon won't do
 
