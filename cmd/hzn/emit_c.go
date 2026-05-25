@@ -17,6 +17,9 @@ func runEmitC(args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := requireCapabilityCoverage(result); err != nil {
+		return err
+	}
 	output, err := emitc.Emit(result.Program)
 	if err != nil {
 		if d, ok := emitc.DiagnosticForError(err); ok {

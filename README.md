@@ -616,7 +616,7 @@ Horizon makes verifier-sensitive behavior explicit before clang runs:
 - bare `return` is rejected; tracing programs should use `return 0`, while packet and policy programs should return named actions
 - only bounded counted loops with numeric literal or integer const upper bounds are accepted
 - helper availability is checked against the program kind
-- `hzn workbench`, `hzn build`, and `hzn capabilities` reject attachable programs without capability coverage
+- `hzn check`, `hzn emit-c`, `hzn bindgen`, `hzn workbench`, `hzn build`, and `hzn capabilities` reject attachable programs without capability coverage
 - capability aliases can declare `observe`, `mutate`, `drop`, `block`, or `privileged` danger; manifests never understate inferred program danger or a known danger suffix in the capability name
 - kprobe arguments, safe user string reads, and kretprobe return registers are exposed through typed helper calls, not direct `pt_regs` access
 - packet headers returned by `xdp.eth(ctx)`, `xdp.ipv4(ctx)`, `xdp.tcp(ctx)`, and `xdp.udp(ctx)` must be nil-checked before field access

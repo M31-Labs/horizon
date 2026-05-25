@@ -294,7 +294,7 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	}
 }
 
-func TestCapabilitiesRejectsProgramWithoutCapabilityCoverage(t *testing.T) {
+func TestArtifactCommandsRejectProgramWithoutCapabilityCoverage(t *testing.T) {
 	input := filepath.Join(t.TempDir(), "nocap.hzn")
 	if err := os.WriteFile(input, []byte(`package probes
 
@@ -306,12 +306,29 @@ func OnExec(ctx tracepoint.Exec) i32 {
 		t.Fatalf("write input: %v", err)
 	}
 
-	output, err := runQuietly(t, []string{"capabilities", input})
-	if err == nil {
-		t.Fatal("run capabilities succeeded, want missing capability diagnostic")
-	}
-	if !strings.Contains(output, "HZN3301") {
-		t.Fatalf("output = %q, want HZN3301", output)
+	for _, tc := range []struct {
+		name string
+		args []string
+		out  string
+	}{
+		{name: "emit-c", args: []string{"emit-c", input}, out: filepath.Join(t.TempDir(), "nocap.bpf.c")},
+		{name: "bindgen", args: []string{"bindgen", input}, out: filepath.Join(t.TempDir(), "nocap.bindings.go")},
+		{name: "capabilities", args: []string{"capabilities", input}, out: filepath.Join(t.TempDir(), "nocap.cap.json")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			args := append([]string{}, tc.args...)
+			args = append(args, "-o", tc.out)
+			output, err := runQuietly(t, args)
+			if err == nil {
+				t.Fatalf("run %s succeeded, want missing capability diagnostic", tc.name)
+			}
+			if !strings.Contains(output, "HZN3301") {
+				t.Fatalf("output = %q, want HZN3301", output)
+			}
+			if _, err := os.Stat(tc.out); !os.IsNotExist(err) {
+				t.Fatalf("%s artifact should not exist for missing capability: %v", tc.name, err)
+			}
+		})
 	}
 }
 

@@ -18,6 +18,9 @@ func runBindgen(args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := requireCapabilityCoverage(result); err != nil {
+		return err
+	}
 	code, err := bindgen.Generate(result.Program, *packageName)
 	if err != nil {
 		if d, ok := bindgen.DiagnosticForError(err); ok {

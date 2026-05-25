@@ -9,6 +9,7 @@ import (
 
 	"m31labs.dev/horizon/compiler"
 	"m31labs.dev/horizon/compiler/diag"
+	"m31labs.dev/horizon/validate"
 )
 
 func analyze(path string) (*compiler.Result, error) {
@@ -22,6 +23,22 @@ func analyze(path string) (*compiler.Result, error) {
 		return nil, errDiagnostics(len(diagnostics))
 	}
 	return result, nil
+}
+
+func requireCapabilityCoverage(result *compiler.Result) error {
+	diagnostics := capabilityCoverageDiagnosticsForResult(result)
+	if diag.HasErrors(diagnostics) {
+		printDiagnostics(diagnostics)
+		return errDiagnostics(len(diagnostics))
+	}
+	return nil
+}
+
+func capabilityCoverageDiagnosticsForResult(result *compiler.Result) []diag.Diagnostic {
+	if result == nil {
+		return nil
+	}
+	return diagnosticsWithSourceContext(validate.ValidateCapabilityCoverage(result.Program), result.Files)
 }
 
 func printDiagnostics(diags []diag.Diagnostic) {

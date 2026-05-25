@@ -21,6 +21,9 @@ func runCheck(args []string) error {
 		return err
 	}
 	diagnostics := diagnosticsWithSourceContext(result.Diagnostics, result.Files)
+	if !diag.HasErrors(diagnostics) {
+		diagnostics = append(diagnostics, capabilityCoverageDiagnosticsForResult(result)...)
+	}
 	if *jsonOut {
 		if diagnostics == nil {
 			diagnostics = []diag.Diagnostic{}

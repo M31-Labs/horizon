@@ -174,7 +174,7 @@ func writeWorkbenchArtifacts(result *compiler.Result, opts workbenchOptions) (wo
 		}
 		return report, nil
 	}
-	coverageDiagnostics := diagnosticsWithSourceContext(capabilityCoverageDiagnostics(result.Program), result.Files)
+	coverageDiagnostics := capabilityCoverageDiagnosticsForResult(result)
 	if diag.HasErrors(coverageDiagnostics) {
 		report.Diagnostics = append(report.Diagnostics, coverageDiagnostics...)
 		report.DiagnosticCount = len(report.Diagnostics)
@@ -396,29 +396,6 @@ func workbenchProgramCount(program ir.Program) int {
 		}
 	}
 	return count
-}
-
-func capabilityCoverageDiagnostics(program ir.Program) []diag.Diagnostic {
-	covered := map[string]bool{}
-	for _, cap := range program.Capabilities {
-		if cap.Program != "" {
-			covered[cap.Program] = true
-		}
-	}
-	var diags []diag.Diagnostic
-	for _, fn := range program.Functions {
-		if fn.Section.Kind == "" || covered[fn.Name] {
-			continue
-		}
-		diags = append(diags, diag.Diagnostic{
-			Code:     "HZN3301",
-			Severity: diag.SeverityError,
-			Message:  fmt.Sprintf("program %q must declare a capability before workbench artifacts can be generated", fn.Name),
-			Primary:  fn.Span,
-			Suggest:  "declare a package capability with explicit danger and reference it with @capability(Name)",
-		})
-	}
-	return diags
 }
 
 func (s *workbenchSummary) applyManifest(manifest capability.Manifest) {
