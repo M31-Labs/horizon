@@ -62,6 +62,32 @@ func TestNewCreatesSafeXDPDropStarter(t *testing.T) {
 	requireRunQuietly(t, []string{"workbench", dir, "-o", filepath.Join(t.TempDir(), "dist")})
 }
 
+func TestNewAllTemplatesGenerateCheckableWorkbenchSources(t *testing.T) {
+	for _, templateName := range newTemplateNames {
+		t.Run(templateName, func(t *testing.T) {
+			dir := filepath.Join(t.TempDir(), templateName)
+			requireRunQuietly(t, []string{"new", dir, "-template", templateName})
+			requireRunQuietly(t, []string{"fmt", dir, "-check"})
+			requireRunQuietly(t, []string{"check", dir})
+			requireRunQuietly(t, []string{"workbench", dir, "-o", filepath.Join(t.TempDir(), "dist")})
+		})
+	}
+}
+
+func TestNewListPrintsAvailableTemplates(t *testing.T) {
+	stdout, err := captureStdout(t, func() error {
+		return run([]string{"new", "-list"})
+	})
+	if err != nil {
+		t.Fatalf("run hzn new -list: %v", err)
+	}
+	for _, templateName := range newTemplateNames {
+		if !strings.Contains(stdout, templateName) {
+			t.Fatalf("template list missing %q:\n%s", templateName, stdout)
+		}
+	}
+}
+
 func TestNewRefusesOverwriteWithoutForce(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "probe")
 	requireRunQuietly(t, []string{"new", dir})
@@ -71,6 +97,14 @@ func TestNewRefusesOverwriteWithoutForce(t *testing.T) {
 	}
 	if _, err := runQuietly(t, []string{"new", dir, "-force"}); err != nil {
 		t.Fatalf("run hzn new -force: %v", err)
+	}
+}
+
+func TestNewUnknownTemplateReportsAvailableTemplates(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "probe")
+	_, err := runQuietly(t, []string{"new", dir, "-template", "rawc"})
+	if err == nil || !strings.Contains(err.Error(), "available templates:") || !strings.Contains(err.Error(), "kretprobe") {
+		t.Fatalf("run hzn new unknown template error = %v, want available template list", err)
 	}
 }
 

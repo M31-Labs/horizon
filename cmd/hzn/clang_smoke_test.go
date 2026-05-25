@@ -60,6 +60,23 @@ func TestWorkbenchCompileSmoke(t *testing.T) {
 	assertArtifactDetail(t, report, "bpf_object")
 }
 
+func TestNewTemplatesCompileSmoke(t *testing.T) {
+	requireClangSmoke(t)
+	root := t.TempDir()
+	for _, templateName := range newTemplateNames {
+		t.Run(templateName, func(t *testing.T) {
+			srcDir := filepath.Join(root, templateName)
+			outDir := filepath.Join(root, "dist-"+templateName)
+			requireRunQuietly(t, []string{"new", srcDir, "-template", templateName})
+			requireRunQuietly(t, []string{"build", srcDir, "-o", outDir})
+			objectName := strings.TrimSuffix(newTemplates[templateName].File, filepath.Ext(newTemplates[templateName].File)) + ".bpf.o"
+			if _, err := os.Stat(filepath.Join(outDir, objectName)); err != nil {
+				t.Fatalf("missing compiled starter object %s: %v", objectName, err)
+			}
+		})
+	}
+}
+
 func TestKprobeCompileSmoke(t *testing.T) {
 	requireClangSmoke(t)
 	srcDir := t.TempDir()
