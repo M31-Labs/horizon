@@ -18,12 +18,24 @@ make ci-go
 make ci-clang OUT=/tmp/horizon-ci
 ```
 
+`make ci-go` covers Go type-checking, the test suite, formatter check on
+`./examples`, and bindings smoke tests against `cilium/ebpf`. To run just
+the formatter check on its own:
+
+```sh
+go run ./cmd/hzn fmt ./examples -check
+go run ./cmd/hzn fmt ./examples -w   # to apply
+```
+
 `make ci-clang` requires clang, LLVM, libbpf headers, and a usable
 `vmlinux.h`. On Linux hosts with kernel BTF, run:
 
 ```sh
 make setup-vmlinux
 ```
+
+A pull request is ready for review when both `make ci-go` and
+`make ci-clang` pass locally.
 
 Generated artifacts such as `.bpf.c`, `.bpf.o`, `.hznmap.json`,
 `.bindings.go`, `.cap.json`, diagnostics, and reports should stay out of git
