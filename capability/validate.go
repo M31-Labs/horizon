@@ -254,65 +254,10 @@ func validateManifestCapabilities(caps []Capability, programs map[string]Program
 }
 
 func validateCapabilityNamespace(cap Capability, program Program) error {
-	if cap.Name == "" || !strings.HasPrefix(cap.Name, "kernel.") {
-		return nil
+	if _, mismatch := KernelCapabilityNamespaceMismatch(cap.Name, program.Kind, program.Attach, program.Section); mismatch {
+		return validationErrorf("capability %q does not match %s program %q", cap.Name, ProgramSectionDescription(program.Kind, program.Attach, program.Section), cap.Program)
 	}
-	want := expectedKernelCapabilityPrefix(program)
-	if want == "" || strings.HasPrefix(cap.Name, want) {
-		return nil
-	}
-	return validationErrorf("capability %q does not match %s program %q", cap.Name, programSectionDescription(program), cap.Program)
-}
-
-func expectedKernelCapabilityPrefix(program Program) string {
-	attach := manifestProgramAttach(program)
-	switch program.Kind {
-	case "tracepoint":
-		if attach == "sched:sched_process_exec" {
-			return "kernel.process.exec."
-		}
-	case "xdp":
-		return "kernel.network.xdp."
-	case "tc":
-		return "kernel.network.tc."
-	case "cgroup":
-		if attach == "connect4" || attach == "connect6" {
-			return "kernel.network.connect."
-		}
-	case "lsm":
-		if attach == "file_open" {
-			return "kernel.file.open."
-		}
-	case "kprobe", "kretprobe":
-		switch attach {
-		case "do_sys_openat2":
-			return "kernel.file.open."
-		case "tcp_v4_connect":
-			return "kernel.network.tcp.connect."
-		}
-	}
-	return ""
-}
-
-func manifestProgramAttach(program Program) string {
-	if program.Attach != "" {
-		return program.Attach
-	}
-	prefix := program.Kind + "/"
-	if strings.HasPrefix(program.Section, prefix) {
-		return strings.TrimPrefix(program.Section, prefix)
-	}
-	return ""
-}
-
-func programSectionDescription(program Program) string {
-	if program.Section != "" {
-		return program.Section
-	}
-	if program.Attach != "" {
-		return program.Kind + "/" + program.Attach
-	}
-	return program.Kind
+	return nil
 }
 
 func validationErrorf(format string, args ...any) error {

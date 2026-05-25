@@ -2,8 +2,8 @@ package validate
 
 import (
 	"fmt"
-	"strings"
 
+	"m31labs.dev/horizon/capability"
 	"m31labs.dev/horizon/compiler/diag"
 	"m31labs.dev/horizon/compiler/span"
 	"m31labs.dev/horizon/ir"
@@ -40,17 +40,15 @@ func ValidateCapabilities(program ir.Program) []diag.Diagnostic {
 }
 
 func capabilityNamespaceDiagnostic(cap ir.Capability, fn ir.Function) (diag.Diagnostic, bool) {
-	if cap.Name == "" || !strings.HasPrefix(cap.Name, "kernel.") {
-		return diag.Diagnostic{}, false
-	}
-	want := expectedKernelCapabilityPrefix(fn.Section)
-	if want == "" || strings.HasPrefix(cap.Name, want) {
+	section := manifestSectionForDiagnostic(fn.Section)
+	want, mismatch := capability.KernelCapabilityNamespaceMismatch(cap.Name, string(fn.Section.Kind), fn.Section.Attach, section)
+	if !mismatch {
 		return diag.Diagnostic{}, false
 	}
 	return diag.Diagnostic{
 		Code:     "HZN2502",
 		Severity: diag.SeverityError,
-		Message:  fmt.Sprintf("capability %q does not match %s program %q", cap.Name, sectionDescription(fn.Section), fn.Name),
+		Message:  fmt.Sprintf("capability %q does not match %s program %q", cap.Name, capability.ProgramSectionDescription(string(fn.Section.Kind), fn.Section.Attach, section), fn.Name),
 		Primary:  capabilityPrimarySpan(cap, fn),
 		Suggest:  fmt.Sprintf("use a kernel capability prefixed with %q, or choose an attach surface that matches the capability", want),
 	}, true
@@ -63,43 +61,11 @@ func capabilityPrimarySpan(cap ir.Capability, fn ir.Function) span.Span {
 	return fn.Span
 }
 
-func expectedKernelCapabilityPrefix(section ir.Section) string {
-	switch section.Kind {
-	case ir.ProgramTracepoint:
-		if section.Attach == "sched:sched_process_exec" {
-			return "kernel.process.exec."
-		}
-	case ir.ProgramXDP:
-		return "kernel.network.xdp."
-	case ir.ProgramTC:
-		return "kernel.network.tc."
-	case ir.ProgramCgroup:
-		if section.Attach == "connect4" || section.Attach == "connect6" {
-			return "kernel.network.connect."
-		}
-	case ir.ProgramLSM:
-		if section.Attach == "file_open" {
-			return "kernel.file.open."
-		}
-	case ir.ProgramKprobe, ir.ProgramKretprobe:
-		switch section.Attach {
-		case "do_sys_openat2":
-			return "kernel.file.open."
-		case "tcp_v4_connect":
-			return "kernel.network.tcp.connect."
-		}
+func manifestSectionForDiagnostic(section ir.Section) string {
+	if section.Name != "" {
+		return section.Name
 	}
-	return ""
-}
-
-func sectionDescription(section ir.Section) string {
-	if section.Kind == "" {
-		return "sectionless"
-	}
-	if section.Attach == "" {
-		return string(section.Kind)
-	}
-	return fmt.Sprintf("%s/%s", section.Kind, section.Attach)
+	return capability.ProgramSectionDescription(string(section.Kind), section.Attach, "")
 }
 
 func ValidateCapabilityCoverage(program ir.Program) []diag.Diagnostic {
