@@ -50,6 +50,10 @@ func buildTypeDecl(parsed *parser.File, n *gotreesitter.Node) TypeDecl {
 		Span: spanForNode(parsed.Source.FileID, n),
 	}
 	if typ := n.ChildByFieldName("type", parsed.Lang); typ != nil {
+		if typ.Type(parsed.Lang) != "struct_type" {
+			decl.Alias = buildTypeRef(parsed, typ)
+			return decl
+		}
 		for _, child := range namedDescendantsOfType(parsed, typ, "field_declaration") {
 			decl.Fields = append(decl.Fields, Field{
 				Name: text(parsed, child.ChildByFieldName("name", parsed.Lang)),

@@ -92,6 +92,9 @@ func (e *cEmitter) emitPreamble() {
 
 func (e *cEmitter) emitDeclarations() {
 	for _, c := range e.program.Constants {
+		if !e.usage.usedConstants[c.Name] {
+			continue
+		}
 		e.emitMapped(c.Span, "const", "", "", func() {
 			emitConst(&e.b, c)
 		})
@@ -450,6 +453,8 @@ type cUsage struct {
 	helperOrigins    map[string]cUsageOrigin
 	mapMethods       map[string]map[string]bool
 	mapMethodOrigins map[string]map[string]cUsageOrigin
+	constants        map[string]bool
+	usedConstants    map[string]bool
 	xdpHelpers       map[string]bool
 	xdpOrigins       map[string]cUsageOrigin
 	cgroupHelpers    map[string]bool
@@ -481,6 +486,8 @@ func newCUsage() cUsage {
 		helperOrigins:    map[string]cUsageOrigin{},
 		mapMethods:       map[string]map[string]bool{},
 		mapMethodOrigins: map[string]map[string]cUsageOrigin{},
+		constants:        map[string]bool{},
+		usedConstants:    map[string]bool{},
 		xdpHelpers:       map[string]bool{},
 		xdpOrigins:       map[string]cUsageOrigin{},
 		cgroupHelpers:    map[string]bool{},
@@ -498,6 +505,7 @@ func (u *cUsage) walkProgram(program ir.Program) {
 		u.walkMap(m)
 	}
 	for _, c := range program.Constants {
+		u.constants[c.Name] = true
 		u.walkConst(c)
 	}
 	for _, typ := range program.Structs {
@@ -588,9 +596,36 @@ func (u *cUsage) walkSwitch(stmt ir.Statement, origin cUsageOrigin) {
 	u.walkExpr(stmt.Value, origin)
 	for _, c := range stmt.Cases {
 		for i := range c.Values {
-			u.walkExpr(&c.Values[i], origin)
+			u.walkCaseExpr(&c.Values[i])
 		}
 		u.walkStatements(c.Body, origin)
+	}
+}
+
+func (u *cUsage) walkCaseExpr(expr *ir.Expr) {
+	if expr == nil {
+		return
+	}
+	if expr.Kind == "bool" {
+		u.boolTypes = true
+	}
+	switch expr.Kind {
+	case "unary":
+		u.walkCaseExpr(expr.Operand)
+	case "binary":
+		u.walkCaseExpr(expr.Left)
+		u.walkCaseExpr(expr.Right)
+	case "selector":
+		u.walkCaseExpr(expr.Operand)
+	case "call":
+		u.walkCaseExpr(expr.Func)
+		for i := range expr.Args {
+			u.walkCaseExpr(&expr.Args[i])
+		}
+	case "struct_lit":
+		for i := range expr.Fields {
+			u.walkCaseExpr(&expr.Fields[i].Value)
+		}
 	}
 }
 
@@ -615,6 +650,9 @@ func (u *cUsage) walkExpr(expr *ir.Expr, origin cUsageOrigin) {
 func (u *cUsage) observeExpr(expr *ir.Expr, origin cUsageOrigin) {
 	if expr.Kind == "bool" {
 		u.boolTypes = true
+	}
+	if expr.Kind == "ident" && u.constants[expr.Name] {
+		u.usedConstants[expr.Name] = true
 	}
 	if helper, ok := helperWrapperCall(expr); ok {
 		u.addHelper(helper, origin)

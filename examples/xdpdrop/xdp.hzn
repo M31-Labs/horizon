@@ -1,5 +1,9 @@
 package probes
 
+type Port = u16
+
+const HTTPS Port = 443
+
 @capability("kernel.network.xdp.drop")
 @xdp
 func DropTCP(ctx xdp.Context) i32 {
@@ -8,7 +12,7 @@ func DropTCP(ctx xdp.Context) i32 {
         return xdp.Pass
     }
     switch xdp.ntohs(tcp.dst_port) {
-        case 443:
+        case HTTPS:
             return xdp.Drop
         default:
             return xdp.Pass

@@ -10,6 +10,7 @@ import (
 func FromAST(file ast.File) (Program, []diag.Diagnostic) {
 	program := Program{Package: file.Package}
 	var diags []diag.Diagnostic
+	aliases := typeAliases(file)
 	type functionDecl struct {
 		Decl ast.FuncDecl
 		Func Function
@@ -19,19 +20,22 @@ func FromAST(file ast.File) (Program, []diag.Diagnostic) {
 	for _, decl := range file.Decls {
 		switch d := decl.(type) {
 		case ast.TypeDecl:
-			program.Structs = append(program.Structs, buildStruct(d))
+			if d.IsAlias() {
+				continue
+			}
+			program.Structs = append(program.Structs, buildStruct(d, aliases))
 		case ast.ConstDecl:
-			program.Constants = append(program.Constants, buildConst(d))
+			program.Constants = append(program.Constants, buildConst(d, aliases))
 		case ast.EnumDecl:
-			program.Constants = append(program.Constants, buildEnumConsts(d)...)
+			program.Constants = append(program.Constants, buildEnumConsts(d, aliases)...)
 		case ast.CapabilityDecl:
 			capabilityAliases[d.Name] = d.Value
 		case ast.MapDecl:
-			program.Maps = append(program.Maps, buildMap(d))
+			program.Maps = append(program.Maps, buildMap(d, aliases))
 		case ast.FuncDecl:
 			funcs = append(funcs, functionDecl{
 				Decl: d,
-				Func: buildFunction(d),
+				Func: buildFunction(d, aliases),
 			})
 		}
 	}
@@ -40,6 +44,18 @@ func FromAST(file ast.File) (Program, []diag.Diagnostic) {
 		program.Capabilities = append(program.Capabilities, buildCapabilities(fn.Decl, fn.Func, program.Maps, capabilityAliases)...)
 	}
 	return program, diags
+}
+
+func typeAliases(file ast.File) map[string]ast.TypeRef {
+	aliases := map[string]ast.TypeRef{}
+	for _, decl := range file.Decls {
+		typeDecl, ok := decl.(ast.TypeDecl)
+		if !ok || !typeDecl.IsAlias() || typeDecl.Name == "" {
+			continue
+		}
+		aliases[typeDecl.Name] = typeDecl.Alias
+	}
+	return aliases
 }
 
 func Merge(programs ...Program) Program {
@@ -85,21 +101,21 @@ func refreshCapabilityAccesses(program Program) []Capability {
 	return out
 }
 
-func buildConst(decl ast.ConstDecl) Const {
+func buildConst(decl ast.ConstDecl, aliases map[string]ast.TypeRef) Const {
 	return Const{
 		Name:  decl.Name,
-		Type:  buildType(decl.Type),
+		Type:  buildType(decl.Type, aliases),
 		Value: buildExpr(decl.Value),
 		Span:  decl.Span,
 	}
 }
 
-func buildEnumConsts(decl ast.EnumDecl) []Const {
+func buildEnumConsts(decl ast.EnumDecl, aliases map[string]ast.TypeRef) []Const {
 	out := make([]Const, 0, len(decl.Values))
 	for _, value := range decl.Values {
 		out = append(out, Const{
 			Name:  value.Name,
-			Type:  buildType(decl.Type),
+			Type:  buildType(decl.Type, aliases),
 			Value: buildExpr(value.Value),
 			Span:  value.Span,
 		})
@@ -107,43 +123,43 @@ func buildEnumConsts(decl ast.EnumDecl) []Const {
 	return out
 }
 
-func buildStruct(decl ast.TypeDecl) Struct {
+func buildStruct(decl ast.TypeDecl, aliases map[string]ast.TypeRef) Struct {
 	out := Struct{Name: decl.Name, Span: decl.Span}
 	for _, field := range decl.Fields {
 		out.Fields = append(out.Fields, Field{
 			Name: field.Name,
-			Type: buildType(field.Type),
+			Type: buildType(field.Type, aliases),
 			Span: field.Span,
 		})
 	}
 	return out
 }
 
-func buildMap(decl ast.MapDecl) Map {
+func buildMap(decl ast.MapDecl, aliases map[string]ast.TypeRef) Map {
 	return Map{
 		Name:       decl.Name,
 		Kind:       MapKind(decl.Kind),
-		Key:        buildType(decl.Key),
-		Val:        buildType(decl.Val),
+		Key:        buildType(decl.Key, aliases),
+		Val:        buildType(decl.Val, aliases),
 		MaxEntries: decl.MaxEntries,
 		Span:       decl.Span,
 	}
 }
 
-func buildFunction(decl ast.FuncDecl) Function {
+func buildFunction(decl ast.FuncDecl, aliases map[string]ast.TypeRef) Function {
 	fn := Function{
 		Name:     decl.Name,
 		Section:  sectionFromAttrs(decl.Attrs),
-		Return:   buildType(decl.Return),
+		Return:   buildType(decl.Return, aliases),
 		BodyText: decl.BodyText,
 		Span:     decl.Span,
 	}
 	for _, param := range decl.Params {
-		fn.Params = append(fn.Params, Param{Name: param.Name, Type: buildType(param.Type)})
+		fn.Params = append(fn.Params, Param{Name: param.Name, Type: buildType(param.Type, aliases)})
 	}
 	var block Block
 	for _, stmt := range decl.Body {
-		block.Statements = append(block.Statements, buildStatement(stmt))
+		block.Statements = append(block.Statements, buildStatement(stmt, aliases))
 	}
 	if len(block.Statements) > 0 {
 		fn.Body = append(fn.Body, block)
@@ -151,14 +167,14 @@ func buildFunction(decl ast.FuncDecl) Function {
 	return fn
 }
 
-func buildStatement(stmt ast.Stmt) Statement {
+func buildStatement(stmt ast.Stmt, aliases map[string]ast.TypeRef) Statement {
 	switch s := stmt.(type) {
 	case ast.ShortVarStmt:
 		value := buildExpr(s.Value)
 		return Statement{Kind: "short_var", Name: s.Name, Value: &value, Span: s.Span}
 	case ast.VarDeclStmt:
 		value := buildExpr(s.Value)
-		return Statement{Kind: "var_decl", Name: s.Name, Type: buildType(s.Type), Value: &value, Span: s.Span}
+		return Statement{Kind: "var_decl", Name: s.Name, Type: buildType(s.Type, aliases), Value: &value, Span: s.Span}
 	case ast.AssignStmt:
 		target := buildExpr(s.Target)
 		value := buildExpr(s.Value)
@@ -167,17 +183,17 @@ func buildStatement(stmt ast.Stmt) Statement {
 		value := buildExpr(s.Value)
 		return Statement{Kind: "return", Value: &value, Span: s.Span}
 	case ast.IfStmt:
-		init := buildStatementPtr(s.Init)
+		init := buildStatementPtr(s.Init, aliases)
 		cond := buildExpr(s.Cond)
-		return Statement{Kind: "if", Init: init, Cond: &cond, Then: buildStatements(s.Then), Else: buildStatements(s.Else), Span: s.Span}
+		return Statement{Kind: "if", Init: init, Cond: &cond, Then: buildStatements(s.Then, aliases), Else: buildStatements(s.Else, aliases), Span: s.Span}
 	case ast.ForStmt:
-		init := buildStatementPtr(s.Init)
+		init := buildStatementPtr(s.Init, aliases)
 		cond := buildExpr(s.Cond)
-		post := buildStatementPtr(s.Post)
-		return Statement{Kind: "for", Init: init, Cond: &cond, Post: post, Body: buildStatements(s.Body), Span: s.Span}
+		post := buildStatementPtr(s.Post, aliases)
+		return Statement{Kind: "for", Init: init, Cond: &cond, Post: post, Body: buildStatements(s.Body, aliases), Span: s.Span}
 	case ast.SwitchStmt:
 		value := buildExpr(s.Value)
-		return Statement{Kind: "switch", Value: &value, Cases: buildSwitchCases(s.Cases), Span: s.Span}
+		return Statement{Kind: "switch", Value: &value, Cases: buildSwitchCases(s.Cases, aliases), Span: s.Span}
 	case ast.ExprStmt:
 		expr := buildExpr(s.Expr)
 		return Statement{Kind: "expr", Expr: &expr, Span: s.Span}
@@ -190,28 +206,28 @@ func buildStatement(stmt ast.Stmt) Statement {
 	}
 }
 
-func buildStatementPtr(stmt ast.Stmt) *Statement {
+func buildStatementPtr(stmt ast.Stmt, aliases map[string]ast.TypeRef) *Statement {
 	if stmt == nil {
 		return nil
 	}
-	built := buildStatement(stmt)
+	built := buildStatement(stmt, aliases)
 	return &built
 }
 
-func buildStatements(stmts []ast.Stmt) []Statement {
+func buildStatements(stmts []ast.Stmt, aliases map[string]ast.TypeRef) []Statement {
 	out := make([]Statement, 0, len(stmts))
 	for _, stmt := range stmts {
-		out = append(out, buildStatement(stmt))
+		out = append(out, buildStatement(stmt, aliases))
 	}
 	return out
 }
 
-func buildSwitchCases(cases []ast.SwitchCase) []SwitchCase {
+func buildSwitchCases(cases []ast.SwitchCase, aliases map[string]ast.TypeRef) []SwitchCase {
 	out := make([]SwitchCase, 0, len(cases))
 	for _, c := range cases {
 		out = append(out, SwitchCase{
 			Values:  buildExprs(c.Values),
-			Body:    buildStatements(c.Body),
+			Body:    buildStatements(c.Body, aliases),
 			Default: c.Default,
 			Span:    c.Span,
 		})
@@ -299,20 +315,46 @@ func buildCapabilities(decl ast.FuncDecl, fn Function, maps []Map, capabilityAli
 	return out
 }
 
-func buildType(ref ast.TypeRef) Type {
+func buildType(ref ast.TypeRef, aliases map[string]ast.TypeRef) Type {
+	ref = resolveAliasTypeRef(ref, aliases, map[string]bool{})
 	typ := Type{
 		Name: ref.Name,
 		Len:  ref.Len,
 		Ptr:  ref.Ptr,
 	}
 	for _, arg := range ref.Args {
-		typ.Args = append(typ.Args, buildType(arg))
+		typ.Args = append(typ.Args, buildType(arg, aliases))
 	}
 	if ref.Elem != nil {
-		elem := buildType(*ref.Elem)
+		elem := buildType(*ref.Elem, aliases)
 		typ.Elem = &elem
 	}
 	return typ
+}
+
+func resolveAliasTypeRef(ref ast.TypeRef, aliases map[string]ast.TypeRef, visiting map[string]bool) ast.TypeRef {
+	if ref.IsZero() {
+		return ref
+	}
+	for i := range ref.Args {
+		ref.Args[i] = resolveAliasTypeRef(ref.Args[i], aliases, visiting)
+	}
+	if ref.Elem != nil {
+		elem := resolveAliasTypeRef(*ref.Elem, aliases, visiting)
+		ref.Elem = &elem
+	}
+	if ref.Name == "" || visiting[ref.Name] {
+		return ref
+	}
+	alias, ok := aliases[ref.Name]
+	if !ok {
+		return ref
+	}
+	visiting[ref.Name] = true
+	resolved := resolveAliasTypeRef(alias, aliases, visiting)
+	delete(visiting, ref.Name)
+	resolved.Span = ref.Span
+	return resolved
 }
 
 func sectionFromAttrs(attrs []ast.Attr) Section {

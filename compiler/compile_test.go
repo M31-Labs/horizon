@@ -1489,6 +1489,68 @@ func DropTCP(ctx xdp.Context) i32 {
 	requireDiagnosticCode(t, result, "HZN1483")
 }
 
+func TestAnalyzeAllowsScalarTypeAliases(t *testing.T) {
+	result := analyzeSource(t, "aliases.hzn", `package probes
+
+type Pid = u32
+type Port = u16
+
+type Event struct {
+    pid Pid
+    port Port
+}
+
+@max_entries(64)
+map Counts hash[Pid, Event]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    var pid Pid = bpf.current_pid()
+    var port Port = 443
+    if Counts.update(pid, Event{pid: pid, port: port}) != 0 {
+        return 0
+    }
+    return 0
+}
+`)
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+	if len(result.Program.Structs) != 1 || result.Program.Structs[0].Name != "Event" {
+		t.Fatalf("structs = %#v, want only Event", result.Program.Structs)
+	}
+	if got := result.Program.Structs[0].Fields[0].Type.Name; got != "u32" {
+		t.Fatalf("Event.pid type = %q, want u32", got)
+	}
+	if got := result.Program.Structs[0].Fields[1].Type.Name; got != "u16" {
+		t.Fatalf("Event.port type = %q, want u16", got)
+	}
+	if len(result.Program.Maps) != 1 || result.Program.Maps[0].Key.Name != "u32" {
+		t.Fatalf("maps = %#v, want hash key lowered to u32", result.Program.Maps)
+	}
+}
+
+func TestAnalyzeRejectsTypeAliasToStruct(t *testing.T) {
+	result := analyzeSource(t, "aliases.hzn", `package probes
+
+type Event struct {
+    pid u32
+}
+
+type EventAlias = Event
+`)
+	requireDiagnosticCode(t, result, "HZN1112")
+}
+
+func TestAnalyzeRejectsRecursiveTypeAlias(t *testing.T) {
+	result := analyzeSource(t, "aliases.hzn", `package probes
+
+type A = B
+type B = A
+`)
+	requireDiagnosticCode(t, result, "HZN1111")
+}
+
 func TestAnalyzeAllowsSwitchStatements(t *testing.T) {
 	result := analyzeSource(t, "switch.hzn", `package probes
 

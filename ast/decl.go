@@ -4,6 +4,7 @@ import "m31labs.dev/horizon/compiler/span"
 
 type TypeDecl struct {
 	Name   string
+	Alias  TypeRef
 	Fields []Field
 	Span   span.Span
 }
@@ -11,6 +12,10 @@ type TypeDecl struct {
 func (TypeDecl) declNode() {}
 func (d TypeDecl) GetSpan() span.Span {
 	return d.Span
+}
+
+func (d TypeDecl) IsAlias() bool {
+	return !d.Alias.IsZero()
 }
 
 type FuncDecl struct {

@@ -16,6 +16,7 @@ It keeps the kernel-side language deliberately small:
 - typed structs and fixed arrays
 - boolean literals and typed boolean expressions
 - package-scoped declarations across multiple `.hzn` files
+- source-level scalar type aliases such as `type Port = u16`
 - integer constants with optional scalar widths
 - signed integer literals such as `-1` for signed scalar fields and helpers
 - scoped `if name := expr; condition` declarations for short-lived nullable resources
@@ -114,6 +115,21 @@ func OnExec(ctx tracepoint.Exec) i32 {
         return VerdictPass
     }
     return VerdictDrop
+}
+```
+
+Use source-level type aliases for domain names over scalar and bool widths.
+Aliases are authoring names only: generated C uses the underlying BPF scalar
+type, and aliases cannot hide pointers, resource handles, context types, packet
+headers, maps, or structs.
+
+```go
+type Pid = u32
+type Port = u16
+
+type SocketEvent struct {
+    pid  Pid
+    port Port
 }
 ```
 
@@ -532,6 +548,7 @@ Horizon makes verifier-sensitive behavior explicit before clang runs:
 - constants can carry scalar widths, and generated C preserves those widths
 - constants are immutable; use locals for values that change inside a program
 - enum values are explicit typed integer constants; there is no implicit iota or untyped C enum widening
+- type aliases are source-level names for scalar and bool widths only; they cannot target structs, pointer syntax, compiler-owned context/header types, or resource-bearing values
 - `var` declarations require an explicit scalar, bool, or declared struct type and cannot store nullable resources or compiler-owned packet/context types
 - `switch` values must be scalar or bool, case values must be constant and type-compatible, and Horizon emits explicit C `break` statements so cases never fall through
 - sectionless functions are user helpers, not eBPF programs; they are emitted as `static __always_inline` C, must be non-recursive, and currently accept and return only scalar or bool values

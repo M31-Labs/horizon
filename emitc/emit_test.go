@@ -157,8 +157,8 @@ func TestEmitSourceMapIncludesGeneratedHelperWrappers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Emit xdpdrop: %v", err)
 	}
-	assertSourceMapLine(t, out, "static __always_inline __u64 hzn_xdp_l4_offset", "xdp_helper_wrapper", 6)
-	assertSourceMapLine(t, out, "static __always_inline struct hzn_xdp_tcp *hzn_xdp_tcp", "xdp_helper_wrapper", 6)
+	assertSourceMapLine(t, out, "static __always_inline __u64 hzn_xdp_l4_offset", "xdp_helper_wrapper", 10)
+	assertSourceMapLine(t, out, "static __always_inline struct hzn_xdp_tcp *hzn_xdp_tcp", "xdp_helper_wrapper", 10)
 
 	result, err = compiler.AnalyzePath("../examples/cgroupconnect")
 	if err != nil {
@@ -895,6 +895,66 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	}
 }
 
+func TestEmitScalarTypeAliasesLowerToBPFTypes(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "aliases.hzn")
+	if err := os.WriteFile(path, []byte(`package probes
+
+type Pid = u32
+type Port = u16
+
+type Event struct {
+    pid Pid
+    port Port
+}
+
+@max_entries(64)
+map Counts hash[Pid, Event]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    var pid Pid = bpf.current_pid()
+    var port Port = 443
+    if Counts.update(pid, Event{pid: pid, port: port}) != 0 {
+        return 0
+    }
+    return 0
+}
+`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	result, err := compiler.AnalyzePath(dir)
+	if err != nil {
+		t.Fatalf("AnalyzePath: %v", err)
+	}
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+	out, err := Emit(result.Program)
+	if err != nil {
+		t.Fatalf("Emit: %v", err)
+	}
+	for _, want := range []string{
+		"__u32 pid;",
+		"__u16 port;",
+		"__u32 pid = hzn_current_pid();",
+		"__u16 port = 443;",
+		"static __always_inline long Counts_update(__u32 key, struct hzn_type_Event value)",
+	} {
+		if !strings.Contains(out.Code, want) {
+			t.Fatalf("generated C missing %q:\n%s", want, out.Code)
+		}
+	}
+	for _, unwanted := range []string{
+		"hzn_type_Pid",
+		"hzn_type_Port",
+	} {
+		if strings.Contains(out.Code, unwanted) {
+			t.Fatalf("generated C contains alias type %q:\n%s", unwanted, out.Code)
+		}
+	}
+}
+
 func TestEmitSwitchStatements(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "switch.hzn")
@@ -955,6 +1015,54 @@ func DropWeb(ctx xdp.Context) i32 {
 	}
 	if strings.Contains(out.Code, "case hzn_const_VerdictDrop:") {
 		t.Fatalf("generated C used static const as case label:\n%s", out.Code)
+	}
+}
+
+func TestEmitSkipsCaseOnlyConstants(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "case_const.hzn")
+	if err := os.WriteFile(path, []byte(`package probes
+
+const HTTPS u16 = 443
+
+@xdp
+func DropWeb(ctx xdp.Context) i32 {
+    tcp := xdp.tcp(ctx)
+    if tcp == nil {
+        return xdp.Pass
+    }
+    switch xdp.ntohs(tcp.dst_port) {
+    case HTTPS:
+        return xdp.Drop
+    default:
+        return xdp.Pass
+    }
+}
+`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	result, err := compiler.AnalyzePath(dir)
+	if err != nil {
+		t.Fatalf("AnalyzePath: %v", err)
+	}
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+	out, err := Emit(result.Program)
+	if err != nil {
+		t.Fatalf("Emit: %v", err)
+	}
+	for _, want := range []string{
+		"switch (bpf_ntohs(tcp->dst_port)) {",
+		"case 443:",
+		"return XDP_DROP;",
+	} {
+		if !strings.Contains(out.Code, want) {
+			t.Fatalf("generated C missing %q:\n%s", want, out.Code)
+		}
+	}
+	if strings.Contains(out.Code, "hzn_const_HTTPS") {
+		t.Fatalf("generated C emitted unused case-only constant:\n%s", out.Code)
 	}
 }
 

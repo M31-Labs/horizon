@@ -93,6 +93,33 @@ func TestBuildExecwatchAST(t *testing.T) {
 	}
 }
 
+func TestBuildTypeAlias(t *testing.T) {
+	parsed, err := parser.ParseSource(parser.SourceFile{Path: "inline.hzn", Bytes: []byte(`package probes
+
+type Port = u16
+`)})
+	if err != nil {
+		t.Fatalf("ParseSource: %v", err)
+	}
+	file, err := Build(parsed)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(file.Decls) != 1 {
+		t.Fatalf("decls = %d, want 1", len(file.Decls))
+	}
+	decl, ok := file.Decls[0].(TypeDecl)
+	if !ok {
+		t.Fatalf("decl[0] = %T, want TypeDecl", file.Decls[0])
+	}
+	if decl.Name != "Port" || !decl.IsAlias() || decl.Alias.Name != "u16" {
+		t.Fatalf("alias decl = %#v, want Port = u16", decl)
+	}
+	if len(decl.Fields) != 0 {
+		t.Fatalf("fields = %#v, want none for alias", decl.Fields)
+	}
+}
+
 func TestBuildCapabilityAlias(t *testing.T) {
 	parsed, err := parser.ParseSource(parser.SourceFile{Path: "inline.hzn", Bytes: []byte(`package probes
 

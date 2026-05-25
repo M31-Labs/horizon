@@ -28,6 +28,27 @@ func TestParseExecwatchPackage(t *testing.T) {
 	}
 }
 
+func TestParseTypeAlias(t *testing.T) {
+	src := SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
+
+type Port = u16
+
+type Event struct {
+    port Port
+}
+`)}
+	file, err := ParseSource(src)
+	if err != nil {
+		t.Fatalf("ParseSource: %v", err)
+	}
+	if got := countNamedDescendants(file.Tree.RootNode(), file.Lang, "type_declaration"); got != 2 {
+		t.Fatalf("type declaration count = %d, want 2; tree: %s", got, file.Tree.RootNode().SExpr(file.Lang))
+	}
+	if got := countNamedDescendants(file.Tree.RootNode(), file.Lang, "struct_type"); got != 1 {
+		t.Fatalf("struct type count = %d, want 1; tree: %s", got, file.Tree.RootNode().SExpr(file.Lang))
+	}
+}
+
 func TestParseStatements(t *testing.T) {
 	src := SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
 

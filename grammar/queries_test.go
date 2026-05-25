@@ -20,8 +20,11 @@ enum PacketAction i32 {
 
 capability DropCapability = "kernel.network.xdp.drop"
 
+type Port = u16
+
 type Event struct {
     pid u32
+    port Port
     ok bool
 }
 
@@ -32,7 +35,7 @@ map Events ringbuf[Event]
 @xdp
 func DropTCP(ctx xdp.Context) i32 {
     // keep packet access typed and nil-checked
-    var port u16 = 443
+    var port Port = 443
     tcp := xdp.tcp(ctx)
     if tcp == nil {
         return xdp.Pass
@@ -75,7 +78,7 @@ func TestHighlightsQueryCoversCurrentLanguageSurface(t *testing.T) {
 	assertCaptureContains(t, captures, "function", "DropTCP")
 	assertCaptureContains(t, captures, "function.method", "tcp", "ntohs")
 	assertCaptureContains(t, captures, "namespace", "bpf", "xdp")
-	assertCaptureContains(t, captures, "type", "Event")
+	assertCaptureContains(t, captures, "type", "Port", "Event")
 	assertCaptureContains(t, captures, "variable.parameter", "ctx")
 }
 
@@ -83,7 +86,7 @@ func TestLocalsQueryCapturesScopesDefinitionsAndReferences(t *testing.T) {
 	captures := queryCaptures(t, LocalsQuery, []byte(queryFixture))
 
 	assertCaptureContains(t, captures, "local.definition.function", "DropTCP")
-	assertCaptureContains(t, captures, "local.definition.type", "Event")
+	assertCaptureContains(t, captures, "local.definition.type", "Port", "Event")
 	assertCaptureContains(t, captures, "local.definition.enum", "PacketAction")
 	assertCaptureContains(t, captures, "local.definition.constant", "EventBytes")
 	assertCaptureContains(t, captures, "local.definition.constant", "PacketPass", "PacketDrop")
@@ -101,7 +104,7 @@ func TestLocalsQueryCapturesScopesDefinitionsAndReferences(t *testing.T) {
 func TestSymbolsQueryCapturesAuthoringOutline(t *testing.T) {
 	captures := queryCaptures(t, SymbolsQuery, []byte(queryFixture))
 
-	assertCaptureContains(t, captures, "name", "probes", "bpf", "EventBytes", "PacketAction", "PacketPass", "PacketDrop", "DropCapability", "Event", "pid", "ok", "Events", "max_entries", "capability", "xdp", "DropTCP")
+	assertCaptureContains(t, captures, "name", "probes", "bpf", "EventBytes", "PacketAction", "PacketPass", "PacketDrop", "DropCapability", "Port", "Event", "pid", "port", "ok", "Events", "max_entries", "capability", "xdp", "DropTCP")
 	if len(captures["definition.function"]) == 0 {
 		t.Fatal("definition.function captures = 0, want function outline entry")
 	}

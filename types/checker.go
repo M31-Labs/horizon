@@ -28,6 +28,7 @@ func CheckPackage(files []ast.File) [][]diag.Diagnostic {
 	consts := map[string]ast.ConstDecl{}
 	capabilities := map[string]ast.CapabilityDecl{}
 	userStructs := map[string]ast.TypeDecl{}
+	typeAliases := map[string]ast.TypeRef{}
 	funcs := map[string]ast.FuncDecl{}
 	for i, file := range files {
 		if file.Package == "" {
@@ -66,8 +67,12 @@ func CheckPackage(files []ast.File) [][]diag.Diagnostic {
 			env.Add(name, decl)
 			if typed, ok := decl.(ast.TypeDecl); ok && typed.Name != "" {
 				knownTypes[typed.Name] = true
-				structs[typed.Name] = typed
-				userStructs[typed.Name] = typed
+				if typed.IsAlias() {
+					typeAliases[typed.Name] = typed.Alias
+				} else {
+					structs[typed.Name] = typed
+					userStructs[typed.Name] = typed
+				}
 			}
 			if enum, ok := decl.(ast.EnumDecl); ok {
 				for _, value := range enum.Values {
@@ -112,12 +117,20 @@ func CheckPackage(files []ast.File) [][]diag.Diagnostic {
 			}
 		}
 	}
+	files = resolveTypeAliasesInFiles(files, typeAliases)
+	resolved := indexResolvedDecls(files)
+	structs = resolved.structs
+	maps = resolved.maps
+	consts = resolved.consts
+	capabilities = resolved.capabilities
+	userStructs = resolved.userStructs
+	funcs = resolved.funcs
 	callGraphDiags := validateFunctionCallGraph(funcs)
 	for i, file := range files {
 		for _, decl := range file.Decls {
 			switch d := decl.(type) {
 			case ast.TypeDecl:
-				diags[i] = append(diags[i], validateTypeDecl(d, knownTypes, structs, userStructs)...)
+				diags[i] = append(diags[i], validateTypeDecl(d, knownTypes, structs, userStructs, typeAliases)...)
 			case ast.MapDecl:
 				diags[i] = append(diags[i], validateMapDecl(d, knownTypes, userStructs, consts)...)
 			case ast.FuncDecl:
@@ -161,6 +174,174 @@ func enumValueConst(enum ast.EnumDecl, value ast.EnumValue) ast.ConstDecl {
 		Value: value.Value,
 		Span:  value.Span,
 	}
+}
+
+type resolvedDeclIndex struct {
+	structs      map[string]ast.TypeDecl
+	maps         map[string]ast.MapDecl
+	consts       map[string]ast.ConstDecl
+	capabilities map[string]ast.CapabilityDecl
+	userStructs  map[string]ast.TypeDecl
+	funcs        map[string]ast.FuncDecl
+}
+
+func indexResolvedDecls(files []ast.File) resolvedDeclIndex {
+	index := resolvedDeclIndex{
+		structs:      builtinStructs(),
+		maps:         map[string]ast.MapDecl{},
+		consts:       map[string]ast.ConstDecl{},
+		capabilities: map[string]ast.CapabilityDecl{},
+		userStructs:  map[string]ast.TypeDecl{},
+		funcs:        map[string]ast.FuncDecl{},
+	}
+	for _, file := range files {
+		for _, decl := range file.Decls {
+			indexResolvedDecl(&index, decl)
+		}
+	}
+	return index
+}
+
+func indexResolvedDecl(index *resolvedDeclIndex, decl ast.Decl) {
+	switch d := decl.(type) {
+	case ast.TypeDecl:
+		if !d.IsAlias() && d.Name != "" {
+			index.structs[d.Name] = d
+			index.userStructs[d.Name] = d
+		}
+	case ast.MapDecl:
+		if d.Name != "" {
+			index.maps[d.Name] = d
+		}
+	case ast.ConstDecl:
+		if d.Name != "" {
+			index.consts[d.Name] = d
+		}
+	case ast.EnumDecl:
+		indexResolvedEnum(index, d)
+	case ast.CapabilityDecl:
+		if d.Name != "" {
+			index.capabilities[d.Name] = d
+		}
+	case ast.FuncDecl:
+		if d.Name != "" {
+			index.funcs[d.Name] = d
+		}
+	}
+}
+
+func indexResolvedEnum(index *resolvedDeclIndex, decl ast.EnumDecl) {
+	for _, value := range decl.Values {
+		if value.Name != "" {
+			index.consts[value.Name] = enumValueConst(decl, value)
+		}
+	}
+}
+
+func resolveTypeAliasesInFiles(files []ast.File, aliases map[string]ast.TypeRef) []ast.File {
+	if len(aliases) == 0 {
+		return files
+	}
+	out := make([]ast.File, len(files))
+	for i, file := range files {
+		out[i] = resolveTypeAliasesInFile(file, aliases)
+	}
+	return out
+}
+
+func resolveTypeAliasesInFile(file ast.File, aliases map[string]ast.TypeRef) ast.File {
+	for i, decl := range file.Decls {
+		switch d := decl.(type) {
+		case ast.TypeDecl:
+			if d.IsAlias() {
+				file.Decls[i] = d
+				continue
+			}
+			for j := range d.Fields {
+				d.Fields[j].Type = resolveTypeAliasRef(d.Fields[j].Type, aliases, map[string]bool{})
+			}
+			file.Decls[i] = d
+		case ast.MapDecl:
+			d.Key = resolveTypeAliasRef(d.Key, aliases, map[string]bool{})
+			d.Val = resolveTypeAliasRef(d.Val, aliases, map[string]bool{})
+			file.Decls[i] = d
+		case ast.ConstDecl:
+			d.Type = resolveTypeAliasRef(d.Type, aliases, map[string]bool{})
+			file.Decls[i] = d
+		case ast.EnumDecl:
+			d.Type = resolveTypeAliasRef(d.Type, aliases, map[string]bool{})
+			file.Decls[i] = d
+		case ast.FuncDecl:
+			for j := range d.Params {
+				d.Params[j].Type = resolveTypeAliasRef(d.Params[j].Type, aliases, map[string]bool{})
+			}
+			d.Return = resolveTypeAliasRef(d.Return, aliases, map[string]bool{})
+			d.Body = resolveTypeAliasesInStmts(d.Body, aliases)
+			file.Decls[i] = d
+		}
+	}
+	return file
+}
+
+func resolveTypeAliasesInStmts(stmts []ast.Stmt, aliases map[string]ast.TypeRef) []ast.Stmt {
+	if len(stmts) == 0 {
+		return stmts
+	}
+	out := make([]ast.Stmt, len(stmts))
+	for i, stmt := range stmts {
+		out[i] = resolveTypeAliasesInStmt(stmt, aliases)
+	}
+	return out
+}
+
+func resolveTypeAliasesInStmt(stmt ast.Stmt, aliases map[string]ast.TypeRef) ast.Stmt {
+	switch s := stmt.(type) {
+	case ast.VarDeclStmt:
+		s.Type = resolveTypeAliasRef(s.Type, aliases, map[string]bool{})
+		return s
+	case ast.IfStmt:
+		s.Init = resolveTypeAliasesInStmt(s.Init, aliases)
+		s.Then = resolveTypeAliasesInStmts(s.Then, aliases)
+		s.Else = resolveTypeAliasesInStmts(s.Else, aliases)
+		return s
+	case ast.ForStmt:
+		s.Init = resolveTypeAliasesInStmt(s.Init, aliases)
+		s.Post = resolveTypeAliasesInStmt(s.Post, aliases)
+		s.Body = resolveTypeAliasesInStmts(s.Body, aliases)
+		return s
+	case ast.SwitchStmt:
+		for j := range s.Cases {
+			s.Cases[j].Body = resolveTypeAliasesInStmts(s.Cases[j].Body, aliases)
+		}
+		return s
+	default:
+		return stmt
+	}
+}
+
+func resolveTypeAliasRef(ref ast.TypeRef, aliases map[string]ast.TypeRef, visiting map[string]bool) ast.TypeRef {
+	if ref.IsZero() {
+		return ref
+	}
+	for i := range ref.Args {
+		ref.Args[i] = resolveTypeAliasRef(ref.Args[i], aliases, visiting)
+	}
+	if ref.Elem != nil {
+		elem := resolveTypeAliasRef(*ref.Elem, aliases, visiting)
+		ref.Elem = &elem
+	}
+	if ref.Name == "" || visiting[ref.Name] {
+		return ref
+	}
+	alias, ok := aliases[ref.Name]
+	if !ok {
+		return ref
+	}
+	visiting[ref.Name] = true
+	resolved := resolveTypeAliasRef(alias, aliases, visiting)
+	delete(visiting, ref.Name)
+	resolved.Span = ref.Span
+	return resolved
 }
 
 func builtinTypes() map[string]bool {
@@ -379,7 +560,10 @@ func validateMapAttrs(decl ast.MapDecl, consts map[string]ast.ConstDecl) []diag.
 	return diags
 }
 
-func validateTypeDecl(decl ast.TypeDecl, known map[string]bool, structs map[string]ast.TypeDecl, userStructs map[string]ast.TypeDecl) []diag.Diagnostic {
+func validateTypeDecl(decl ast.TypeDecl, known map[string]bool, structs map[string]ast.TypeDecl, userStructs map[string]ast.TypeDecl, aliases map[string]ast.TypeRef) []diag.Diagnostic {
+	if decl.IsAlias() {
+		return validateTypeAliasDecl(decl, known, aliases)
+	}
 	var diags []diag.Diagnostic
 	seenFields := map[string]span.Span{}
 	for _, field := range decl.Fields {
@@ -413,6 +597,52 @@ func validateTypeDecl(decl ast.TypeDecl, known map[string]bool, structs map[stri
 		}
 	}
 	return diags
+}
+
+func validateTypeAliasDecl(decl ast.TypeDecl, known map[string]bool, aliases map[string]ast.TypeRef) []diag.Diagnostic {
+	var diags []diag.Diagnostic
+	diags = append(diags, validateTypeRef(decl.Alias, known)...)
+	if aliasHasCycle(decl.Name, aliases, map[string]bool{}) {
+		diags = append(diags, diag.Diagnostic{
+			Code:     "HZN1111",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("type alias %s recursively references itself", decl.Name),
+			Primary:  decl.Span,
+			Suggest:  "type aliases must resolve to a scalar or bool type",
+		})
+		return diags
+	}
+	resolved := resolveTypeAliasRef(decl.Alias, aliases, map[string]bool{})
+	if !resolvedTypeAliasTarget(resolved) {
+		diags = append(diags, diag.Diagnostic{
+			Code:     "HZN1112",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("type alias %s must target a scalar or bool type", decl.Name),
+			Primary:  decl.Alias.Span,
+			Suggest:  "use aliases for domain scalar names such as `type Port = u16`; use `type Event struct { ... }` for records",
+		})
+	}
+	return diags
+}
+
+func aliasHasCycle(name string, aliases map[string]ast.TypeRef, visiting map[string]bool) bool {
+	if name == "" {
+		return false
+	}
+	if visiting[name] {
+		return true
+	}
+	next, ok := aliases[name]
+	if !ok || next.Name == "" {
+		return false
+	}
+	visiting[name] = true
+	defer delete(visiting, name)
+	return aliasHasCycle(next.Name, aliases, visiting)
+}
+
+func resolvedTypeAliasTarget(ref ast.TypeRef) bool {
+	return !ref.Ptr && ref.Elem == nil && len(ref.Args) == 0 && isScalar(ref.Name)
 }
 
 func typeRefContainsStruct(target string, ref ast.TypeRef, structs map[string]ast.TypeDecl, visiting map[string]bool) bool {

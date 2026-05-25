@@ -220,6 +220,10 @@ func funcHeaderLine(decl ast.FuncDecl) int {
 }
 
 func (b *builder) typeDecl(decl ast.TypeDecl) {
+	if decl.IsAlias() {
+		b.lineWithComment("type "+decl.Name+" = "+typeRef(decl.Alias), decl.Span.Start.Line)
+		return
+	}
 	b.lineWithComment("type "+decl.Name+" struct {", decl.Span.Start.Line)
 	b.indent++
 	for _, field := range decl.Fields {

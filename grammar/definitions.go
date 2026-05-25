@@ -47,7 +47,13 @@ func defineDeclarations(g *grammargen.Grammar) {
 	g.Define("type_declaration", grammargen.Seq(
 		grammargen.Str("type"),
 		grammargen.Field("name", grammargen.Sym("identifier")),
-		grammargen.Field("type", grammargen.Sym("struct_type")),
+		grammargen.Choice(
+			grammargen.Field("type", grammargen.Sym("struct_type")),
+			grammargen.Seq(
+				grammargen.Str("="),
+				grammargen.Field("type", grammargen.Sym("type_ref")),
+			),
+		),
 	))
 
 	g.Define("const_declaration", grammargen.Seq(

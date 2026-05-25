@@ -283,6 +283,27 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	}
 }
 
+func TestSourceFormatsTypeAliases(t *testing.T) {
+	got, err := Source(parser.SourceFile{Path: "alias.hzn", Bytes: []byte(`package probes
+type Port=u16
+type Event struct{port Port}
+`)})
+	if err != nil {
+		t.Fatalf("Source: %v", err)
+	}
+	want := `package probes
+
+type Port = u16
+
+type Event struct {
+    port Port
+}
+`
+	if string(got) != want {
+		t.Fatalf("formatted source mismatch\nwant:\n%s\ngot:\n%s", want, got)
+	}
+}
+
 func TestSourceFormatsSwitchStatements(t *testing.T) {
 	got, err := Source(parser.SourceFile{Path: "switch.hzn", Bytes: []byte(`package probes
 @xdp
