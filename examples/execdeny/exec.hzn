@@ -1,0 +1,9 @@
+package probes
+
+capability ExecDeny danger block = "kernel.process.exec.deny"
+
+@capability(ExecDeny)
+@lsm("bprm_check_security")
+func DenyExec(ctx lsm.Context) i32 {
+    return lsm.Deny
+}

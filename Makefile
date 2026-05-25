@@ -3,6 +3,7 @@ HZN_EXAMPLES := \
 	./examples/cgroupconnect \
 	./examples/execwatch \
 	./examples/execcount \
+	./examples/execdeny \
 	./examples/lsmfile \
 	./examples/openwatch \
 	./examples/tcpconnect \
