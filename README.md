@@ -494,6 +494,7 @@ hzn workbench ./examples/execwatch -o dist
 hzn workbench ./examples/execwatch -o dist -json
 hzn workbench ./examples/execwatch -o dist -compile
 hzn workbench ./examples/execwatch -o dist -preflight
+hzn capabilities ./examples/execwatch -o dist/exec.cap.json
 hzn build ./examples/cgroupconnect -o dist
 sudo go run ./examples/cgroupconnect/cmd/cgroupconnect -obj dist/connect.bpf.o -cgroup /sys/fs/cgroup
 hzn build ./examples/execwatch -o dist
