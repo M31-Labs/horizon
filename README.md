@@ -13,11 +13,16 @@ verifier-friendly eBPF programs that lower to readable BPF C.
 build. `hzn diagnose` remaps clang and verifier logs back through those
 source maps and adds Horizon-specific remediation hints for nil checks,
 ringbuf lifetimes, bounded loops, helper availability, and stack usage.
+Common verifier messages route through a vendored catalog with stable
+`HZN31xx` codes so editors and CI see consistent remediation text.
 
 **Resource lifetimes are implicit.** Ringbuf reservations, map lookups,
 and packet headers are first-class resource types with tracked states
 (`maybe_nil → live → consumed`). Missing nil checks, double submits,
 writes after submit, and live-on-return are rejected before clang runs.
+Tracking spans intra-function aliasing, `&&`-chained nil checks, bounded
+loop iterations, and user helpers that take resource handles as
+parameters.
 
 **Build pipelines are scattered.** `hzn workbench` produces readable BPF
 C, source maps, typed Go bindings, a capability manifest, diagnostics, and
@@ -25,8 +30,11 @@ a report with provenance — in one command. `hzn build` adds clang
 compilation.
 
 **Object files do not explain their power.** Every program declares a
-capability with explicit danger metadata (`observe`, `mutate`, `drop`,
-`block`, `privileged`). The generated manifest carries the contract.
+capability with explicit danger metadata. Danger is recorded as an axis
+triple (`mode` × `scope` × `reversibility`); legacy flat words such as
+`observe`, `mutate`, `drop`, `block`, and `privileged` map deterministically
+onto the axes. The generated manifest carries the contract, including
+helper side-effects per program.
 
 ## The Workbench
 
@@ -179,7 +187,7 @@ func (o *Objects) AttachOnExec() (link.Link, error) {
 
 ```json
 {
-  "schema": "m31labs.dev/horizon/capability/v0",
+  "schema": "m31labs.dev/horizon/capability/v1",
   "package": "probes",
   "programs": [
     {
@@ -196,7 +204,11 @@ func (o *Objects) AttachOnExec() (link.Link, error) {
     {
       "name": "kernel.process.exec.observe",
       "kind": "source",
-      "danger": "observe",
+      "danger": {
+        "mode": "observe",
+        "reversibility": "none",
+        "scope": "event"
+      },
       "program": "OnExec",
       "section": "tracepoint/sched:sched_process_exec",
       "emits": "ExecEvent",
@@ -240,13 +252,19 @@ It keeps the kernel-side language deliberately small:
 
 - tracepoint programs
 - kprobe and kretprobe programs
+- uprobe and uretprobe programs
+- fentry and fexit programs
+- raw tracepoint programs
 - XDP programs
 - TC classifier programs
 - cgroup connect programs
 - LSM programs
+- sockops programs
+- struct_ops programs
 - typed structs and fixed arrays
 - boolean literals and typed boolean expressions
 - package-scoped declarations across multiple `.hzn` files
+- multi-file packages and cross-package imports resolved under `vendor/`
 - source-level scalar type aliases such as `type Port = u16`
 - grouped type declarations for related aliases and records
 - integer constants with optional scalar widths
@@ -470,9 +488,11 @@ Reusable logic belongs in small scalar helpers, not in raw C fragments. A
 sectionless `func` is a Horizon user helper: it can be called from eBPF
 entrypoints or other helpers, must be acyclic, and lowers to readable
 `static __always_inline` C so clang and the verifier still see the final code.
-In v0, helper parameters and return values are scalar or bool values; resource
-ownership stays visible inside the function that reserves or looks up the
-resource.
+Helper return values are scalar or bool. Helper parameters are scalar, bool,
+or a nullable resource handle (ringbuf reservation, map lookup pointer, or
+packet header); Horizon summarizes each helper's effect on the handle and
+propagates resource state across the call, so callers see the transition
+without having to re-derive it.
 
 ```go
 func should_count(pid u32) bool {
@@ -688,7 +708,7 @@ func BlockSMTP(ctx cgroup.Connect) i32 {
 
 ### LSM
 
-LSM programs are policy hooks with opaque contexts in v0. They return named
+LSM programs are policy hooks with opaque contexts. They return named
 allow/deny actions so authoring stays explicit about security impact.
 
 ```go
@@ -744,7 +764,7 @@ Horizon makes verifier-sensitive behavior explicit before clang runs.
 ### Capability discipline
 
 - `hzn check`, `hzn emit-c`, `hzn bindgen`, `hzn workbench`, `hzn build`, and `hzn capabilities` reject attachable programs without capability coverage
-- capability aliases can declare `observe`, `mutate`, `drop`, `block`, or `privileged` danger; manifests never understate inferred program danger or a known danger suffix in the capability name
+- capability aliases can declare danger as a legacy flat word (`observe`, `mutate`, `drop`, `block`, `privileged`) or as an explicit axis triple (`"mode,scope,reversibility"`); manifests emit the triple and never understate inferred program danger or a known danger suffix in the capability name
 - capability names must be unique across attachable programs, keeping generated manifests unambiguous for downstream policy and deployment tooling
 - known `kernel.*` capability namespaces must match known attach surfaces, so an XDP program cannot claim a process exec capability or a cgroup connect program cannot claim a file-open capability
 - capability manifests require each program's capability list to match the top-level capability entries, so Continuum consumers can trust either index
@@ -867,7 +887,8 @@ instruction/source-comment context that led to the error. Common verifier
 failures also carry Horizon-specific remediation hints for nil checks, ringbuf
 lifetimes, bounded loops, helper availability, and stack usage. Use `-compile`
 or `hzn build` when the local clang/BPF C toolchain should also produce a
-`.bpf.o`.
+`.bpf.o`. Both accept `-clang-timeout=<duration>` (default 30s, also
+configurable via `HZN_CLANG_TIMEOUT`).
 
 `hzn diagnose` remaps clang and verifier logs through an `.hznmap.json` source
 map. By default it exits successfully when it can explain the log, even when the
@@ -930,13 +951,23 @@ program observes, emits, mutates, and needs from a target host. The
 manifest is the contract Horizon hands to Continuum for governance and
 deployment.
 
+The current manifest schema is `m31labs.dev/horizon/capability/v1`.
+v0 manifests remain loadable through `capability.LoadManifest()`
+(auto-migrated in memory) through v0.2.x; the v0 loader is scheduled
+for removal in v0.3.
+
 A manifest contains:
 
 - **Programs**: each attachable program with its section, attach string,
-  declared capability name, and danger floor (`observe`, `mutate`,
-  `drop`, `block`, `privileged`).
-- **Maps**: each map's kind (ringbuf, hash, array, percpu_hash, lru_hash,
-  ...), key/value type schemas, and `@max_entries(...)` sizing.
+  and declared capability name.
+- **Capabilities**: each capability's danger axes (`mode` × `scope` ×
+  `reversibility`), program/section, emitted event, map access, and
+  per-program `helper_effects` summary of what the helpers observed,
+  mutated, or required.
+- **Maps**: each map's kind (ringbuf, hash, array, percpu_hash,
+  lru_hash, ...), key/value type schemas, `@max_entries(...)` sizing,
+  and optional `@steady_state_entries(...)` / `@access_freq(...)`
+  capacity-planning annotations.
 - **Types**: declared struct schemas with size, align, and field offsets.
 - **Emitted events**: ringbuf event names linked to their struct schema.
 - **Minimum kernel requirements**: feature versions implied by attach
@@ -944,6 +975,10 @@ A manifest contains:
 - **Deploy-time requirements**: tracefs availability, XDP support, TC
   ingress/egress, cgroup v2, BPF LSM, plus required Linux capabilities
   per attach surface.
+- **Origin tagging**: capabilities, maps, and types contributed by a
+  vendored imported package carry an `origin` field naming the import
+  alias they came from, so multi-package builds keep cross-package
+  provenance visible.
 
 `hzn doctor -capabilities <manifest>` checks the local host against a
 manifest before deploy. Continuum consumes the same manifest to govern
@@ -970,8 +1005,9 @@ operator's policy surface.
 
 ## Status
 
-v0.1.0. See [CHANGELOG.md](CHANGELOG.md) for what's in this release and
-what is planned for v0.2.0.
+Latest tagged release: v0.1.2. v0.2 is in progress on `main` (Phase 0/1/2
+shipped behind `v0.2.0-phase{0,1,2}` tags); the `[Unreleased]` section of
+[CHANGELOG.md](CHANGELOG.md) tracks what has landed so far.
 
 ## License
 
