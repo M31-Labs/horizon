@@ -1,0 +1,23 @@
+[
+  {
+    "code": "HZN3160",
+    "severity": "error",
+    "message": "Misaligned memory access on stack, packet, or value pointer",
+    "primary": {
+      "start": {
+        "line": 0,
+        "column": 0
+      },
+      "end": {
+        "line": 0,
+        "column": 0
+      }
+    },
+    "notes": [
+      "verifier-catalog: VC0010",
+      "cause: On architectures that require natural alignment (and on architectures where the kernel was built with `CONFIG_EFFICIENT_UNALIGNED_ACCESS=n`), the verifier rejects loads or stores whose effective address is not aligned to the access width. The verifier sees this statically from the offset and the access size.",
+      "0: R1=ctx() R10=fp0\n; let word = *(u32 *)\u0026buf[1];\n1: (61) r2 = *(u32 *)(r10 -7)\nmisaligned stack access off=-7 size=4"
+    ],
+    "suggest": "Use the access width that matches the field's natural alignment (load a u32 from a 4-byte-aligned offset, etc.). For packet data, prefer Horizon packet helpers that perform aligned reads with explicit width arguments."
+  }
+]

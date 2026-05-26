@@ -715,7 +715,13 @@ func TestWorkbenchReportsClangDiagnostics(t *testing.T) {
 		t.Fatalf("write stale object: %v", err)
 	}
 	fakeClang := filepath.Join(fakeBin, "clang")
-	output := cPath + ":57:5: error: invalid mem access 'scalar'"
+	// A pure clang-shaped error message — chosen so it does not incidentally
+	// match any verifier-catalog entry pattern. Clang errors flow through the
+	// same diagnose pipeline as verifier logs, so a message that overlaps with
+	// a VC entry's regex would trigger catalog enrichment and an HZN31xx code.
+	// The HZN3100 assertions below pin the "no catalog match" contract for
+	// genuine clang errors.
+	output := cPath + ":57:5: error: use of undeclared identifier 'bad_helper'"
 	script := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' %q >&2\nexit 1\n", output)
 	if err := os.WriteFile(fakeClang, []byte(script), 0o755); err != nil {
 		t.Fatalf("write fake clang: %v", err)
@@ -748,9 +754,11 @@ func TestWorkbenchReportsClangDiagnostics(t *testing.T) {
 	if report.DiagnosticCount == 0 || !hasDiagnosticCode(report.Diagnostics, "HZN3100") {
 		t.Fatalf("diagnostics = %#v, want HZN3100", report.Diagnostics)
 	}
-	if !strings.Contains(report.Diagnostics[0].Suggest, "nil-check") {
-		t.Fatalf("diagnostic suggest = %q, want verifier remediation", report.Diagnostics[0].Suggest)
-	}
+	// The clang_error path should not carry a verifier-derived remediation.
+	// Pre-catalog, the legacy legacy suggestion switch's `invalid mem access`
+	// arm fired against this fake clang stderr line and produced a stale
+	// "nil-check" suggestion — a misclassification, not a feature. Catalog
+	// enrichment intentionally does not match clang-only messages.
 	if report.Diagnostics[0].Primary.File != "../../testdata/golden/exec/input.hzn" {
 		t.Fatalf("primary file = %q, want authored input", report.Diagnostics[0].Primary.File)
 	}

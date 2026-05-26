@@ -1,0 +1,5 @@
+0: R1=ctx() R10=fp0
+; bpf.probe.read_user(buf, sizeof(buf), addr);
+1: (85) call bpf_probe_read_user#112
+unknown func bpf_probe_read_user
+processed 2 insns (limit 1000000) max_states_per_insn 0 total_states 0 peak_states 0 mark_read 0

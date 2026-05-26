@@ -1,0 +1,24 @@
+[
+  {
+    "code": "HZN3140",
+    "severity": "error",
+    "message": "Helper not available for this program type",
+    "primary": {
+      "start": {
+        "line": 0,
+        "column": 0
+      },
+      "end": {
+        "line": 0,
+        "column": 0
+      }
+    },
+    "notes": [
+      "verifier-catalog: VC0007",
+      "cause: Each BPF program type has an allowlist of helpers; the verifier rejects calls outside that allowlist. The offending helper is bpf_probe_read_user. The most common cause is calling a tracing-only helper from a network program or vice versa.",
+      "capture: helper=probe_read_user",
+      "0: R1=ctx() R10=fp0\n; bpf.probe.read_user(buf, sizeof(buf), addr);\n1: (85) call bpf_probe_read_user#112\nunknown func bpf_probe_read_user"
+    ],
+    "suggest": "Use only Horizon compiler-known helpers for this program kind. If you need a helper that is technically available but not yet wrapped, add a typed helper wrapper to the Horizon stdlib before calling it from .hzn so the validator catches the kind mismatch up front."
+  }
+]

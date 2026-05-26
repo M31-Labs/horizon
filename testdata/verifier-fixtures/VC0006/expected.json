@@ -1,0 +1,23 @@
+[
+  {
+    "code": "HZN3131",
+    "severity": "error",
+    "message": "BPF program exceeds verifier instruction budget",
+    "primary": {
+      "start": {
+        "line": 0,
+        "column": 0
+      },
+      "end": {
+        "line": 0,
+        "column": 0
+      }
+    },
+    "notes": [
+      "verifier-catalog: VC0006",
+      "cause: The verifier walks all reachable paths in the program and gives up after one million insns (the kernel default). The program either has too much straight-line code, too many branches expanding the path count, or a loop that the verifier is unrolling instead of bounding via bpf_loop.",
+      "; deeply_unrolled_pipeline(events);\n0: R1=ctx() R10=fp0\n1: (b7) r2 = 0\n2: (b7) r3 = 0\nBPF program is too large. Processed 1000001 insn (verification failed)"
+    ],
+    "suggest": "Factor the program into smaller pieces using tail-calls or `bpf_loop` to fold repeated work into a bounded iteration. Avoid macro-expanded unrolled loops; prefer explicit bounded loops the verifier can analyze structurally."
+  }
+]

@@ -101,8 +101,15 @@ func TestDiagnoseLoadsGeneratedSourceBesideSourceMap(t *testing.T) {
 	if diagnostics[0].Primary.Start.Line != 7 {
 		t.Fatalf("primary line = %d, want 7", diagnostics[0].Primary.Start.Line)
 	}
-	if !strings.Contains(diagnostics[0].Suggest, "nil-check") {
-		t.Fatalf("suggest = %q, want pointer safety nil-check guidance", diagnostics[0].Suggest)
+	// The log shape `; bad_access();\ninvalid mem access 'scalar'` is
+	// verifier-rooted (a C-source marker line followed by a verifier
+	// diagnostic), so the Task 5.4 origin gate lets VC0001 (HZN3110)
+	// match. The rendered remediation contains "nil guard"; the original
+	// pre-catalog "nil-check" string came from the legacy
+	// legacy suggestion switch and no longer applies — catalog
+	// remediation is the contract for verifier-rooted diagnostics.
+	if !strings.Contains(diagnostics[0].Suggest, "nil guard") {
+		t.Fatalf("suggest = %q, want VC0001 nil-guard remediation", diagnostics[0].Suggest)
 	}
 	if diagnostics[0].Source == nil || diagnostics[0].Source.Line != 7 || !strings.Contains(diagnostics[0].Source.Text, "bad_access") {
 		t.Fatalf("source context = %#v, want authored source line", diagnostics[0].Source)
@@ -176,8 +183,14 @@ func TestDiagnoseGeneratedFlagTakesValue(t *testing.T) {
 	if len(diagnostics) != 1 || diagnostics[0].Primary.File != span.FileID(sourcePath) {
 		t.Fatalf("diagnostics = %#v, want remapped authored source", diagnostics)
 	}
-	if !strings.Contains(diagnostics[0].Suggest, "nil-check") {
-		t.Fatalf("suggest = %q, want pointer safety nil-check guidance", diagnostics[0].Suggest)
+	// See TestDiagnoseLoadsGeneratedSourceBesideSourceMap: this log is
+	// verifier-rooted (the leading `;` source-marker line precedes the
+	// verifier diagnostic), so the Task 5.4 origin gate passes the
+	// lookup through and VC0001 matches; the remediation contains "nil
+	// guard". A purely clang-shaped log carrying the same substring is
+	// covered by TestDiagnoseSkipsCatalogForClangDiagnostics.
+	if !strings.Contains(diagnostics[0].Suggest, "nil guard") {
+		t.Fatalf("suggest = %q, want VC0001 nil-guard remediation", diagnostics[0].Suggest)
 	}
 }
 
@@ -395,22 +408,100 @@ func TestDiagnoseFailOnErrorIgnoresWarnings(t *testing.T) {
 	}
 }
 
-func TestDiagnoseAddsVerifierSpecificSuggestions(t *testing.T) {
-	tests := map[string]string{
-		"unreleased reference id=3 alloc_insn=8": "ringbuf reservation",
-		"unbounded loop":                         "counted for loop",
-		"unknown func bpf_bad#999":               "compiler-known helpers",
-		"R0 !read_ok":                            "explicit i32",
-		"stack depth 520":                        "BPF stack limit",
-		"math between fp pointer and register":   "pointer arithmetic",
+// TestDiagnoseAddsVerifierSpecificSuggestions was the legacy hand-coded
+// legacy suggestion switch's table-driven coverage. The catalog now owns
+// per-entry remediation, and the synthetic fixture corpus under
+// testdata/verifier-fixtures/ exercised by verifier.TestVerifierCatalogFixtures
+// asserts the full diagnostic shape per entry (not just a substring on
+// .Suggest). The substring assertion this test enforced is strictly weaker
+// than the fixture-snapshot coverage, so the test was removed in favour of
+// the fixture harness. See roadmap #14 and the v0.2 phase-2 pine plan.
+
+// TestDiagnoseUsesCatalogForKnownVerifierMessage pins the diagnose path's
+// catalog enrichment: a known verifier message must produce the catalog
+// entry's HZN code, render the catalog remediation into .Suggest, and
+// surface the catalog id as a `verifier-catalog: <id>` note.
+func TestDiagnoseUsesCatalogForKnownVerifierMessage(t *testing.T) {
+	raw := "R2 invalid mem access 'scalar'"
+	diagnostics := diagnosticsFromVerifierLog(raw, ir.SourceMap{}, nil)
+	if len(diagnostics) != 1 {
+		t.Fatalf("diagnostics = %d, want 1", len(diagnostics))
 	}
-	for raw, want := range tests {
-		diagnostics := diagnosticsFromVerifierLog(raw, ir.SourceMap{}, nil)
-		if len(diagnostics) != 1 {
-			t.Fatalf("diagnostics for %q = %d, want 1", raw, len(diagnostics))
+	if diagnostics[0].Code != "HZN3110" {
+		t.Fatalf("code = %q, want HZN3110 (VC0001)", diagnostics[0].Code)
+	}
+	if !strings.Contains(diagnostics[0].Suggest, "nil guard") {
+		t.Fatalf("suggest = %q, want VC0001 remediation substring (e.g. \"nil guard\")", diagnostics[0].Suggest)
+	}
+	if !hasNoteContaining(diagnostics[0], "verifier-catalog: VC0001") {
+		t.Fatalf("notes = %#v, want note containing \"verifier-catalog: VC0001\"", diagnostics[0].Notes)
+	}
+}
+
+// TestDiagnoseSkipsCatalogForClangDiagnostics pins the clang/verifier
+// origin gate (Task 5.4): a clang-shaped diagnostic whose message text
+// happens to overlap with a verifier-catalog regex (here, VC0001's
+// `invalid mem access 'scalar'`) must NOT pick up the catalog's HZN31xx
+// code or remediation. Clang and verifier are different vocabularies;
+// the catalog targets the verifier only. Without the gate, catalog
+// lookup is content-based and leaks verifier remediation into clang
+// errors (the misclassification surfaced during Wave 3 — see plan
+// Task 5.4).
+func TestDiagnoseSkipsCatalogForClangDiagnostics(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "clang.log")
+	// A clang-shaped diagnostic line. The message intentionally contains
+	// the substring "invalid mem access 'scalar'" so that, sans the
+	// origin gate, VC0001's regex would match against the clang error.
+	clangLine := fmt.Sprintf("%s/some.bpf.c:17:9: error: invalid mem access 'scalar' in synthetic clang fixture\n", dir)
+	if err := os.WriteFile(logPath, []byte(clangLine), 0o644); err != nil {
+		t.Fatalf("write log: %v", err)
+	}
+	stdout, err := captureStdout(t, func() error {
+		return run([]string{"diagnose", logPath, "-json"})
+	})
+	if err != nil {
+		t.Fatalf("run diagnose: %v", err)
+	}
+	var diagnostics []diag.Diagnostic
+	if err := json.Unmarshal([]byte(stdout), &diagnostics); err != nil {
+		t.Fatalf("unmarshal diagnostics: %v\n%s", err, stdout)
+	}
+	if len(diagnostics) != 1 {
+		t.Fatalf("diagnostics = %d, want 1", len(diagnostics))
+	}
+	if diagnostics[0].Code != "HZN3100" {
+		t.Fatalf("code = %q, want HZN3100 (clang origin must skip catalog)", diagnostics[0].Code)
+	}
+	if diagnostics[0].Suggest != "" {
+		t.Fatalf("suggest = %q, want empty (clang origin must skip catalog)", diagnostics[0].Suggest)
+	}
+	for _, note := range diagnostics[0].Notes {
+		if strings.Contains(note, "verifier-catalog:") {
+			t.Fatalf("notes contain verifier-catalog id on clang origin: %#v", diagnostics[0].Notes)
 		}
-		if !strings.Contains(diagnostics[0].Suggest, want) {
-			t.Fatalf("suggest for %q = %q, want containing %q", raw, diagnostics[0].Suggest, want)
+	}
+}
+
+// TestDiagnoseFallsBackToHZN3100WhenCatalogDoesNotMatch pins the no-match
+// contract: a verifier message that does not match any catalog entry must
+// fall back to HZN3100 with an empty Suggest and no `verifier-catalog:` note
+// (no stale heuristic, no misleading remediation).
+func TestDiagnoseFallsBackToHZN3100WhenCatalogDoesNotMatch(t *testing.T) {
+	raw := "verifier failed: completely unrelated chaos"
+	diagnostics := diagnosticsFromVerifierLog(raw, ir.SourceMap{}, nil)
+	if len(diagnostics) != 1 {
+		t.Fatalf("diagnostics = %d, want 1", len(diagnostics))
+	}
+	if diagnostics[0].Code != "HZN3100" {
+		t.Fatalf("code = %q, want HZN3100 (no catalog match)", diagnostics[0].Code)
+	}
+	if diagnostics[0].Suggest != "" {
+		t.Fatalf("suggest = %q, want empty for no-catalog-match path", diagnostics[0].Suggest)
+	}
+	for _, note := range diagnostics[0].Notes {
+		if strings.Contains(note, "verifier-catalog:") {
+			t.Fatalf("notes contain catalog id on no-match path: %#v", diagnostics[0].Notes)
 		}
 	}
 }

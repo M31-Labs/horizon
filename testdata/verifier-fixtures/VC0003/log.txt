@@ -1,0 +1,7 @@
+0: R1=ctx() R10=fp0
+1: R2_w=map_value(id=0,off=0,ks=4,vs=16)
+; let payload = events[bpf.cpu_id() * 1024];
+2: (07) r2 += 4096
+3: (79) r3 = *(u64 *)(r2 +0)
+R3 invalid access to map_value, off=4096 size=8
+processed 4 insns (limit 1000000) max_states_per_insn 0 total_states 0 peak_states 0 mark_read 0

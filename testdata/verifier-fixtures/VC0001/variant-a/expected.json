@@ -1,0 +1,24 @@
+[
+  {
+    "code": "HZN3110",
+    "severity": "error",
+    "message": "Helper return dereferenced without a nil check",
+    "primary": {
+      "start": {
+        "line": 0,
+        "column": 0
+      },
+      "end": {
+        "line": 0,
+        "column": 0
+      }
+    },
+    "notes": [
+      "verifier-catalog: VC0001",
+      "cause: The verifier rejects a load through a pointer whose nullability has not been proven. This typically means a helper return (bpf_map_lookup_elem, bpf_ringbuf_reserve, bpf_sk_lookup_tcp, etc.) was dereferenced before a nil check on every path. The verifier tracks the helper return as a scalar until it is compared against NULL.",
+      "capture: register=2",
+      "0: R1=ctx() R10=fp0\n; let event = bpf.map.lookup(events, \u0026pid);\n1: (85) call bpf_map_lookup_elem#1\n2: R0_w=map_value_or_null(id=0,off=0,ks=4,vs=32)\n; event.timestamp = bpf.ktime_get_ns();\n3: (7b) *(u64 *)(r0 +0) = r6\nR2 invalid mem access 'scalar'"
+    ],
+    "suggest": "Insert a nil guard (for 2) before dereferencing the helper's return: in .hzn, use a `match` arm or `if x != nil { ... }` and reference the checked local. If the Horizon validator did not flag this in source, the alias graph (Phase 1 #1) missed the binding — file a bug."
+  }
+]

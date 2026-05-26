@@ -1,0 +1,7 @@
+0: R1=ctx() R10=fp0
+1: R2_w=inv0
+; let value = some_scalar + 4;
+2: (07) r2 += 4
+3: (79) r3 = *(u64 *)(r2 +0)
+R3 invalid mem access 'inv'
+processed 4 insns (limit 1000000) max_states_per_insn 0 total_states 0 peak_states 0 mark_read 0

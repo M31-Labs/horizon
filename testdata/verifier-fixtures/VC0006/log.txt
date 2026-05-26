@@ -1,0 +1,5 @@
+; deeply_unrolled_pipeline(events);
+0: R1=ctx() R10=fp0
+1: (b7) r2 = 0
+2: (b7) r3 = 0
+BPF program is too large. Processed 1000001 insn (verification failed)
