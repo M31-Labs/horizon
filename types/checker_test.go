@@ -193,6 +193,79 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	}
 }
 
+// TestHelperCallArgDoesNotTriggerAliasDiagnostic regression-pins the audit at
+// types/checker.go (HZN1447 emission points 1997, 2076, 2164): none of them sit
+// on the user-helper call-argument path (userFunctionCall at line 3585 uses
+// HZN1502 for arg-type mismatches, not HZN1447). Passing a tracked pointer as a
+// helper call argument therefore must not fire HZN1447. This pins that the
+// HZN1319 relaxation in commit 2.8a did not inadvertently route alias-copy
+// rejection onto the helper-arg path.
+func TestHelperCallArgDoesNotTriggerAliasDiagnostic(t *testing.T) {
+	file := parseTestFile(t, `package probes
+
+type Event struct {
+    pid u32
+}
+
+map Events ringbuf[Event]
+
+func record(event *Event) bool {
+    Events.submit(event)
+    return true
+}
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    event := Events.reserve()
+    if event == nil {
+        return 0
+    }
+    record(event)
+    return 0
+}
+`)
+	diags := Check(file)
+	if slices.ContainsFunc(diags, func(d diag.Diagnostic) bool { return d.Code == "HZN1447" }) {
+		t.Fatalf("diagnostics = %#v, want no HZN1447 on helper-call argument", diags)
+	}
+}
+
+// TestStatementLevelAliasStillEmitsHZN1447 regression-pins that the HZN1319
+// relaxation in commit 2.8a did NOT silence the statement-level alias guard.
+// The `alias := event` rebind after a tracked-pointer reserve must still fire
+// HZN1447 (the emission point at types/checker.go:1997 — ShortVarStmt).
+func TestStatementLevelAliasStillEmitsHZN1447(t *testing.T) {
+	file := parseTestFile(t, `package probes
+
+type Event struct {
+    pid u32
+}
+
+map Events ringbuf[Event]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    event := Events.reserve()
+    if event == nil {
+        return 0
+    }
+    alias := event
+    Events.submit(alias)
+    return 0
+}
+`)
+	diags := Check(file)
+	var hits int
+	for _, d := range diags {
+		if d.Code == "HZN1447" {
+			hits++
+		}
+	}
+	if hits != 1 {
+		t.Fatalf("diagnostics = %#v, want exactly one HZN1447 on statement-level alias, got %d", diags, hits)
+	}
+}
+
 func parseTestFile(t *testing.T, source string) ast.File {
 	t.Helper()
 	parsed, err := parser.ParseSource(parser.SourceFile{Path: "inline.hzn", Bytes: []byte(source)})
