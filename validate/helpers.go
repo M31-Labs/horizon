@@ -46,7 +46,11 @@ func helperAvailable(name string, kind ir.ProgramKind) bool {
 
 func knownProgramKind(kind ir.ProgramKind) bool {
 	switch kind {
-	case ir.ProgramTracepoint, ir.ProgramKprobe, ir.ProgramKretprobe, ir.ProgramXDP, ir.ProgramTC, ir.ProgramCgroup, ir.ProgramLSM:
+	case ir.ProgramTracepoint, ir.ProgramKprobe, ir.ProgramKretprobe,
+		ir.ProgramXDP, ir.ProgramTC, ir.ProgramCgroup, ir.ProgramLSM,
+		ir.ProgramUprobe, ir.ProgramUretprobe,
+		ir.ProgramFentry, ir.ProgramFexit,
+		ir.ProgramRawTP, ir.ProgramSockOps, ir.ProgramStructOps:
 		return true
 	default:
 		return false
@@ -55,7 +59,10 @@ func knownProgramKind(kind ir.ProgramKind) bool {
 
 func isTracingProgram(kind ir.ProgramKind) bool {
 	switch kind {
-	case ir.ProgramTracepoint, ir.ProgramKprobe, ir.ProgramKretprobe:
+	case ir.ProgramTracepoint, ir.ProgramKprobe, ir.ProgramKretprobe,
+		ir.ProgramUprobe, ir.ProgramUretprobe,
+		ir.ProgramFentry, ir.ProgramFexit,
+		ir.ProgramRawTP:
 		return true
 	default:
 		return false
