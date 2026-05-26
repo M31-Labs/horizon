@@ -226,7 +226,7 @@ func TestDoctorChecksPerCapabilityManifestRequirements(t *testing.T) {
 		Capabilities: []capability.Capability{{
 			Name:    "kernel.process.exec.observe",
 			Kind:    "source",
-			Danger:  "observe",
+			Danger:  capability.DangerAxes{Mode: "observe", Scope: "event", Reversibility: "none"},
 			Program: "OnExec",
 			Section: "tracepoint/sched:sched_process_exec",
 			Requirements: &capability.Requirements{

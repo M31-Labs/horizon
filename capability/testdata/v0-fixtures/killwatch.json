@@ -1,19 +1,15 @@
 {
   "capabilities": [
     {
-      "danger": {
-        "mode": "observe",
-        "reversibility": "none",
-        "scope": "event"
-      },
+      "danger": "observe",
       "kind": "source",
       "maps": {
         "events": [],
         "read": [],
         "write": []
       },
-      "name": "kernel.file.open.observe",
-      "program": "ObserveFileOpen",
+      "name": "kernel.process.kill.observe",
+      "program": "ObserveTaskKill",
       "requirements": {
         "features": [
           "bpf_lsm"
@@ -30,19 +26,19 @@
           }
         ]
       },
-      "section": "lsm/file_open"
+      "section": "lsm/task_kill"
     }
   ],
   "package": "probes",
   "programs": [
     {
-      "attach": "file_open",
+      "attach": "task_kill",
       "capabilities": [
-        "kernel.file.open.observe"
+        "kernel.process.kill.observe"
       ],
       "kind": "lsm",
-      "name": "ObserveFileOpen",
-      "section": "lsm/file_open"
+      "name": "ObserveTaskKill",
+      "section": "lsm/task_kill"
     }
   ],
   "requirements": {

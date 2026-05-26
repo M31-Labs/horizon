@@ -1,25 +1,21 @@
 {
   "capabilities": [
     {
-      "danger": {
-        "mode": "observe",
-        "reversibility": "none",
-        "scope": "event"
-      },
-      "emits": "RawTPEnterEvent",
+      "danger": "observe",
+      "emits": "FentryOpenEvent",
       "kind": "source",
       "maps": {
         "events": [
-          "RawTPEnterEvents"
+          "FentryOpenEvents"
         ],
         "read": [],
         "write": []
       },
-      "name": "kernel.process.exec.observe",
-      "program": "OnExecEnter",
+      "name": "kernel.file.open.observe",
+      "program": "OnFileOpen",
       "requirements": {
         "features": [
-          "tracefs"
+          "btf"
         ],
         "helpers": [
           {
@@ -39,41 +35,40 @@
         ],
         "min_kernel": "5.8",
         "permissions": [
-          "bpf_program_load",
-          "perf_event_open"
+          "bpf_program_load"
         ],
         "programs": [
           {
-            "min_kernel": "4.17",
-            "name": "raw_tp"
+            "min_kernel": "5.5",
+            "name": "fentry"
           }
         ]
       },
-      "section": "raw_tp/sched_process_exec"
+      "section": "fentry/do_filp_open"
     }
   ],
   "maps": [
     {
       "kind": "ringbuf",
-      "name": "RawTPEnterEvents",
-      "value": "RawTPEnterEvent"
+      "name": "FentryOpenEvents",
+      "value": "FentryOpenEvent"
     }
   ],
   "package": "probes",
   "programs": [
     {
-      "attach": "sched_process_exec",
+      "attach": "do_filp_open",
       "capabilities": [
-        "kernel.process.exec.observe"
+        "kernel.file.open.observe"
       ],
-      "kind": "raw_tp",
-      "name": "OnExecEnter",
-      "section": "raw_tp/sched_process_exec"
+      "kind": "fentry",
+      "name": "OnFileOpen",
+      "section": "fentry/do_filp_open"
     }
   ],
   "requirements": {
     "features": [
-      "tracefs"
+      "btf"
     ],
     "helpers": [
       {
@@ -93,13 +88,12 @@
     ],
     "min_kernel": "5.8",
     "permissions": [
-      "bpf_program_load",
-      "perf_event_open"
+      "bpf_program_load"
     ],
     "programs": [
       {
-        "min_kernel": "4.17",
-        "name": "raw_tp"
+        "min_kernel": "5.5",
+        "name": "fentry"
       }
     ]
   },
@@ -115,7 +109,7 @@
         }
       ],
       "kind": "struct",
-      "name": "RawTPEnterEvent",
+      "name": "FentryOpenEvent",
       "size": 4
     }
   ]

@@ -1,5 +1,25 @@
 package capability
 
+// DangerAxes encodes capability danger as three orthogonal axes:
+// - Mode: what the program does at the syscall/event boundary (observe | mutate | control)
+// - Scope: what the impact lands on (event | process | network | filesystem | system)
+// - Reversibility: how the effect outlasts the program (none | restart | persistent)
+type DangerAxes struct {
+	Mode          string `json:"mode"`
+	Scope         string `json:"scope"`
+	Reversibility string `json:"reversibility"`
+}
+
+// String returns a compact "mode,scope,reversibility" representation.
+func (d DangerAxes) String() string {
+	return d.Mode + "," + d.Scope + "," + d.Reversibility
+}
+
+// IsZero reports whether the axes are the zero value (all empty strings).
+func (d DangerAxes) IsZero() bool {
+	return d.Mode == "" && d.Scope == "" && d.Reversibility == ""
+}
+
 type Manifest struct {
 	Schema       string        `json:"schema"`
 	Package      string        `json:"package"`
@@ -21,7 +41,7 @@ type Program struct {
 type Capability struct {
 	Name         string        `json:"name"`
 	Kind         string        `json:"kind"`
-	Danger       string        `json:"danger"`
+	Danger       DangerAxes    `json:"danger"`
 	Program      string        `json:"program"`
 	Section      string        `json:"section"`
 	Emits        string        `json:"emits,omitempty"`

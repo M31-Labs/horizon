@@ -48,15 +48,16 @@ func TestDangerAxesRoundTripThroughIRAndManifest(t *testing.T) {
 		t.Errorf("IR Axes.Reversibility = %q, want %q", cap.Axes.Reversibility, axes.Reversibility)
 	}
 
-	// FromIR must compile successfully; it forwards cap.Danger string unchanged
-	// for now (Task 3 will cut over the manifest to axes).
+	// FromIR populates manifest Danger from the ir.Capability.Axes field.
 	manifest := capability.FromIR(program)
 	if len(manifest.Capabilities) != 1 {
 		t.Fatalf("FromIR produced %d capabilities, want 1", len(manifest.Capabilities))
 	}
 	gotDanger := manifest.Capabilities[0].Danger
-	if gotDanger != string(ir.DangerDrop) {
-		t.Errorf("manifest.Capabilities[0].Danger = %q, want %q", gotDanger, string(ir.DangerDrop))
+	// DangerDrop maps to {control, network, restart}.
+	wantDanger := capability.DangerAxes{Mode: "control", Scope: "network", Reversibility: "restart"}
+	if gotDanger != wantDanger {
+		t.Errorf("manifest.Capabilities[0].Danger = %+v, want %+v", gotDanger, wantDanger)
 	}
 }
 

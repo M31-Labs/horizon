@@ -1,25 +1,21 @@
 {
   "capabilities": [
     {
-      "danger": {
-        "mode": "observe",
-        "reversibility": "none",
-        "scope": "event"
-      },
-      "emits": "RawTPEnterEvent",
+      "danger": "observe",
+      "emits": "SockOpsEvent",
       "kind": "source",
       "maps": {
         "events": [
-          "RawTPEnterEvents"
+          "SockOpsEvents"
         ],
         "read": [],
         "write": []
       },
-      "name": "kernel.process.exec.observe",
-      "program": "OnExecEnter",
+      "name": "kernel.network.sockops.observe",
+      "program": "OnSockOps",
       "requirements": {
         "features": [
-          "tracefs"
+          "cgroup_v2"
         ],
         "helpers": [
           {
@@ -40,40 +36,41 @@
         "min_kernel": "5.8",
         "permissions": [
           "bpf_program_load",
-          "perf_event_open"
+          "cgroup_admin",
+          "net_admin"
         ],
         "programs": [
           {
-            "min_kernel": "4.17",
-            "name": "raw_tp"
+            "min_kernel": "4.13",
+            "name": "sockops"
           }
         ]
       },
-      "section": "raw_tp/sched_process_exec"
+      "section": "sockops"
     }
   ],
   "maps": [
     {
       "kind": "ringbuf",
-      "name": "RawTPEnterEvents",
-      "value": "RawTPEnterEvent"
+      "name": "SockOpsEvents",
+      "value": "SockOpsEvent"
     }
   ],
   "package": "probes",
   "programs": [
     {
-      "attach": "sched_process_exec",
+      "attach": "",
       "capabilities": [
-        "kernel.process.exec.observe"
+        "kernel.network.sockops.observe"
       ],
-      "kind": "raw_tp",
-      "name": "OnExecEnter",
-      "section": "raw_tp/sched_process_exec"
+      "kind": "sockops",
+      "name": "OnSockOps",
+      "section": "sockops"
     }
   ],
   "requirements": {
     "features": [
-      "tracefs"
+      "cgroup_v2"
     ],
     "helpers": [
       {
@@ -94,12 +91,13 @@
     "min_kernel": "5.8",
     "permissions": [
       "bpf_program_load",
-      "perf_event_open"
+      "cgroup_admin",
+      "net_admin"
     ],
     "programs": [
       {
-        "min_kernel": "4.17",
-        "name": "raw_tp"
+        "min_kernel": "4.13",
+        "name": "sockops"
       }
     ]
   },
@@ -109,13 +107,13 @@
       "align": 4,
       "fields": [
         {
-          "name": "pid",
+          "name": "op",
           "offset": 0,
           "type": "u32"
         }
       ],
       "kind": "struct",
-      "name": "RawTPEnterEvent",
+      "name": "SockOpsEvent",
       "size": 4
     }
   ]

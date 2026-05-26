@@ -1,25 +1,20 @@
 {
   "capabilities": [
     {
-      "danger": {
-        "mode": "observe",
-        "reversibility": "none",
-        "scope": "event"
-      },
-      "emits": "TCPConnectEvent",
+      "danger": "observe",
+      "emits": "ExecEvent",
       "kind": "source",
       "maps": {
         "events": [
-          "TCPConnectEvents"
+          "ExecEvents"
         ],
         "read": [],
         "write": []
       },
-      "name": "kernel.network.tcp.connect.observe",
-      "program": "OnTCPConnect",
+      "name": "kernel.process.exec.observe",
+      "program": "OnExec",
       "requirements": {
         "features": [
-          "kprobes",
           "tracefs"
         ],
         "helpers": [
@@ -32,8 +27,20 @@
             "name": "bpf_get_current_pid_tgid"
           },
           {
+            "min_kernel": "4.8",
+            "name": "bpf_get_current_task"
+          },
+          {
             "min_kernel": "4.1",
             "name": "bpf_get_current_uid_gid"
+          },
+          {
+            "min_kernel": "4.1",
+            "name": "bpf_ktime_get_ns"
+          },
+          {
+            "min_kernel": "5.5",
+            "name": "bpf_probe_read_kernel"
           },
           {
             "min_kernel": "5.8",
@@ -57,36 +64,35 @@
         ],
         "programs": [
           {
-            "min_kernel": "4.1",
-            "name": "kprobe"
+            "min_kernel": "4.7",
+            "name": "tracepoint"
           }
         ]
       },
-      "section": "kprobe/tcp_v4_connect"
+      "section": "tracepoint/sched:sched_process_exec"
     }
   ],
   "maps": [
     {
       "kind": "ringbuf",
-      "name": "TCPConnectEvents",
-      "value": "TCPConnectEvent"
+      "name": "ExecEvents",
+      "value": "ExecEvent"
     }
   ],
   "package": "probes",
   "programs": [
     {
-      "attach": "tcp_v4_connect",
+      "attach": "sched:sched_process_exec",
       "capabilities": [
-        "kernel.network.tcp.connect.observe"
+        "kernel.process.exec.observe"
       ],
-      "kind": "kprobe",
-      "name": "OnTCPConnect",
-      "section": "kprobe/tcp_v4_connect"
+      "kind": "tracepoint",
+      "name": "OnExec",
+      "section": "tracepoint/sched:sched_process_exec"
     }
   ],
   "requirements": {
     "features": [
-      "kprobes",
       "tracefs"
     ],
     "helpers": [
@@ -99,8 +105,20 @@
         "name": "bpf_get_current_pid_tgid"
       },
       {
+        "min_kernel": "4.8",
+        "name": "bpf_get_current_task"
+      },
+      {
         "min_kernel": "4.1",
         "name": "bpf_get_current_uid_gid"
+      },
+      {
+        "min_kernel": "4.1",
+        "name": "bpf_ktime_get_ns"
+      },
+      {
+        "min_kernel": "5.5",
+        "name": "bpf_probe_read_kernel"
       },
       {
         "min_kernel": "5.8",
@@ -124,35 +142,45 @@
     ],
     "programs": [
       {
-        "min_kernel": "4.1",
-        "name": "kprobe"
+        "min_kernel": "4.7",
+        "name": "tracepoint"
       }
     ]
   },
   "schema": "m31labs.dev/horizon/capability/v0",
   "types": [
     {
-      "align": 4,
+      "align": 8,
       "fields": [
         {
-          "name": "pid",
+          "name": "ts_ns",
           "offset": 0,
+          "type": "u64"
+        },
+        {
+          "name": "pid",
+          "offset": 8,
+          "type": "u32"
+        },
+        {
+          "name": "ppid",
+          "offset": 12,
           "type": "u32"
         },
         {
           "name": "uid",
-          "offset": 4,
+          "offset": 16,
           "type": "u32"
         },
         {
           "name": "comm",
-          "offset": 8,
+          "offset": 20,
           "type": "[16]u8"
         }
       ],
       "kind": "struct",
-      "name": "TCPConnectEvent",
-      "size": 24
+      "name": "ExecEvent",
+      "size": 40
     }
   ]
 }

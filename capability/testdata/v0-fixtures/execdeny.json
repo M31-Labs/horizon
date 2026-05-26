@@ -1,19 +1,15 @@
 {
   "capabilities": [
     {
-      "danger": {
-        "mode": "observe",
-        "reversibility": "none",
-        "scope": "event"
-      },
+      "danger": "block",
       "kind": "source",
       "maps": {
         "events": [],
         "read": [],
         "write": []
       },
-      "name": "kernel.file.open.observe",
-      "program": "ObserveFileOpen",
+      "name": "kernel.process.exec.deny",
+      "program": "DenyExec",
       "requirements": {
         "features": [
           "bpf_lsm"
@@ -30,19 +26,19 @@
           }
         ]
       },
-      "section": "lsm/file_open"
+      "section": "lsm/bprm_check_security"
     }
   ],
   "package": "probes",
   "programs": [
     {
-      "attach": "file_open",
+      "attach": "bprm_check_security",
       "capabilities": [
-        "kernel.file.open.observe"
+        "kernel.process.exec.deny"
       ],
       "kind": "lsm",
-      "name": "ObserveFileOpen",
-      "section": "lsm/file_open"
+      "name": "DenyExec",
+      "section": "lsm/bprm_check_security"
     }
   ],
   "requirements": {

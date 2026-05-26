@@ -1,63 +1,59 @@
 {
   "capabilities": [
     {
-      "danger": {
-        "mode": "observe",
-        "reversibility": "none",
-        "scope": "event"
-      },
+      "danger": "drop",
       "kind": "source",
       "maps": {
         "events": [],
         "read": [],
         "write": []
       },
-      "name": "kernel.file.open.observe",
-      "program": "ObserveFileOpen",
+      "name": "kernel.network.xdp.drop",
+      "program": "DropTCP",
       "requirements": {
         "features": [
-          "bpf_lsm"
+          "netdev_xdp"
         ],
-        "min_kernel": "5.7",
+        "min_kernel": "4.8",
         "permissions": [
           "bpf_program_load",
-          "lsm_admin"
+          "net_admin"
         ],
         "programs": [
           {
-            "min_kernel": "5.7",
-            "name": "lsm"
+            "min_kernel": "4.8",
+            "name": "xdp"
           }
         ]
       },
-      "section": "lsm/file_open"
+      "section": "xdp"
     }
   ],
   "package": "probes",
   "programs": [
     {
-      "attach": "file_open",
+      "attach": "",
       "capabilities": [
-        "kernel.file.open.observe"
+        "kernel.network.xdp.drop"
       ],
-      "kind": "lsm",
-      "name": "ObserveFileOpen",
-      "section": "lsm/file_open"
+      "kind": "xdp",
+      "name": "DropTCP",
+      "section": "xdp"
     }
   ],
   "requirements": {
     "features": [
-      "bpf_lsm"
+      "netdev_xdp"
     ],
-    "min_kernel": "5.7",
+    "min_kernel": "4.8",
     "permissions": [
       "bpf_program_load",
-      "lsm_admin"
+      "net_admin"
     ],
     "programs": [
       {
-        "min_kernel": "5.7",
-        "name": "lsm"
+        "min_kernel": "4.8",
+        "name": "xdp"
       }
     ]
   },

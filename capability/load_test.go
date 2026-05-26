@@ -9,11 +9,10 @@ import (
 )
 
 // validV1JSONRaw returns a minimal but valid v1 manifest as JSON bytes.
-// This uses the current Capability.Danger string field (pre-3c).
-// After 3c cuts over Danger to DangerAxes, this helper will be updated.
+// Danger is an axes object {"mode": ..., "scope": ..., "reversibility": ...}.
 func validV1JSONRaw(t *testing.T) []byte {
 	t.Helper()
-	// Build a raw JSON map for v1 shape (danger still string pre-3c).
+	// Build a raw JSON map for the v1 shape (danger is an axes object).
 	raw := `{
 		"schema": "m31labs.dev/horizon/capability/v1",
 		"package": "testpkg",
@@ -27,7 +26,7 @@ func validV1JSONRaw(t *testing.T) []byte {
 		"capabilities": [{
 			"name": "kernel.process.exec.observe",
 			"kind": "source",
-			"danger": "observe",
+			"danger": {"mode": "observe", "scope": "event", "reversibility": "none"},
 			"program": "OnExec",
 			"section": "tracepoint/sched:sched_process_exec",
 			"maps": {"read": [], "write": [], "events": []}
@@ -80,7 +79,6 @@ func TestLoadManifestAcceptsV0AndV1(t *testing.T) {
 	})
 
 	t.Run("valid v0 migrated to v1 with deprecation warning", func(t *testing.T) {
-		t.Skip("migration shim pending Subtask 3b")
 		raw := validV0JSON()
 		m, diags, err := LoadManifest(raw)
 		if err != nil {

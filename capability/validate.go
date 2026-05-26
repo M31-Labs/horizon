@@ -233,11 +233,11 @@ func validateManifestCapabilities(caps []Capability, programs map[string]Program
 		if cap.Kind != "source" {
 			return validationErrorf("capability %q kind %q is not supported", cap.Name, cap.Kind)
 		}
-		if cap.Danger == "" {
+		if cap.Danger.IsZero() {
 			return validationErrorf("capability %q danger is required", cap.Name)
 		}
-		if !validDangerLevel(cap.Danger) {
-			return validationErrorf("capability %q danger %q is not supported", cap.Name, cap.Danger)
+		if err := validateDangerAxes(cap.Danger); err != nil {
+			return validationErrorf("capability %q danger: %v", cap.Name, err)
 		}
 		if cap.Program == "" {
 			return validationErrorf("capability %q program is required", cap.Name)
@@ -337,13 +337,27 @@ func validMapKind(kind string) bool {
 	}
 }
 
-func validDangerLevel(danger string) bool {
-	switch danger {
-	case "observe", "mutate", "drop", "block", "privileged":
-		return true
+// validateDangerAxes validates that the axes triple is well-formed.
+// Valid mode values: observe, mutate, control.
+// Valid scope values: event, process, network, filesystem, system.
+// Valid reversibility values: none, restart, persistent.
+func validateDangerAxes(d DangerAxes) error {
+	switch d.Mode {
+	case "observe", "mutate", "control":
 	default:
-		return false
+		return fmt.Errorf("unsupported mode %q (want observe|mutate|control)", d.Mode)
 	}
+	switch d.Scope {
+	case "event", "process", "network", "filesystem", "system":
+	default:
+		return fmt.Errorf("unsupported scope %q (want event|process|network|filesystem|system)", d.Scope)
+	}
+	switch d.Reversibility {
+	case "none", "restart", "persistent":
+	default:
+		return fmt.Errorf("unsupported reversibility %q (want none|restart|persistent)", d.Reversibility)
+	}
+	return nil
 }
 
 func validateRequirements(reqs *Requirements) error {

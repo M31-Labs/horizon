@@ -1,25 +1,21 @@
 {
   "capabilities": [
     {
-      "danger": {
-        "mode": "observe",
-        "reversibility": "none",
-        "scope": "event"
-      },
-      "emits": "RawTPEnterEvent",
+      "danger": "observe",
+      "emits": "FexitOpenEvent",
       "kind": "source",
       "maps": {
         "events": [
-          "RawTPEnterEvents"
+          "FexitOpenEvents"
         ],
         "read": [],
         "write": []
       },
-      "name": "kernel.process.exec.observe",
-      "program": "OnExecEnter",
+      "name": "kernel.file.open.observe",
+      "program": "OnFileOpenReturn",
       "requirements": {
         "features": [
-          "tracefs"
+          "btf"
         ],
         "helpers": [
           {
@@ -39,41 +35,40 @@
         ],
         "min_kernel": "5.8",
         "permissions": [
-          "bpf_program_load",
-          "perf_event_open"
+          "bpf_program_load"
         ],
         "programs": [
           {
-            "min_kernel": "4.17",
-            "name": "raw_tp"
+            "min_kernel": "5.5",
+            "name": "fexit"
           }
         ]
       },
-      "section": "raw_tp/sched_process_exec"
+      "section": "fexit/do_filp_open"
     }
   ],
   "maps": [
     {
       "kind": "ringbuf",
-      "name": "RawTPEnterEvents",
-      "value": "RawTPEnterEvent"
+      "name": "FexitOpenEvents",
+      "value": "FexitOpenEvent"
     }
   ],
   "package": "probes",
   "programs": [
     {
-      "attach": "sched_process_exec",
+      "attach": "do_filp_open",
       "capabilities": [
-        "kernel.process.exec.observe"
+        "kernel.file.open.observe"
       ],
-      "kind": "raw_tp",
-      "name": "OnExecEnter",
-      "section": "raw_tp/sched_process_exec"
+      "kind": "fexit",
+      "name": "OnFileOpenReturn",
+      "section": "fexit/do_filp_open"
     }
   ],
   "requirements": {
     "features": [
-      "tracefs"
+      "btf"
     ],
     "helpers": [
       {
@@ -93,13 +88,12 @@
     ],
     "min_kernel": "5.8",
     "permissions": [
-      "bpf_program_load",
-      "perf_event_open"
+      "bpf_program_load"
     ],
     "programs": [
       {
-        "min_kernel": "4.17",
-        "name": "raw_tp"
+        "min_kernel": "5.5",
+        "name": "fexit"
       }
     ]
   },
@@ -115,7 +109,7 @@
         }
       ],
       "kind": "struct",
-      "name": "RawTPEnterEvent",
+      "name": "FexitOpenEvent",
       "size": 4
     }
   ]

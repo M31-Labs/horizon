@@ -1,40 +1,24 @@
 {
   "capabilities": [
     {
-      "danger": {
-        "mode": "observe",
-        "reversibility": "none",
-        "scope": "event"
-      },
-      "emits": "TCPConnectEvent",
+      "danger": "observe",
+      "emits": "UretprobeExecEvent",
       "kind": "source",
       "maps": {
         "events": [
-          "TCPConnectEvents"
+          "UretprobeExecEvents"
         ],
         "read": [],
         "write": []
       },
-      "name": "kernel.network.tcp.connect.observe",
-      "program": "OnTCPConnect",
+      "name": "kernel.userspace.exec.observe",
+      "program": "OnExecReturn",
       "requirements": {
         "features": [
-          "kprobes",
-          "tracefs"
+          "tracefs",
+          "uprobes"
         ],
         "helpers": [
-          {
-            "min_kernel": "4.1",
-            "name": "bpf_get_current_comm"
-          },
-          {
-            "min_kernel": "4.1",
-            "name": "bpf_get_current_pid_tgid"
-          },
-          {
-            "min_kernel": "4.1",
-            "name": "bpf_get_current_uid_gid"
-          },
           {
             "min_kernel": "5.8",
             "name": "bpf_ringbuf_reserve"
@@ -57,51 +41,39 @@
         ],
         "programs": [
           {
-            "min_kernel": "4.1",
-            "name": "kprobe"
+            "min_kernel": "4.3",
+            "name": "uretprobe"
           }
         ]
       },
-      "section": "kprobe/tcp_v4_connect"
+      "section": "uretprobe//usr/bin/ls:main"
     }
   ],
   "maps": [
     {
       "kind": "ringbuf",
-      "name": "TCPConnectEvents",
-      "value": "TCPConnectEvent"
+      "name": "UretprobeExecEvents",
+      "value": "UretprobeExecEvent"
     }
   ],
   "package": "probes",
   "programs": [
     {
-      "attach": "tcp_v4_connect",
+      "attach": "/usr/bin/ls:main",
       "capabilities": [
-        "kernel.network.tcp.connect.observe"
+        "kernel.userspace.exec.observe"
       ],
-      "kind": "kprobe",
-      "name": "OnTCPConnect",
-      "section": "kprobe/tcp_v4_connect"
+      "kind": "uretprobe",
+      "name": "OnExecReturn",
+      "section": "uretprobe//usr/bin/ls:main"
     }
   ],
   "requirements": {
     "features": [
-      "kprobes",
-      "tracefs"
+      "tracefs",
+      "uprobes"
     ],
     "helpers": [
-      {
-        "min_kernel": "4.1",
-        "name": "bpf_get_current_comm"
-      },
-      {
-        "min_kernel": "4.1",
-        "name": "bpf_get_current_pid_tgid"
-      },
-      {
-        "min_kernel": "4.1",
-        "name": "bpf_get_current_uid_gid"
-      },
       {
         "min_kernel": "5.8",
         "name": "bpf_ringbuf_reserve"
@@ -124,8 +96,8 @@
     ],
     "programs": [
       {
-        "min_kernel": "4.1",
-        "name": "kprobe"
+        "min_kernel": "4.3",
+        "name": "uretprobe"
       }
     ]
   },
@@ -138,21 +110,11 @@
           "name": "pid",
           "offset": 0,
           "type": "u32"
-        },
-        {
-          "name": "uid",
-          "offset": 4,
-          "type": "u32"
-        },
-        {
-          "name": "comm",
-          "offset": 8,
-          "type": "[16]u8"
         }
       ],
       "kind": "struct",
-      "name": "TCPConnectEvent",
-      "size": 24
+      "name": "UretprobeExecEvent",
+      "size": 4
     }
   ]
 }

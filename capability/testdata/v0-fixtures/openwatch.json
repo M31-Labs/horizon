@@ -1,22 +1,18 @@
 {
   "capabilities": [
     {
-      "danger": {
-        "mode": "observe",
-        "reversibility": "none",
-        "scope": "event"
-      },
-      "emits": "TCPConnectEvent",
+      "danger": "observe",
+      "emits": "OpenEvent",
       "kind": "source",
       "maps": {
         "events": [
-          "TCPConnectEvents"
+          "OpenEvents"
         ],
         "read": [],
         "write": []
       },
-      "name": "kernel.network.tcp.connect.observe",
-      "program": "OnTCPConnect",
+      "name": "kernel.file.open.observe",
+      "program": "OnOpen",
       "requirements": {
         "features": [
           "kprobes",
@@ -34,6 +30,14 @@
           {
             "min_kernel": "4.1",
             "name": "bpf_get_current_uid_gid"
+          },
+          {
+            "min_kernel": "5.5",
+            "name": "bpf_probe_read_user_str"
+          },
+          {
+            "min_kernel": "5.8",
+            "name": "bpf_ringbuf_discard"
           },
           {
             "min_kernel": "5.8",
@@ -62,26 +66,26 @@
           }
         ]
       },
-      "section": "kprobe/tcp_v4_connect"
+      "section": "kprobe/do_sys_openat2"
     }
   ],
   "maps": [
     {
       "kind": "ringbuf",
-      "name": "TCPConnectEvents",
-      "value": "TCPConnectEvent"
+      "name": "OpenEvents",
+      "value": "OpenEvent"
     }
   ],
   "package": "probes",
   "programs": [
     {
-      "attach": "tcp_v4_connect",
+      "attach": "do_sys_openat2",
       "capabilities": [
-        "kernel.network.tcp.connect.observe"
+        "kernel.file.open.observe"
       ],
       "kind": "kprobe",
-      "name": "OnTCPConnect",
-      "section": "kprobe/tcp_v4_connect"
+      "name": "OnOpen",
+      "section": "kprobe/do_sys_openat2"
     }
   ],
   "requirements": {
@@ -101,6 +105,14 @@
       {
         "min_kernel": "4.1",
         "name": "bpf_get_current_uid_gid"
+      },
+      {
+        "min_kernel": "5.5",
+        "name": "bpf_probe_read_user_str"
+      },
+      {
+        "min_kernel": "5.8",
+        "name": "bpf_ringbuf_discard"
       },
       {
         "min_kernel": "5.8",
@@ -148,11 +160,16 @@
           "name": "comm",
           "offset": 8,
           "type": "[16]u8"
+        },
+        {
+          "name": "path",
+          "offset": 24,
+          "type": "[256]u8"
         }
       ],
       "kind": "struct",
-      "name": "TCPConnectEvent",
-      "size": 24
+      "name": "OpenEvent",
+      "size": 280
     }
   ]
 }

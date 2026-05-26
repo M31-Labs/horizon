@@ -1,7 +1,11 @@
 {
   "capabilities": [
     {
-      "danger": "block",
+      "danger": {
+        "mode": "control",
+        "reversibility": "restart",
+        "scope": "process"
+      },
       "kind": "source",
       "maps": {
         "events": [],

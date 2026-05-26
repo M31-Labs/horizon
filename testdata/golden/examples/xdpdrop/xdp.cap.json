@@ -1,7 +1,11 @@
 {
   "capabilities": [
     {
-      "danger": "drop",
+      "danger": {
+        "mode": "control",
+        "reversibility": "restart",
+        "scope": "network"
+      },
       "kind": "source",
       "maps": {
         "events": [],

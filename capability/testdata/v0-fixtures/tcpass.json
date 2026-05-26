@@ -1,63 +1,59 @@
 {
   "capabilities": [
     {
-      "danger": {
-        "mode": "observe",
-        "reversibility": "none",
-        "scope": "event"
-      },
+      "danger": "observe",
       "kind": "source",
       "maps": {
         "events": [],
         "read": [],
         "write": []
       },
-      "name": "kernel.file.open.observe",
-      "program": "ObserveFileOpen",
+      "name": "kernel.network.tc.observe",
+      "program": "PassIngress",
       "requirements": {
         "features": [
-          "bpf_lsm"
+          "tc_clsact"
         ],
-        "min_kernel": "5.7",
+        "min_kernel": "4.1",
         "permissions": [
           "bpf_program_load",
-          "lsm_admin"
+          "net_admin"
         ],
         "programs": [
           {
-            "min_kernel": "5.7",
-            "name": "lsm"
+            "min_kernel": "4.1",
+            "name": "tc"
           }
         ]
       },
-      "section": "lsm/file_open"
+      "section": "tc/ingress"
     }
   ],
   "package": "probes",
   "programs": [
     {
-      "attach": "file_open",
+      "attach": "ingress",
       "capabilities": [
-        "kernel.file.open.observe"
+        "kernel.network.tc.observe"
       ],
-      "kind": "lsm",
-      "name": "ObserveFileOpen",
-      "section": "lsm/file_open"
+      "kind": "tc",
+      "name": "PassIngress",
+      "section": "tc/ingress"
     }
   ],
   "requirements": {
     "features": [
-      "bpf_lsm"
+      "tc_clsact"
     ],
-    "min_kernel": "5.7",
+    "min_kernel": "4.1",
     "permissions": [
       "bpf_program_load",
-      "lsm_admin"
+      "net_admin"
     ],
     "programs": [
       {
-        "min_kernel": "5.7",
-        "name": "lsm"
+        "min_kernel": "4.1",
+        "name": "tc"
       }
     ]
   },

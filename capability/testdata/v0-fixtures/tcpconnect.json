@@ -1,11 +1,7 @@
 {
   "capabilities": [
     {
-      "danger": {
-        "mode": "observe",
-        "reversibility": "none",
-        "scope": "event"
-      },
+      "danger": "observe",
       "emits": "TCPConnectEvent",
       "kind": "source",
       "maps": {

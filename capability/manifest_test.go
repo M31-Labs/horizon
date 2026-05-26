@@ -10,7 +10,7 @@ import (
 func TestValidateManifest(t *testing.T) {
 	m := NewManifest("probes")
 	m.Programs = append(m.Programs, Program{Name: "OnExec", Kind: "tracepoint", Attach: "sched:sched_process_exec", Section: "tracepoint/sched:sched_process_exec", Capabilities: []string{"kernel.process.exec.observe"}})
-	m.Capabilities = append(m.Capabilities, Capability{Name: "kernel.process.exec.observe", Kind: "source", Danger: "observe", Program: "OnExec", Section: "tracepoint/sched:sched_process_exec"})
+	m.Capabilities = append(m.Capabilities, Capability{Name: "kernel.process.exec.observe", Kind: "source", Danger: DangerAxes{Mode: "observe", Scope: "event", Reversibility: "none"}, Program: "OnExec", Section: "tracepoint/sched:sched_process_exec"})
 	if err := Validate(m); err != nil {
 		t.Fatalf("Validate: %v", err)
 	}
@@ -22,7 +22,7 @@ func TestValidateAllowsLegacyManifestWithoutTypeSchemas(t *testing.T) {
 	m.Capabilities = append(m.Capabilities, Capability{
 		Name:    "kernel.process.exec.observe",
 		Kind:    "source",
-		Danger:  "observe",
+		Danger:  DangerAxes{Mode: "observe", Scope: "event", Reversibility: "none"},
 		Program: "OnExec",
 		Section: "tracepoint/sched:sched_process_exec",
 		Emits:   "Event",
@@ -508,12 +508,12 @@ func TestValidateRejectsUnsupportedEnumValues(t *testing.T) {
 		"capability kind": {
 			Schema:       SchemaV0,
 			Package:      "probes",
-			Capabilities: []Capability{{Name: "kernel.process.exec.observe", Kind: "sink", Danger: "observe", Program: "OnExec", Section: "tracepoint/sched/sched_process_exec"}},
+			Capabilities: []Capability{{Name: "kernel.process.exec.observe", Kind: "sink", Danger: DangerAxes{Mode: "observe", Scope: "event", Reversibility: "none"}, Program: "OnExec", Section: "tracepoint/sched/sched_process_exec"}},
 		},
 		"danger": {
 			Schema:       SchemaV0,
 			Package:      "probes",
-			Capabilities: []Capability{{Name: "kernel.process.exec.observe", Kind: "source", Danger: "destroy", Program: "OnExec", Section: "tracepoint/sched/sched_process_exec"}},
+			Capabilities: []Capability{{Name: "kernel.process.exec.observe", Kind: "source", Danger: DangerAxes{Mode: "destroy", Scope: "event", Reversibility: "none"}, Program: "OnExec", Section: "tracepoint/sched/sched_process_exec"}},
 		},
 		"capability namespace": {
 			Schema:   SchemaV0,
@@ -522,7 +522,7 @@ func TestValidateRejectsUnsupportedEnumValues(t *testing.T) {
 			Capabilities: []Capability{{
 				Name:    "kernel.process.exec.observe",
 				Kind:    "source",
-				Danger:  "observe",
+				Danger:  DangerAxes{Mode: "observe", Scope: "event", Reversibility: "none"},
 				Program: "Drop",
 				Section: "xdp",
 			}},
@@ -592,7 +592,7 @@ func TestValidateRejectsUnsupportedEnumValues(t *testing.T) {
 			Capabilities: []Capability{{
 				Name:    "kernel.process.exec.observe",
 				Kind:    "source",
-				Danger:  "observe",
+				Danger:  DangerAxes{Mode: "observe", Scope: "event", Reversibility: "none"},
 				Program: "OnExec",
 				Section: "tracepoint/sched/sched_process_exec",
 				Requirements: &Requirements{
@@ -620,9 +620,9 @@ func TestValidateRejectsUnsupportedEnumValues(t *testing.T) {
 }
 
 func TestValidateRejectsProgramCapabilityIndexMismatches(t *testing.T) {
-	execCap := Capability{Name: "kernel.process.exec.observe", Kind: "source", Danger: "observe", Program: "OnExec", Section: "tracepoint/sched:sched_process_exec"}
-	countCap := Capability{Name: "kernel.process.exec.count", Kind: "source", Danger: "observe", Program: "OnExec", Section: "tracepoint/sched:sched_process_exec"}
-	dropCap := Capability{Name: "kernel.network.xdp.drop", Kind: "source", Danger: "drop", Program: "Drop", Section: "xdp"}
+	execCap := Capability{Name: "kernel.process.exec.observe", Kind: "source", Danger: DangerAxes{Mode: "observe", Scope: "event", Reversibility: "none"}, Program: "OnExec", Section: "tracepoint/sched:sched_process_exec"}
+	countCap := Capability{Name: "kernel.process.exec.count", Kind: "source", Danger: DangerAxes{Mode: "observe", Scope: "event", Reversibility: "none"}, Program: "OnExec", Section: "tracepoint/sched:sched_process_exec"}
+	dropCap := Capability{Name: "kernel.network.xdp.drop", Kind: "source", Danger: DangerAxes{Mode: "control", Scope: "network", Reversibility: "restart"}, Program: "Drop", Section: "xdp"}
 	tests := map[string]Manifest{
 		"missing program capability list": {
 			Schema:       SchemaV0,
@@ -691,7 +691,7 @@ func TestValidateAllowsPerCPUAndLRUMapKinds(t *testing.T) {
 	m.Capabilities = append(m.Capabilities, Capability{
 		Name:    "kernel.process.exec.count",
 		Kind:    "source",
-		Danger:  "observe",
+		Danger:  DangerAxes{Mode: "observe", Scope: "event", Reversibility: "none"},
 		Program: "OnExec",
 		Section: "tracepoint/sched:sched_process_exec",
 		Maps:    MapAccess{Read: []string{"Counts", "Recent"}, Write: []string{"Counts", "Slots", "Recent", "RecentByCPU"}},
@@ -709,7 +709,7 @@ func TestValidateRejectsMissingTypeSchema(t *testing.T) {
 	m.Capabilities = append(m.Capabilities, Capability{
 		Name:    "kernel.process.exec.observe",
 		Kind:    "source",
-		Danger:  "observe",
+		Danger:  DangerAxes{Mode: "observe", Scope: "event", Reversibility: "none"},
 		Program: "OnExec",
 		Section: "tracepoint/sched:sched_process_exec",
 		Emits:   "Event",

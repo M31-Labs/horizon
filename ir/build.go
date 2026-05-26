@@ -340,14 +340,13 @@ func buildCapabilities(decl ast.FuncDecl, fn Function, maps []Map, capabilityAli
 		if attr.Name != "capability" {
 			continue
 		}
-		name, danger, axes := capabilityArgWithAxes(attr, capabilityAliases)
+		name, danger, _ := capabilityArgWithAxes(attr, capabilityAliases)
 		floor := moreDangerous(inferDanger(fn), capabilityNameDanger(name))
 		danger = declaredDanger(danger, floor)
-		// If axes were not explicitly set via the alias or triple form, derive
-		// them from the resolved danger level.
-		if axes == (DangerAxes{}) {
-			axes = danger.Axes()
-		}
+		// Always derive axes from the final (possibly raised) danger level.
+		// Axes from the alias declaration are discarded if danger was raised,
+		// because stale axes would misrepresent the effective capability risk.
+		axes := danger.Axes()
 		access := mapAccesses(fn, maps)
 		out = append(out, Capability{
 			Name:    name,

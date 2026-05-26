@@ -32,10 +32,25 @@ func FromIR(program ir.Program) Manifest {
 		})
 	}
 	for _, cap := range program.Capabilities {
+		axes := cap.Axes
+		if axes.Mode == "" && axes.Scope == "" && axes.Reversibility == "" {
+			// Fall back to deriving axes from the flat DangerLevel for
+			// callers that haven't yet set Axes explicitly.
+			irAxes := cap.Danger.Axes()
+			axes = ir.DangerAxes{
+				Mode:          irAxes.Mode,
+				Scope:         irAxes.Scope,
+				Reversibility: irAxes.Reversibility,
+			}
+		}
 		out := Capability{
-			Name:    cap.Name,
-			Kind:    string(cap.Kind),
-			Danger:  string(cap.Danger),
+			Name: cap.Name,
+			Kind: string(cap.Kind),
+			Danger: DangerAxes{
+				Mode:          axes.Mode,
+				Scope:         axes.Scope,
+				Reversibility: axes.Reversibility,
+			},
 			Program: cap.Program,
 			Section: cap.Section,
 			Emits:   cap.Emits,

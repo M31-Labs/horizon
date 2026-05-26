@@ -44,8 +44,9 @@ func TestCapabilitiesWritesManifestForExecwatch(t *testing.T) {
 	if found == nil {
 		t.Fatalf("capability %q not found in manifest: %#v", wantName, manifest.Capabilities)
 	}
-	if found.Danger != "observe" {
-		t.Fatalf("capability %q danger = %q, want %q", wantName, found.Danger, "observe")
+	wantDanger := capability.DangerAxes{Mode: "observe", Scope: "event", Reversibility: "none"}
+	if found.Danger != wantDanger {
+		t.Fatalf("capability %q danger = %+v, want %+v", wantName, found.Danger, wantDanger)
 	}
 	if found.Program != "OnExec" {
 		t.Fatalf("capability %q program = %q, want %q", wantName, found.Program, "OnExec")

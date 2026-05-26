@@ -1,63 +1,59 @@
 {
   "capabilities": [
     {
-      "danger": {
-        "mode": "observe",
-        "reversibility": "none",
-        "scope": "event"
-      },
+      "danger": "block",
       "kind": "source",
       "maps": {
         "events": [],
         "read": [],
         "write": []
       },
-      "name": "kernel.file.open.observe",
-      "program": "ObserveFileOpen",
+      "name": "kernel.network.connect.block",
+      "program": "BlockSMTP",
       "requirements": {
         "features": [
-          "bpf_lsm"
+          "cgroup_v2"
         ],
-        "min_kernel": "5.7",
+        "min_kernel": "4.17",
         "permissions": [
           "bpf_program_load",
-          "lsm_admin"
+          "cgroup_admin"
         ],
         "programs": [
           {
-            "min_kernel": "5.7",
-            "name": "lsm"
+            "min_kernel": "4.17",
+            "name": "cgroup"
           }
         ]
       },
-      "section": "lsm/file_open"
+      "section": "cgroup/connect4"
     }
   ],
   "package": "probes",
   "programs": [
     {
-      "attach": "file_open",
+      "attach": "connect4",
       "capabilities": [
-        "kernel.file.open.observe"
+        "kernel.network.connect.block"
       ],
-      "kind": "lsm",
-      "name": "ObserveFileOpen",
-      "section": "lsm/file_open"
+      "kind": "cgroup",
+      "name": "BlockSMTP",
+      "section": "cgroup/connect4"
     }
   ],
   "requirements": {
     "features": [
-      "bpf_lsm"
+      "cgroup_v2"
     ],
-    "min_kernel": "5.7",
+    "min_kernel": "4.17",
     "permissions": [
       "bpf_program_load",
-      "lsm_admin"
+      "cgroup_admin"
     ],
     "programs": [
       {
-        "min_kernel": "5.7",
-        "name": "lsm"
+        "min_kernel": "4.17",
+        "name": "cgroup"
       }
     ]
   },

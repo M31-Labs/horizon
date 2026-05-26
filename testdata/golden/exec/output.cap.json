@@ -16,7 +16,11 @@
     {
       "name": "kernel.process.exec.observe",
       "kind": "source",
-      "danger": "observe",
+      "danger": {
+        "mode": "observe",
+        "scope": "event",
+        "reversibility": "none"
+      },
       "program": "OnExec",
       "section": "tracepoint/sched:sched_process_exec",
       "emits": "ExecEvent",

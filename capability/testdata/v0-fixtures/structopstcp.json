@@ -1,11 +1,7 @@
 {
   "capabilities": [
     {
-      "danger": {
-        "mode": "mutate",
-        "reversibility": "restart",
-        "scope": "process"
-      },
+      "danger": "mutate",
       "kind": "source",
       "maps": {
         "events": [],

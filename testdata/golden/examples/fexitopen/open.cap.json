@@ -1,7 +1,11 @@
 {
   "capabilities": [
     {
-      "danger": "observe",
+      "danger": {
+        "mode": "observe",
+        "reversibility": "none",
+        "scope": "event"
+      },
       "emits": "FexitOpenEvent",
       "kind": "source",
       "maps": {

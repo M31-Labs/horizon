@@ -1,40 +1,23 @@
 {
   "capabilities": [
     {
-      "danger": {
-        "mode": "observe",
-        "reversibility": "none",
-        "scope": "event"
-      },
-      "emits": "TCPConnectEvent",
+      "danger": "observe",
+      "emits": "RawTPEnterEvent",
       "kind": "source",
       "maps": {
         "events": [
-          "TCPConnectEvents"
+          "RawTPEnterEvents"
         ],
         "read": [],
         "write": []
       },
-      "name": "kernel.network.tcp.connect.observe",
-      "program": "OnTCPConnect",
+      "name": "kernel.process.exec.observe",
+      "program": "OnExecEnter",
       "requirements": {
         "features": [
-          "kprobes",
           "tracefs"
         ],
         "helpers": [
-          {
-            "min_kernel": "4.1",
-            "name": "bpf_get_current_comm"
-          },
-          {
-            "min_kernel": "4.1",
-            "name": "bpf_get_current_pid_tgid"
-          },
-          {
-            "min_kernel": "4.1",
-            "name": "bpf_get_current_uid_gid"
-          },
           {
             "min_kernel": "5.8",
             "name": "bpf_ringbuf_reserve"
@@ -57,51 +40,38 @@
         ],
         "programs": [
           {
-            "min_kernel": "4.1",
-            "name": "kprobe"
+            "min_kernel": "4.17",
+            "name": "raw_tp"
           }
         ]
       },
-      "section": "kprobe/tcp_v4_connect"
+      "section": "raw_tp/sched_process_exec"
     }
   ],
   "maps": [
     {
       "kind": "ringbuf",
-      "name": "TCPConnectEvents",
-      "value": "TCPConnectEvent"
+      "name": "RawTPEnterEvents",
+      "value": "RawTPEnterEvent"
     }
   ],
   "package": "probes",
   "programs": [
     {
-      "attach": "tcp_v4_connect",
+      "attach": "sched_process_exec",
       "capabilities": [
-        "kernel.network.tcp.connect.observe"
+        "kernel.process.exec.observe"
       ],
-      "kind": "kprobe",
-      "name": "OnTCPConnect",
-      "section": "kprobe/tcp_v4_connect"
+      "kind": "raw_tp",
+      "name": "OnExecEnter",
+      "section": "raw_tp/sched_process_exec"
     }
   ],
   "requirements": {
     "features": [
-      "kprobes",
       "tracefs"
     ],
     "helpers": [
-      {
-        "min_kernel": "4.1",
-        "name": "bpf_get_current_comm"
-      },
-      {
-        "min_kernel": "4.1",
-        "name": "bpf_get_current_pid_tgid"
-      },
-      {
-        "min_kernel": "4.1",
-        "name": "bpf_get_current_uid_gid"
-      },
       {
         "min_kernel": "5.8",
         "name": "bpf_ringbuf_reserve"
@@ -124,8 +94,8 @@
     ],
     "programs": [
       {
-        "min_kernel": "4.1",
-        "name": "kprobe"
+        "min_kernel": "4.17",
+        "name": "raw_tp"
       }
     ]
   },
@@ -138,21 +108,11 @@
           "name": "pid",
           "offset": 0,
           "type": "u32"
-        },
-        {
-          "name": "uid",
-          "offset": 4,
-          "type": "u32"
-        },
-        {
-          "name": "comm",
-          "offset": 8,
-          "type": "[16]u8"
         }
       ],
       "kind": "struct",
-      "name": "TCPConnectEvent",
-      "size": 24
+      "name": "RawTPEnterEvent",
+      "size": 4
     }
   ]
 }
