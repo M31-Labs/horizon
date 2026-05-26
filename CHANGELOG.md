@@ -16,6 +16,12 @@ All notable changes to Horizon are documented in this file. Format follows
   `types/` still rejects user-written aliases at source level; the
   validate-layer machinery exists so that when #13 relaxes HZN1447 for
   helper-arg passes, the state machine is ready. (roadmap: #1)
+- Validate-layer nil-check recognition (ringbuf, maps, packet) now
+  handles `&&`-chained comparisons: `if x != nil && y != nil { ... }`
+  promotes BOTH `x` and `y` to live in the then-arm. `||` disjunctions
+  remain conservatively NOT promoted (only one disjunct may hold).
+  DeMorgan equivalences (`!(x == nil)`) and mixed-op chains deferred
+  to v0.3. (roadmap: #2)
 
 ### Added
 - `hzn build` and `hzn workbench -compile` now accept `-clang-timeout=<duration>` and read `HZN_CLANG_TIMEOUT` from the environment. Default remains 30s. (roadmap: #11)
