@@ -146,12 +146,23 @@ func declarePackageName(diags *[]diag.Diagnostic, env *Env, name string, decl De
 		return false
 	}
 	if prev, ok := env.Decl(name); ok {
+		prevSpan := prev.GetSpan()
+		curSpan := decl.GetSpan()
+		var note string
+		if prevSpan.File != "" && prevSpan.File != curSpan.File {
+			// Cross-file duplicate: surface the prior file path so users can
+			// navigate to the first declaration across package files
+			// (roadmap #21 — same-package multi-file aggregation rules).
+			note = fmt.Sprintf("previous declaration at %s:%d", prevSpan.File, prevSpan.Start.Line)
+		} else {
+			note = fmt.Sprintf("previous declaration at line %d", prevSpan.Start.Line)
+		}
 		*diags = append(*diags, diag.Diagnostic{
 			Code:     "HZN1002",
 			Severity: diag.SeverityError,
 			Message:  fmt.Sprintf("duplicate declaration %q", name),
-			Primary:  decl.GetSpan(),
-			Notes:    []string{fmt.Sprintf("previous declaration at line %d", prev.GetSpan().Start.Line)},
+			Primary:  curSpan,
+			Notes:    []string{note},
 		})
 		return false
 	}
