@@ -49,9 +49,14 @@ type PacketHeaderSite struct {
 	Helper   string
 }
 
-// StackLocalSite is a var_decl whose declared type is an aggregate (struct or
-// fixed-length array), or a short_var whose value is a struct literal. These
-// are the sites that consume eBPF stack space.
+// StackLocalSite identifies a stack-local aggregate declaration. NOTE: today
+// Collect only flags `short_var` with a `struct_lit` RHS and `var_decl` with
+// an aggregate type. `validate/stack.go` is broader — it also captures
+// short_vars whose RHS is a call/expression returning an aggregate by value.
+// Task 3b must decide whether to extend Site detection (extending this struct
+// with an inferred Type field) or to keep stack.go's separate type-inference
+// pass. Current examples do not exercise the broader case, so the contract
+// test does not surface this.
 type StackLocalSite struct {
 	Function *ir.Function
 	Stmt     *ir.Statement
@@ -88,87 +93,87 @@ func Collect(program ir.Program) Sites {
 
 func collectStmts(fn *ir.Function, stmts []ir.Statement, ringMaps map[string]bool, lookupMaps map[string]bool, sites *Sites) {
 	for i := range stmts {
-		stmt := &stmts[i]
-		switch stmt.Kind {
-		case "for":
-			sites.Loops = append(sites.Loops, LoopSite{Function: fn, Stmt: stmt})
-
-		case "short_var":
-			if mapName, ok := reserveCall(stmt.Value); ok && ringMaps[mapName] {
-				sites.RingbufReserve = append(sites.RingbufReserve, RingbufReserveSite{
-					Function: fn,
-					Stmt:     stmt,
-					MapName:  mapName,
-				})
-			} else if mapName, ok := mapLookupCall(stmt.Value); ok && lookupMaps[mapName] {
-				sites.MapLookup = append(sites.MapLookup, MapLookupSite{
-					Function: fn,
-					Stmt:     stmt,
-					MapName:  mapName,
-				})
-			} else if helper, ok := xdpPacketHeaderCall(stmt.Value); ok {
-				sites.PacketHeader = append(sites.PacketHeader, PacketHeaderSite{
-					Function: fn,
-					Stmt:     stmt,
-					Helper:   helper,
-				})
-			} else if stmt.Value != nil && stmt.Value.Kind == "struct_lit" {
-				sites.StackLocals = append(sites.StackLocals, StackLocalSite{
-					Function: fn,
-					Stmt:     stmt,
-				})
-			}
-
-		case "var_decl":
-			if isAggregateType(stmt.Type) {
-				sites.StackLocals = append(sites.StackLocals, StackLocalSite{
-					Function: fn,
-					Stmt:     stmt,
-				})
-			}
-		}
-
-		// Collect helper call sites from all expressions within this statement.
-		collectHelperCallExprs(fn, stmt, sites)
-
-		// Recurse into all nested statement bodies.
-		if len(stmt.Then) > 0 {
-			collectStmts(fn, stmt.Then, ringMaps, lookupMaps, sites)
-		}
-		if len(stmt.Else) > 0 {
-			collectStmts(fn, stmt.Else, ringMaps, lookupMaps, sites)
-		}
-		if len(stmt.Body) > 0 {
-			collectStmts(fn, stmt.Body, ringMaps, lookupMaps, sites)
-		}
-		for _, c := range stmt.Cases {
-			collectStmts(fn, c.Body, ringMaps, lookupMaps, sites)
-		}
-		// Recurse into for-loop init and post (single-statement sub-trees).
-		if stmt.Kind == "for" {
-			if stmt.Init != nil {
-				collectStmts(fn, []ir.Statement{*stmt.Init}, ringMaps, lookupMaps, sites)
-			}
-			if stmt.Post != nil {
-				collectStmts(fn, []ir.Statement{*stmt.Post}, ringMaps, lookupMaps, sites)
-			}
-		}
+		collectStmt(fn, &stmts[i], ringMaps, lookupMaps, sites)
 	}
 }
 
-// collectHelperCallExprs walks all expressions reachable from stmt and appends
-// HelperCallSite entries for each bpf.* call found.
+func collectStmt(fn *ir.Function, stmt *ir.Statement, ringMaps map[string]bool, lookupMaps map[string]bool, sites *Sites) {
+	switch stmt.Kind {
+	case "for":
+		sites.Loops = append(sites.Loops, LoopSite{Function: fn, Stmt: stmt})
+
+	case "short_var":
+		if mapName, ok := reserveCall(stmt.Value); ok && ringMaps[mapName] {
+			sites.RingbufReserve = append(sites.RingbufReserve, RingbufReserveSite{
+				Function: fn,
+				Stmt:     stmt,
+				MapName:  mapName,
+			})
+		} else if mapName, ok := mapLookupCall(stmt.Value); ok && lookupMaps[mapName] {
+			sites.MapLookup = append(sites.MapLookup, MapLookupSite{
+				Function: fn,
+				Stmt:     stmt,
+				MapName:  mapName,
+			})
+		} else if helper, ok := xdpPacketHeaderCall(stmt.Value); ok {
+			sites.PacketHeader = append(sites.PacketHeader, PacketHeaderSite{
+				Function: fn,
+				Stmt:     stmt,
+				Helper:   helper,
+			})
+		} else if stmt.Value != nil && stmt.Value.Kind == "struct_lit" {
+			sites.StackLocals = append(sites.StackLocals, StackLocalSite{
+				Function: fn,
+				Stmt:     stmt,
+			})
+		}
+
+	case "var_decl":
+		if isAggregateType(stmt.Type) {
+			sites.StackLocals = append(sites.StackLocals, StackLocalSite{
+				Function: fn,
+				Stmt:     stmt,
+			})
+		}
+	}
+
+	// Collect helper call sites from all expressions within this statement.
+	collectHelperCallExprs(fn, stmt, sites)
+
+	// Recurse into Init and Post directly using the real pointer — covers both
+	// for-loop init/post and if-init (C1 fix). Using the pointer avoids creating
+	// a temporary copy slice that would break pointer identity (C2 fix).
+	if stmt.Init != nil {
+		collectStmt(fn, stmt.Init, ringMaps, lookupMaps, sites)
+	}
+	if stmt.Post != nil {
+		collectStmt(fn, stmt.Post, ringMaps, lookupMaps, sites)
+	}
+
+	// Recurse into all nested statement bodies.
+	if len(stmt.Then) > 0 {
+		collectStmts(fn, stmt.Then, ringMaps, lookupMaps, sites)
+	}
+	if len(stmt.Else) > 0 {
+		collectStmts(fn, stmt.Else, ringMaps, lookupMaps, sites)
+	}
+	if len(stmt.Body) > 0 {
+		collectStmts(fn, stmt.Body, ringMaps, lookupMaps, sites)
+	}
+	for ci := range stmt.Cases {
+		collectStmts(fn, stmt.Cases[ci].Body, ringMaps, lookupMaps, sites)
+	}
+}
+
+// collectHelperCallExprs walks all expressions directly owned by stmt and
+// appends HelperCallSite entries for each bpf.* call found. It does NOT
+// recurse into stmt.Init or stmt.Post — collectStmt handles those via direct
+// pointer recursion to avoid double-traversal and to preserve pointer identity.
 func collectHelperCallExprs(fn *ir.Function, stmt *ir.Statement, sites *Sites) {
 	collectHelperExpr(fn, stmt.Value, sites)
 	collectHelperExpr(fn, stmt.Target, sites)
 	collectHelperExpr(fn, stmt.Expr, sites)
 	collectHelperExpr(fn, stmt.Cond, sites)
-	if stmt.Init != nil {
-		collectHelperCallExprs(fn, stmt.Init, sites)
-	}
-	if stmt.Post != nil {
-		collectHelperCallExprs(fn, stmt.Post, sites)
-	}
 }
 
 func collectHelperExpr(fn *ir.Function, expr *ir.Expr, sites *Sites) {

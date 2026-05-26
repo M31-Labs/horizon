@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"m31labs.dev/horizon/compiler"
+	"m31labs.dev/horizon/ir"
 	"m31labs.dev/horizon/validate"
 )
 
@@ -111,17 +112,95 @@ func TestCollectFindsPacketHeaderSites(t *testing.T) {
 	}
 }
 
-// TestCollectLoopSites documents that no current example contains a for loop.
-// When a loop-bearing example is added, this test should be updated to assert
-// len(sites.Loops) > 0 on that fixture.
-func TestCollectLoopSites(t *testing.T) {
-	t.Skip("no current example contains a for loop; update when one is added")
+// TestCollectFindsLoopSiteFromSyntheticFixture verifies that Collect detects
+// a for-statement and records a LoopSite for it.
+func TestCollectFindsLoopSiteFromSyntheticFixture(t *testing.T) {
+	prog := ir.Program{
+		Functions: []ir.Function{{
+			Name: "fnWithLoop",
+			Body: []ir.Block{{
+				Statements: []ir.Statement{{
+					Kind: "for",
+				}},
+			}},
+		}},
+	}
+	sites := validate.Collect(prog)
+	if len(sites.Loops) != 1 {
+		t.Fatalf("want 1 loop site, got %d", len(sites.Loops))
+	}
 }
 
-// TestCollectStackLocalSites documents that no current example declares a
-// stack-allocated struct or array local via a var statement. All struct data
-// in current examples lives behind ringbuf reservations (pointer, no stack cost).
-// Update this test when an example with a direct var-decl aggregate is added.
-func TestCollectStackLocalSites(t *testing.T) {
-	t.Skip("no current example uses var-decl aggregate stack locals; update when one is added")
+// TestCollectFindsStackLocalSiteFromSyntheticFixture verifies that Collect
+// detects a var_decl with an aggregate (non-scalar named) type and records a
+// StackLocalSite for it.
+func TestCollectFindsStackLocalSiteFromSyntheticFixture(t *testing.T) {
+	prog := ir.Program{
+		Functions: []ir.Function{{
+			Name: "fnWithStruct",
+			Body: []ir.Block{{
+				Statements: []ir.Statement{{
+					Kind: "var_decl",
+					Name: "evt",
+					Type: ir.Type{Name: "MyEvent"},
+				}},
+			}},
+		}},
+	}
+	sites := validate.Collect(prog)
+	if len(sites.StackLocals) != 1 {
+		t.Fatalf("want 1 stack local site, got %d", len(sites.StackLocals))
+	}
+}
+
+// TestCollectRecursesIntoIfInit verifies C1 (if.Init is traversed) and C2
+// (the Stmt pointer in RingbufReserveSite is the original Init pointer, not a
+// pointer into a temporary copy). It constructs an if-statement whose Init
+// slot holds a ringbuf reserve short_var.
+func TestCollectRecursesIntoIfInit(t *testing.T) {
+	ringMap := ir.Map{Name: "Events", Kind: ir.MapKindRingbuf}
+
+	// Construct the expression for: Events.reserve()
+	// reserveCall expects: call { Func: selector { Operand: ident{Name:"Events"}, Field:"reserve" } }
+	reserveExpr := &ir.Expr{
+		Kind: "call",
+		Func: &ir.Expr{
+			Kind:    "selector",
+			Operand: &ir.Expr{Kind: "ident", Name: "Events"},
+			Field:   "reserve",
+		},
+	}
+
+	// The init statement: x := Events.reserve()
+	initStmt := &ir.Statement{
+		Kind:  "short_var",
+		Name:  "x",
+		Value: reserveExpr,
+	}
+
+	prog := ir.Program{
+		Maps: []ir.Map{ringMap},
+		Functions: []ir.Function{{
+			Name: "fnIfInit",
+			Body: []ir.Block{{
+				Statements: []ir.Statement{{
+					Kind: "if",
+					Init: initStmt,
+				}},
+			}},
+		}},
+	}
+
+	sites := validate.Collect(prog)
+
+	// C1: the site must be found at all.
+	if len(sites.RingbufReserve) != 1 {
+		t.Fatalf("ringbuf reserve in if.Init not found; got %d sites (C1 broken)", len(sites.RingbufReserve))
+	}
+
+	// C2: the recorded Stmt pointer must be the original initStmt pointer,
+	// not a pointer into a temporary copy slice.
+	if sites.RingbufReserve[0].Stmt != initStmt {
+		t.Fatal("RingbufReserveSite.Stmt is not the original Init pointer (C2 broken)")
+	}
 }
