@@ -32,6 +32,8 @@ jobs:
           go-version: '1.24.x'
       - name: Run Go CI
         run: make ci-go
+      - name: Parser fuzz (short)
+        run: go test ./parser -run=^$ -fuzz=FuzzParse -fuzztime=60s
       - name: Install clang/libbpf dependencies
         run: |
           sudo apt-get update -qq

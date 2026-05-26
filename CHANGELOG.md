@@ -13,6 +13,7 @@ All notable changes to Horizon are documented in this file. Format follows
 ### Added
 - `hzn build` and `hzn workbench -compile` now accept `-clang-timeout=<duration>` and read `HZN_CLANG_TIMEOUT` from the environment. Default remains 30s. (roadmap: #11)
 - Golden-snapshot tests for every example's full `hzn workbench` output (C + manifest + bindings + diagnostics + report). Regenerate with `make golden-update`. (roadmap: #16)
+- `parser.FuzzParse` Go-native fuzz target, seeded from `examples/`. Runs 60s per PR in CI; longer fuzz budgets available out-of-band. Contract: parser never panics on any input. (roadmap: #17)
 
 ## [v0.1.2] — 2026-05-25
 
