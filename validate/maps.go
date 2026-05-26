@@ -10,10 +10,61 @@ import (
 )
 
 // AnalyzeMaps runs the maps validator's rule logic over pre-collected sites.
-// Internally delegates to ValidateMaps for now; migrated to consume sites
-// directly in a follow-up commit within this task.
+// Schema validation (map config, max_entries) does not touch the IR and runs
+// unconditionally. Lookup nil-check analysis (the branch-aware state machine in
+// validateTypedMapLookups) re-walks per-function but uses sites.MapLookup as the
+// index to avoid iterating all program functions — only functions with at least
+// one map lookup site are analyzed.
 func AnalyzeMaps(program ir.Program, sites Sites) []diag.Diagnostic {
-	return ValidateMaps(program)
+	var diags []diag.Diagnostic
+	for _, m := range program.Maps {
+		switch m.Kind {
+		case ir.MapKindRingbuf:
+			if m.Val.Name == "" {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN2400",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("ringbuf map %q is missing a value type", m.Name),
+				})
+			}
+		case ir.MapKindHash, ir.MapKindArray, ir.MapKindPerCPUHash, ir.MapKindPerCPUArray, ir.MapKindLRUHash, ir.MapKindLRUPerCPU:
+			if m.Key.Name == "" || m.Val.Name == "" {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN2401",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("%s map %q requires key and value types", m.Kind, m.Name),
+				})
+			}
+		default:
+			diags = append(diags, diag.Diagnostic{
+				Code:     "HZN2402",
+				Severity: diag.SeverityError,
+				Message:  fmt.Sprintf("unsupported map kind %q", m.Kind),
+			})
+		}
+		diags = append(diags, validateMapMaxEntries(m)...)
+	}
+
+	// Build the lookup-map registry for the state machine.
+	lookupMaps := map[string]ir.Map{}
+	for _, m := range program.Maps {
+		if m.Kind.IsLookup() {
+			lookupMaps[m.Name] = m
+		}
+	}
+	if len(lookupMaps) > 0 {
+		// Use sites.MapLookup as the index: only functions that hold at least one
+		// map-lookup site need nil-check analysis.
+		seen := map[*ir.Function]bool{}
+		for _, site := range sites.MapLookup {
+			if seen[site.Function] {
+				continue
+			}
+			seen[site.Function] = true
+			diags = append(diags, validateTypedMapLookups(*site.Function, lookupMaps)...)
+		}
+	}
+	return diags
 }
 
 func ValidateMaps(program ir.Program) []diag.Diagnostic {
