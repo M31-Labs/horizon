@@ -46,11 +46,36 @@ func FromPackages(root ast.Package, deps []ast.Package, graph ImportGraph) (Prog
 	diags = append(diags, rootDiags...)
 
 	depPrograms := make([]Program, 0, len(deps))
+	depStructsByAlias := map[string]map[string]bool{}
 	for _, dep := range deps {
 		alias := aliasForPackage(dep, graph)
 		depProg, depDiags := lowerPackage(dep, alias)
 		diags = append(diags, depDiags...)
 		depPrograms = append(depPrograms, depProg)
+		if alias == "" {
+			continue
+		}
+		if depStructsByAlias[alias] == nil {
+			depStructsByAlias[alias] = map[string]bool{}
+		}
+		for _, s := range depProg.Structs {
+			depStructsByAlias[alias][s.Name] = true
+		}
+	}
+
+	// Rewrite cross-package qualified type references (`events.ExecEvent`) in
+	// the root program to their bare form (`ExecEvent`). The merged IR keeps
+	// struct identity through Origin tags; emitc and validate look up
+	// declarations by their bare Name, so leaving `<alias>.<TypeName>` strings
+	// in Type.Name would break downstream lookups. We rewrite only when the
+	// alias is a known dependency import AND the suffix matches a struct
+	// actually declared in that dep — references whose suffix is unknown stay
+	// untouched so HZN1558 (already emitted by the type checker) still has a
+	// recognizable name to report against. (roadmap #20 Phase 2 Subtask 6b
+	// follow-up — the type checker validates qualified refs but does not
+	// rewrite them.)
+	if len(depStructsByAlias) > 0 {
+		rewriteRootQualifiedTypes(&rootProgram, depStructsByAlias)
 	}
 
 	all := make([]Program, 0, 1+len(depPrograms))
@@ -60,6 +85,95 @@ func FromPackages(root ast.Package, deps []ast.Package, graph ImportGraph) (Prog
 	merged, mergeDiags := MergeWithDiagnostics(all...)
 	diags = append(diags, mergeDiags...)
 	return merged, diags
+}
+
+// rewriteRootQualifiedTypes walks every Type in the root program and, when a
+// Type.Name has the shape `<alias>.<Name>` where alias is a known dep import
+// alias and Name matches a struct in that dep, rewrites Type.Name to the bare
+// `<Name>`. Maps' Key/Val, function parameters and returns, const types, and
+// local var decls inside function bodies are all covered. The depStructs map
+// is keyed by alias → bare struct name → true.
+func rewriteRootQualifiedTypes(program *Program, depStructs map[string]map[string]bool) {
+	rewriteType := func(t *Type) {
+		stripQualifiedTypeName(t, depStructs)
+	}
+	for i := range program.Maps {
+		walkTypeTree(&program.Maps[i].Key, rewriteType)
+		walkTypeTree(&program.Maps[i].Val, rewriteType)
+	}
+	for i := range program.Functions {
+		walkTypeTree(&program.Functions[i].Return, rewriteType)
+		for j := range program.Functions[i].Params {
+			walkTypeTree(&program.Functions[i].Params[j].Type, rewriteType)
+		}
+		for j := range program.Functions[i].Body {
+			for k := range program.Functions[i].Body[j].Statements {
+				walkStatementTypes(&program.Functions[i].Body[j].Statements[k], rewriteType)
+			}
+		}
+	}
+	for i := range program.Constants {
+		walkTypeTree(&program.Constants[i].Type, rewriteType)
+	}
+	for i := range program.Structs {
+		for j := range program.Structs[i].Fields {
+			walkTypeTree(&program.Structs[i].Fields[j].Type, rewriteType)
+		}
+	}
+}
+
+func stripQualifiedTypeName(t *Type, depStructs map[string]map[string]bool) {
+	if t == nil || t.Name == "" {
+		return
+	}
+	for alias, names := range depStructs {
+		prefix := alias + "."
+		if len(t.Name) <= len(prefix) || t.Name[:len(prefix)] != prefix {
+			continue
+		}
+		suffix := t.Name[len(prefix):]
+		if names[suffix] {
+			t.Name = suffix
+			return
+		}
+	}
+}
+
+func walkTypeTree(t *Type, visit func(*Type)) {
+	if t == nil {
+		return
+	}
+	visit(t)
+	for i := range t.Args {
+		walkTypeTree(&t.Args[i], visit)
+	}
+	if t.Elem != nil {
+		walkTypeTree(t.Elem, visit)
+	}
+}
+
+func walkStatementTypes(stmt *Statement, visit func(*Type)) {
+	if stmt == nil {
+		return
+	}
+	walkTypeTree(&stmt.Type, visit)
+	if stmt.Init != nil {
+		walkStatementTypes(stmt.Init, visit)
+	}
+	for i := range stmt.Then {
+		walkStatementTypes(&stmt.Then[i], visit)
+	}
+	for i := range stmt.Else {
+		walkStatementTypes(&stmt.Else[i], visit)
+	}
+	for i := range stmt.Body {
+		walkStatementTypes(&stmt.Body[i], visit)
+	}
+	for i := range stmt.Cases {
+		for j := range stmt.Cases[i].Body {
+			walkStatementTypes(&stmt.Cases[i].Body[j], visit)
+		}
+	}
 }
 
 // lowerPackage flattens every File in pkg into a single ast.File (mirroring

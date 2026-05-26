@@ -130,6 +130,14 @@ func AggregateManifests(manifests []Manifest, rootPackage string) (Manifest, []d
 		}
 	}
 
+	// Types deduplicate by their bare Name. Type identity is anchored on the
+	// bare name because struct types form a flat namespace in the merged IR
+	// (cross-package layout collisions surface upstream as HZN1564 from
+	// ir.MergeWithDiagnostics). The TypeSchema.Origin field carries the
+	// import-alias provenance for downstream consumers that care; manifest
+	// map.value strings continue to reference the bare type name so the
+	// schema-level reference graph stays self-consistent without forcing
+	// every map.value rewrite during aggregation.
 	typesByName := map[string]TypeSchema{}
 	for _, m := range manifests {
 		for _, t := range m.Types {

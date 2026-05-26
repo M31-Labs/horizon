@@ -22,6 +22,7 @@ var examples = []string{
 	"sockopstrack",
 	"structopstcp",
 	"multifile-execcount",
+	"imported-execcount",
 }
 
 // Fields stripped before comparison because they vary per-run.

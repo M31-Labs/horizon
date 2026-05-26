@@ -210,7 +210,7 @@ func emitManifest(program ir.Program, origin string) Manifest {
 	}
 	structs := ir.StructsByName(program.Structs)
 	for _, typ := range program.Structs {
-		schema := TypeSchema{Name: typ.Name, Kind: "struct"}
+		schema := TypeSchema{Name: typ.Name, Kind: "struct", Origin: origin}
 		offsets := map[string]int{}
 		if layout, ok := ir.StructLayout(typ, structs); ok {
 			schema.Size = intPtr(layout.Size)

@@ -87,6 +87,14 @@ type TypeSchema struct {
 	Size   *int          `json:"size,omitempty"`
 	Align  *int          `json:"align,omitempty"`
 	Fields []FieldSchema `json:"fields,omitempty"`
+	// Origin records the import alias of the dependency package this struct
+	// was contributed by; mirrors Capability.Origin and Map.Origin. Root-
+	// package struct schemas have Origin == ""; imported struct schemas
+	// carry the import alias so multi-package builds surface cross-package
+	// type provenance in the manifest. Additive, omit-empty so manifest
+	// schema v1 consumers that don't understand origin tagging keep working
+	// unchanged. (roadmap #20/#21 Phase 2 Subtask 6b)
+	Origin string `json:"origin,omitempty"`
 }
 
 type FieldSchema struct {
