@@ -432,6 +432,12 @@ func mergeLookupState(a lookupState, b lookupState) lookupState {
 }
 
 func mergeNilPromotionState(a string, b string) string {
+	// "escaped" merges with anything → "escaped": we can never know whether
+	// the callee consumed the resource, so we conservatively suppress HZN2500/HZN2600.
+	// Escaped overrides even "live" to prevent false positives.
+	if a == "escaped" || b == "escaped" {
+		return "escaped"
+	}
 	if a == b {
 		return a
 	}

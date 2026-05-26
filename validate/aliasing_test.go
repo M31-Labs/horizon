@@ -357,3 +357,156 @@ func TestEscapeMarksReservationAsLiveWhenPassedToUnknownFunction(t *testing.T) {
 		t.Fatalf("HZN2104 count = %d, want 0 (escaped resource should not fire live-on-return)", hzn2104)
 	}
 }
+
+// ── Iteration 2 fix: escape dominates in branch merge (maps) ────────────────────
+
+// buildEscapeDominatesMapsProgram constructs the IR equivalent of:
+//
+//	count := Counts.lookup(pid)
+//	if pid > 0 {
+//	  unknownHelper(count)  // one branch escapes count
+//	}
+//	// other branch does nothing
+//	// after merge, dereference count
+//	count.seen = 1
+//	return 0
+//
+// If mergeNilPromotionState does not make "escaped" dominant, the merge
+// would incorrectly return "maybe_nil", causing HZN2500 to fire.
+// Correct behavior: merged state is "escaped", HZN2500 does not fire.
+func buildEscapeDominatesMapsProgram() ir.Program {
+	// count := Counts.lookup(pid)
+	lookupCall := &ir.Expr{
+		Kind: "call",
+		Func: &ir.Expr{
+			Kind:    "selector",
+			Operand: &ir.Expr{Kind: "ident", Name: "Counts"},
+			Field:   "lookup",
+		},
+		Args: []ir.Expr{{Kind: "ident", Name: "pid"}},
+	}
+	// unknownHelper(count)
+	unknownCall := &ir.Expr{
+		Kind: "call",
+		Func: identExpr("unknownHelper"),
+		Args: []ir.Expr{{Kind: "ident", Name: "count"}},
+	}
+	// count.seen (selector used as assignment target)
+	countSeen := &ir.Expr{
+		Kind:    "selector",
+		Operand: identExpr("count"),
+		Field:   "seen",
+	}
+	return lookupProg([]ir.Statement{
+		{Kind: "short_var", Name: "count", Value: lookupCall},
+		// if pid > 0 { unknownHelper(count) }
+		{
+			Kind: "if",
+			Cond: &ir.Expr{
+				Kind:  "binary",
+				Op:    ">",
+				Left:  identExpr("pid"),
+				Right: &ir.Expr{Kind: "int", Value: "0"},
+			},
+			Then: []ir.Statement{exprStmt(unknownCall)},
+			Else: []ir.Statement{}, // other branch does nothing
+		},
+		// count.seen = 1  (after merge)
+		{Kind: "assign", Target: countSeen, Value: &ir.Expr{Kind: "int", Value: "1"}},
+		returnZero(),
+	})
+}
+
+// TestEscapeDominatesBranchMergeForMapLookup verifies that when one branch
+// escapes a map lookup result and the other branch does nothing, the merged
+// state is "escaped" (not "maybe_nil"). This prevents false-positive HZN2500
+// warnings on a resource we can no longer trust.
+func TestEscapeDominatesBranchMergeForMapLookup(t *testing.T) {
+	prog := buildEscapeDominatesMapsProgram()
+	diags := validate.Program(prog)
+	hzn2500 := countDiag(diags, "HZN2500")
+	if hzn2500 != 0 {
+		t.Fatalf("HZN2500 count = %d, want 0 (escaped state should dominate branch merge)", hzn2500)
+	}
+}
+
+// ── Iteration 2 fix: escape dominates in branch merge (packet) ────────────────────
+
+// buildEscapeDoминatesPacketProgram constructs the IR equivalent of:
+//
+//	eth := xdp.eth(ctx)
+//	if ctx != 0 {
+//	  unknownHelper(eth)  // one branch escapes eth
+//	}
+//	// other branch does nothing
+//	// after merge, dereference eth
+//	if eth.proto == 0 { return xdp.Drop }
+//	return xdp.Pass
+//
+// If mergeNilPromotionState does not make "escaped" dominant, the merge
+// would incorrectly return "maybe_nil", causing HZN2600 to fire.
+// Correct behavior: merged state is "escaped", HZN2600 does not fire.
+func buildEscapeDoминatesPacketProgram() ir.Program {
+	// eth := xdp.eth(ctx)
+	ethCall := &ir.Expr{
+		Kind: "call",
+		Func: &ir.Expr{
+			Kind:    "selector",
+			Operand: &ir.Expr{Kind: "ident", Name: "xdp"},
+			Field:   "eth",
+		},
+		Args: []ir.Expr{{Kind: "ident", Name: "ctx"}},
+	}
+	// unknownHelper(eth)
+	unknownCall := &ir.Expr{
+		Kind: "call",
+		Func: identExpr("unknownHelper"),
+		Args: []ir.Expr{{Kind: "ident", Name: "eth"}},
+	}
+	// eth.proto (selector that triggers the nil check)
+	ethProto := &ir.Expr{
+		Kind:    "selector",
+		Operand: identExpr("eth"),
+		Field:   "proto",
+	}
+	return xdpProg([]ir.Statement{
+		{Kind: "short_var", Name: "eth", Value: ethCall},
+		// if ctx != 0 { unknownHelper(eth) }
+		{
+			Kind: "if",
+			Cond: &ir.Expr{
+				Kind:  "binary",
+				Op:    "!=",
+				Left:  identExpr("ctx"),
+				Right: &ir.Expr{Kind: "int", Value: "0"},
+			},
+			Then: []ir.Statement{exprStmt(unknownCall)},
+			Else: []ir.Statement{}, // other branch does nothing
+		},
+		// if eth.proto == 0 { return 0 }  (after merge)
+		{
+			Kind: "if",
+			Cond: &ir.Expr{
+				Kind:  "binary",
+				Op:    "==",
+				Left:  ethProto,
+				Right: &ir.Expr{Kind: "int", Value: "0"},
+			},
+			Then: []ir.Statement{returnZero()},
+		},
+		returnZero(),
+	})
+}
+
+// TestEscapeDominatesBranchMergeForPacketHeader verifies that when one branch
+// escapes a packet header result and the other branch does nothing, the merged
+// state is "escaped" (not "maybe_nil"). This prevents false-positive HZN2600
+// warnings on a resource we can no longer trust.
+func TestEscapeDominatesBranchMergeForPacketHeader(t *testing.T) {
+	prog := buildEscapeDoминatesPacketProgram()
+	diags := validate.Program(prog)
+	hzn2600 := countDiag(diags, "HZN2600")
+	if hzn2600 != 0 {
+		t.Fatalf("HZN2600 count = %d, want 0 (escaped state should dominate branch merge)", hzn2600)
+	}
+}
