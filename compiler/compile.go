@@ -31,11 +31,39 @@ func CheckPath(root string) (*Result, error) {
 }
 
 func AnalyzePath(root string) (*Result, error) {
+	// Resolve imports before walking files. For single-package builds (only
+	// builtin imports, or none at all) this is a no-op — the legacy code
+	// path runs unchanged. For multi-package builds the resolver populates a
+	// deps list; until Tasks 3/4 land the type-checker and IR-merge
+	// plumbing, we surface a clear diagnostic instead of pretending the
+	// imports do nothing. Front-end (parse / AST) diagnostics surfaced by
+	// the resolver are dropped here because AnalyzePath's own loop will
+	// re-encounter and report them with full source context.
+	_, deps, _, importDiags, importErr := ResolveImports(root)
+	if importErr != nil {
+		return nil, importErr
+	}
+	importDiags = filterImportDiagnostics(importDiags)
+	if len(deps) > 0 {
+		result := &Result{Diagnostics: importDiags}
+		result.Diagnostics = append(result.Diagnostics, diag.Diagnostic{
+			Code:     "HZN1559",
+			Severity: diag.SeverityError,
+			Message:  "cross-package builds not yet wired",
+			Suggest:  "this multi-package build resolves imports but cannot yet be type-checked or lowered; the wiring lands in Phase 2 Tasks 3 and 4",
+		})
+		return result, nil
+	}
+
 	paths, err := CollectFiles(root)
 	if err != nil {
 		return nil, err
 	}
 	var result Result
+	// Surface only the import-specific diagnostics (e.g. HZN1556 warning, or
+	// HZN1554/HZN1555) on the legacy single-package path. Parse/AST errors
+	// were filtered out above so they aren't double-counted.
+	result.Diagnostics = append(result.Diagnostics, importDiags...)
 	packageName := ""
 	files := make([]ast.File, 0, len(paths))
 	fileIndexes := make([]int, 0, len(paths))
@@ -166,6 +194,21 @@ func mergeASTFiles(files []ast.File, packageName string) ast.File {
 		merged.Decls = append(merged.Decls, file.Decls...)
 	}
 	return merged
+}
+
+// filterImportDiagnostics drops front-end (HZN0100 parse, HZN0200 AST-build)
+// diagnostics emitted by ResolveImports. Those will be re-encountered with
+// full source context inside AnalyzePath's own per-file parse loop; surfacing
+// them from both places double-counts the same syntax error.
+func filterImportDiagnostics(diags []diag.Diagnostic) []diag.Diagnostic {
+	out := diags[:0]
+	for _, d := range diags {
+		if d.Code == "HZN0100" || d.Code == "HZN0200" {
+			continue
+		}
+		out = append(out, d)
+	}
+	return out
 }
 
 func frontEndDiagnostic(path string, err error) diag.Diagnostic {

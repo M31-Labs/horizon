@@ -16,7 +16,12 @@ func CollectFiles(root string) ([]string, error) {
 		}
 		if d.IsDir() {
 			name := d.Name()
-			if name == ".git" || name == "dist" || name == "generated" {
+			// Skip well-known non-source directories. `vendor` is excluded so
+			// CollectFiles never accidentally folds an imported package's
+			// source into the importing package's CheckPackage call — those
+			// files belong to the importer's dependency graph, walked by
+			// ResolveImports instead.
+			if name == ".git" || name == "dist" || name == "generated" || name == "vendor" {
 				return filepath.SkipDir
 			}
 			return nil

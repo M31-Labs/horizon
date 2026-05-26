@@ -77,6 +77,16 @@ func ResolveImports(rootDir string) (root ast.Package, deps []ast.Package, graph
 		return ast.Package{}, nil, graph, nil, fmt.Errorf("resolve absolute path for %s: %w", rootDir, err)
 	}
 
+	// AnalyzePath accepts both a directory and a single .hzn file. If the
+	// caller pointed at a file, treat its parent directory as the build root
+	// but only load that one file into the root package — sibling files in
+	// the same directory may belong to a different test fixture.
+	var singleFile string
+	if info, statErr := os.Stat(absRoot); statErr == nil && !info.IsDir() {
+		singleFile = absRoot
+		absRoot = filepath.Dir(absRoot)
+	}
+
 	// Visited state for DFS / cycle detection. Keys are canonical absolute
 	// directory paths. addedToDeps tracks whether a non-root package has been
 	// emitted into the deps slice, so transitive packages reached via shared
@@ -84,8 +94,8 @@ func ResolveImports(rootDir string) (root ast.Package, deps []ast.Package, graph
 	onStack := map[string]bool{}
 	addedToDeps := map[string]bool{}
 
-	var visit func(dir string, importSpan span.Span) (ast.Package, []diag.Diagnostic, error)
-	visit = func(dir string, importSpan span.Span) (ast.Package, []diag.Diagnostic, error) {
+	var visit func(dir string, importSpan span.Span, singlePath string) (ast.Package, []diag.Diagnostic, error)
+	visit = func(dir string, importSpan span.Span, singlePath string) (ast.Package, []diag.Diagnostic, error) {
 		if onStack[dir] {
 			d := diag.Diagnostic{
 				Code:     "HZN1555",
@@ -102,7 +112,7 @@ func ResolveImports(rootDir string) (root ast.Package, deps []ast.Package, graph
 		onStack[dir] = true
 		defer func() { onStack[dir] = false }()
 
-		pkg, ds, err := loadPackage(dir)
+		pkg, ds, err := loadPackage(dir, singlePath)
 		if err != nil {
 			return ast.Package{}, ds, err
 		}
@@ -119,7 +129,9 @@ func ResolveImports(rootDir string) (root ast.Package, deps []ast.Package, graph
 					continue
 				}
 				seenAlias[imp.Alias] = true
-				edge, depPkg, depDiags, derr := resolveOne(dir, absRoot, imp, visit)
+				edge, depPkg, depDiags, derr := resolveOne(dir, absRoot, imp, func(d string, s span.Span) (ast.Package, []diag.Diagnostic, error) {
+					return visit(d, s, "")
+				})
 				ds = append(ds, depDiags...)
 				if derr != nil {
 					return ast.Package{}, ds, derr
@@ -146,7 +158,7 @@ func ResolveImports(rootDir string) (root ast.Package, deps []ast.Package, graph
 		return pkg, ds, nil
 	}
 
-	root, rootDiags, rerr := visit(absRoot, span.Span{File: span.FileID(absRoot)})
+	root, rootDiags, rerr := visit(absRoot, span.Span{File: span.FileID(absRoot)}, singleFile)
 	diags = append(diags, rootDiags...)
 	if rerr != nil {
 		return root, deps, graph, diags, rerr
@@ -263,21 +275,28 @@ func dirHasHznFiles(dir string) bool {
 // loadPackage parses every .hzn file directly under dir (non-recursive) and
 // returns an ast.Package with stable file ordering. .hzn files inside nested
 // directories are NOT included — those belong to their own packages.
-func loadPackage(dir string) (ast.Package, []diag.Diagnostic, error) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return ast.Package{}, nil, fmt.Errorf("read package dir %s: %w", dir, err)
-	}
+//
+// If singlePath is non-empty, only that one file is loaded into the package
+// (used when AnalyzePath is called with a file path instead of a directory).
+func loadPackage(dir, singlePath string) (ast.Package, []diag.Diagnostic, error) {
 	var paths []string
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
+	if singlePath != "" {
+		paths = []string{singlePath}
+	} else {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return ast.Package{}, nil, fmt.Errorf("read package dir %s: %w", dir, err)
 		}
-		if strings.HasSuffix(entry.Name(), ".hzn") {
-			paths = append(paths, filepath.Join(dir, entry.Name()))
+		for _, entry := range entries {
+			if entry.IsDir() {
+				continue
+			}
+			if strings.HasSuffix(entry.Name(), ".hzn") {
+				paths = append(paths, filepath.Join(dir, entry.Name()))
+			}
 		}
+		slices.Sort(paths)
 	}
-	slices.Sort(paths)
 	var pkg ast.Package
 	var diags []diag.Diagnostic
 	for _, path := range paths {
