@@ -1,0 +1,98 @@
+name: kernel-matrix
+
+# IMPORTANT: trigger is `workflow_dispatch` only until canned qcow2 images
+# publish at M31-Labs/horizon-kernel-images. Once images exist, the follow-up
+# issue will add `pull_request` and `push` triggers.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-objects:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      objects-cache-key: ${{ steps.cache-key.outputs.key }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.24.x'
+      - name: Install clang/libbpf
+        run: |
+          sudo apt-get update -qq
+          sudo env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a \
+            apt-get install -y -qq --no-install-recommends clang llvm libbpf-dev
+      - name: Prepare vmlinux.h (stub for build-only, real images carry their own BTF)
+        run: |
+          # Mirror the stub-vmlinux block from test.yml exactly. Keeping it
+          # duplicated avoids cross-workflow coupling; both can evolve
+          # independently as the build vs runtime kernels diverge.
+          printf '%s\n' \
+            '#define __VMLINUX_H__' \
+            'typedef unsigned char __u8;' \
+            'typedef unsigned short __u16;' \
+            'typedef unsigned int __u32;' \
+            'typedef unsigned long long __u64;' \
+            'typedef signed char __s8;' \
+            'typedef signed short __s16;' \
+            'typedef signed int __s32;' \
+            'typedef signed long long __s64;' \
+            'typedef __u16 __be16;' \
+            'typedef __u32 __be32;' \
+            'typedef __u32 __wsum;' \
+            'enum bpf_map_type { BPF_MAP_TYPE_HASH = 1, BPF_MAP_TYPE_ARRAY = 2, BPF_MAP_TYPE_PERCPU_HASH = 5, BPF_MAP_TYPE_PERCPU_ARRAY = 6, BPF_MAP_TYPE_LRU_HASH = 9, BPF_MAP_TYPE_LRU_PERCPU_HASH = 10, BPF_MAP_TYPE_RINGBUF = 27 };' \
+            'enum { BPF_ANY = 0 };' \
+            'struct __sk_buff;' \
+            'struct pt_regs { __u64 di; __u64 si; __u64 dx; __u64 cx; __u64 r8; __u64 r9; __u64 sp; __u64 bp; __u64 ax; __u64 ip; };' \
+            'struct task_struct { struct task_struct *real_parent; __u32 tgid; } __attribute__((preserve_access_index));' \
+            'struct bpf_sock_addr { __u32 family; __u32 type; __u32 protocol; __u32 msg_src_ip4; __u32 user_ip4; __u32 user_port; };' \
+            'struct xdp_md { __u32 data; __u32 data_end; };' \
+            'struct trace_event_raw_sched_process_exec {};' |
+            sudo tee /usr/local/include/vmlinux.h >/dev/null
+      - name: Build all .bpf.o
+        run: make build-examples OUT=/tmp/bpf-objs
+      - id: cache-key
+        run: echo "key=bpf-objs-${{ github.sha }}" >> $GITHUB_OUTPUT
+      - uses: actions/cache/save@v4
+        with:
+          path: /tmp/bpf-objs
+          key: ${{ steps.cache-key.outputs.key }}
+
+  matrix:
+    needs: build-objects
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        kernel: ['5.10', '5.15', '6.1', '6.6']
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/cache/restore@v4
+        with:
+          path: /tmp/bpf-objs
+          key: ${{ needs.build-objects.outputs.objects-cache-key }}
+      - name: Install qemu + jq
+        run: |
+          sudo apt-get update -qq
+          sudo env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a \
+            apt-get install -y -qq --no-install-recommends qemu-system-x86 qemu-utils jq
+      - name: Smoke under kernel ${{ matrix.kernel }}
+        id: smoke
+        continue-on-error: true
+        run: bash scripts/kernel-matrix/run.sh ${{ matrix.kernel }} /tmp/bpf-objs
+      - name: Enforce gate
+        run: |
+          gate=$(jq -r '.images[] | select(.kernel=="${{ matrix.kernel }}") | .gate' scripts/kernel-matrix/images.json)
+          if [ "${{ steps.smoke.outcome }}" = "success" ]; then
+            echo "kernel ${{ matrix.kernel }} smoke passed"
+            exit 0
+          fi
+          if [ "$gate" = "required" ]; then
+            echo "::error::kernel ${{ matrix.kernel }} is required and failed smoke"
+            exit 1
+          fi
+          echo "::warning::kernel ${{ matrix.kernel }} (best-effort) failed smoke"

@@ -14,6 +14,7 @@ All notable changes to Horizon are documented in this file. Format follows
 - `hzn build` and `hzn workbench -compile` now accept `-clang-timeout=<duration>` and read `HZN_CLANG_TIMEOUT` from the environment. Default remains 30s. (roadmap: #11)
 - Golden-snapshot tests for every example's full `hzn workbench` output (C + manifest + bindings + diagnostics + report). Regenerate with `make golden-update`. (roadmap: #16)
 - `parser.FuzzParse` Go-native fuzz target, seeded from `examples/`. Runs 60s per PR in CI; longer fuzz budgets available out-of-band. Contract: parser never panics on any input. (roadmap: #17)
+- Kernel-version test matrix scaffolding (`.github/workflows/kernel-matrix.yml`, `scripts/kernel-matrix/`, `make kernel-smoke`): structural artifacts only. Trigger is `workflow_dispatch` only until canned BTF-enabled qcow2 images publish at `M31-Labs/horizon-kernel-images`. Boot/smoke scripts are stubbed with EX_CONFIG (exit 78) until images land. Once images exist, a follow-up will add auto-triggers (`pull_request`/`push`) and fill in the boot bodies. Per spec §4.2.1, 6.1 + 6.6 are required for Phase 0 exit; 5.10 / 5.15 are best-effort. (roadmap: #19)
 
 ## [v0.1.2] — 2026-05-25
 

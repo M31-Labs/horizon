@@ -11,7 +11,7 @@ HZN_EXAMPLES := \
 	./examples/tcpass \
 	./examples/xdpdrop
 
-.PHONY: test check ci ci-go ci-clang fmt-check doctor setup-vmlinux workbench build-example build-examples bindings-smoke clang-smoke golden-update
+.PHONY: test check ci ci-go ci-clang fmt-check doctor setup-vmlinux workbench build-example build-examples bindings-smoke clang-smoke golden-update kernel-smoke
 
 test:
 	@log="$$(mktemp)"; \
@@ -116,3 +116,8 @@ clang-smoke:
 		rm -f "$$log"; \
 		exit 1; \
 	fi
+
+kernel-smoke:
+	@if [ -z "$(KERNEL)" ]; then echo "usage: make kernel-smoke KERNEL=<5.10|5.15|6.1|6.6> OUT=<bpf-obj-dir>"; exit 2; fi
+	@if [ -z "$(OUT)" ]; then echo "usage: make kernel-smoke KERNEL=<v> OUT=<bpf-obj-dir>"; exit 2; fi
+	bash scripts/kernel-matrix/run.sh $(KERNEL) $(OUT)

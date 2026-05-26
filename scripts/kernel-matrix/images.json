@@ -1,0 +1,29 @@
+{
+  "schema": "m31labs.dev/horizon/kernel-matrix/v0",
+  "images": [
+    {
+      "kernel": "5.10",
+      "url": "https://github.com/M31-Labs/horizon-kernel-images/releases/download/v1/linux-5.10-btf.qcow2",
+      "sha256": "FILL_IN_AFTER_PUBLISHING_IMAGE",
+      "gate": "best_effort"
+    },
+    {
+      "kernel": "5.15",
+      "url": "https://github.com/M31-Labs/horizon-kernel-images/releases/download/v1/linux-5.15-btf.qcow2",
+      "sha256": "FILL_IN_AFTER_PUBLISHING_IMAGE",
+      "gate": "best_effort"
+    },
+    {
+      "kernel": "6.1",
+      "url": "https://github.com/M31-Labs/horizon-kernel-images/releases/download/v1/linux-6.1-btf.qcow2",
+      "sha256": "FILL_IN_AFTER_PUBLISHING_IMAGE",
+      "gate": "required"
+    },
+    {
+      "kernel": "6.6",
+      "url": "https://github.com/M31-Labs/horizon-kernel-images/releases/download/v1/linux-6.6-btf.qcow2",
+      "sha256": "FILL_IN_AFTER_PUBLISHING_IMAGE",
+      "gate": "required"
+    }
+  ]
+}
