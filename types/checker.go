@@ -568,6 +568,8 @@ func ringbufValueNeedsStructDiagnostic(ref ast.TypeRef, known map[string]bool, u
 func validateMapAttrs(decl ast.MapDecl, consts map[string]ast.ConstDecl) []diag.Diagnostic {
 	var diags []diag.Diagnostic
 	seenMaxEntries := false
+	seenSteadyStateEntries := false
+	seenAccessFreq := false
 	for _, attr := range decl.Attrs {
 		switch attr.Name {
 		case "max_entries":
@@ -601,13 +603,65 @@ func validateMapAttrs(decl ast.MapDecl, consts map[string]ast.ConstDecl) []diag.
 					Suggest:  "use a power-of-two byte size such as 262144",
 				})
 			}
+		case "steady_state_entries":
+			if seenSteadyStateEntries {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1209",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("map %q declares @steady_state_entries more than once", decl.Name),
+					Primary:  attr.Span,
+				})
+				continue
+			}
+			seenSteadyStateEntries = true
+			_, ok := mapMaxEntriesValue(attr, consts)
+			if !ok {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1210",
+					Severity: diag.SeverityError,
+					Message:  "@steady_state_entries requires one positive integer literal or integer const",
+					Primary:  attr.Span,
+					Suggest:  "write `@steady_state_entries(512)` above the map declaration",
+				})
+			}
+		case "access_freq":
+			if seenAccessFreq {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1211",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("map %q declares @access_freq more than once", decl.Name),
+					Primary:  attr.Span,
+				})
+				continue
+			}
+			seenAccessFreq = true
+			if len(attr.Args) != 1 {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1212",
+					Severity: diag.SeverityError,
+					Message:  "@access_freq requires one string argument",
+					Primary:  attr.Span,
+					Suggest:  `write @access_freq("low"), @access_freq("medium"), or @access_freq("high")`,
+				})
+				continue
+			}
+			strVal, ok := attr.Args[0].(ast.StringExpr)
+			if !ok || (strVal.Value != "low" && strVal.Value != "medium" && strVal.Value != "high") {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1213",
+					Severity: diag.SeverityError,
+					Message:  `@access_freq value must be "low", "medium", or "high"`,
+					Primary:  attr.Span,
+					Suggest:  `write @access_freq("low"), @access_freq("medium"), or @access_freq("high")`,
+				})
+			}
 		default:
 			diags = append(diags, diag.Diagnostic{
 				Code:     "HZN1205",
 				Severity: diag.SeverityError,
 				Message:  fmt.Sprintf("unsupported map attribute @%s", attr.Name),
 				Primary:  attr.Span,
-				Suggest:  "Horizon maps support @max_entries(...)",
+				Suggest:  "Horizon maps support @max_entries(...), @steady_state_entries(...), @access_freq(...)",
 			})
 		}
 	}

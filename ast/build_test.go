@@ -676,6 +676,61 @@ func F(ctx xdp.Context) i32 {
 	}
 }
 
+func TestParseSteadyStateEntriesAnnotation(t *testing.T) {
+	parsed, err := parser.ParseSource(parser.SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
+
+@max_entries(4096)
+@steady_state_entries(512)
+map Counts hash[u32, u32]
+`)})
+	if err != nil {
+		t.Fatalf("ParseSource: %v", err)
+	}
+	file, err := Build(parsed)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(file.Decls) != 1 {
+		t.Fatalf("decls = %d, want 1", len(file.Decls))
+	}
+	decl, ok := file.Decls[0].(MapDecl)
+	if !ok {
+		t.Fatalf("decl = %T, want MapDecl", file.Decls[0])
+	}
+	if decl.MaxEntries != "4096" {
+		t.Fatalf("MaxEntries = %q, want 4096", decl.MaxEntries)
+	}
+	if decl.SteadyStateEntries != "512" {
+		t.Fatalf("SteadyStateEntries = %q, want 512", decl.SteadyStateEntries)
+	}
+}
+
+func TestParseAccessFreqAnnotation(t *testing.T) {
+	parsed, err := parser.ParseSource(parser.SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
+
+@max_entries(4096)
+@access_freq("high")
+map Counts hash[u32, u32]
+`)})
+	if err != nil {
+		t.Fatalf("ParseSource: %v", err)
+	}
+	file, err := Build(parsed)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(file.Decls) != 1 {
+		t.Fatalf("decls = %d, want 1", len(file.Decls))
+	}
+	decl, ok := file.Decls[0].(MapDecl)
+	if !ok {
+		t.Fatalf("decl = %T, want MapDecl", file.Decls[0])
+	}
+	if decl.AccessFreq != "high" {
+		t.Fatalf("AccessFreq = %q, want high", decl.AccessFreq)
+	}
+}
+
 func TestBuildStructLiteral(t *testing.T) {
 	parsed, err := parser.ParseSource(parser.SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
 
