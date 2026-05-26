@@ -1,17 +1,35 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+	"sync"
+	"text/template"
 
 	"m31labs.dev/horizon/compiler/diag"
 	"m31labs.dev/horizon/ir"
 	"m31labs.dev/horizon/verifier"
+)
+
+// verifierCatalog is the parsed verifier-message catalog used to enrich
+// diagnostics produced from verifier logs. Loaded once at package init via
+// the //go:embed-backed registry loader; a panic here means the vendored
+// JSON or the loader is broken at build time.
+var verifierCatalog = verifier.MustLoadCatalog()
+
+// catalogTemplateCache holds parsed text/templates for remediation and
+// common-cause strings, keyed by "<entry-id>:<field>". text/template parses
+// are not cheap relative to per-diagnostic emission, and the catalog is
+// effectively immutable for the process lifetime, so caching is a clear win.
+var (
+	catalogTemplateCache sync.Map // map[string]*template.Template
 )
 
 func runDiagnose(args []string) error {
@@ -154,7 +172,20 @@ func diagnosticsFromVerifier(remapped []verifier.Diagnostic, generated []byte) [
 			Severity: severity,
 			Message:  d.Message,
 			Primary:  d.Span,
-			Suggest:  verifierSuggestion(d),
+		}
+		entry, captures, matched := verifierCatalog.Lookup(d.Message, d.Raw)
+		if matched {
+			converted.Code = entry.HZNCode
+			converted.Suggest = renderCatalogTemplate(entry.ID, "remediation", entry.Remediation, captures)
+			converted.Notes = append(converted.Notes, "verifier-catalog: "+entry.ID)
+			if entry.CommonCause != "" {
+				converted.Notes = append(converted.Notes, "cause: "+renderCatalogTemplate(entry.ID, "cause", entry.CommonCause, captures))
+			}
+			for _, name := range catalogCaptureKeys(entry, captures) {
+				converted.Notes = append(converted.Notes, fmt.Sprintf("capture: %s=%s", name, captures[name]))
+			}
+		} else {
+			converted.Suggest = ""
 		}
 		if converted.Primary.IsZero() {
 			converted.Primary = d.Generated
@@ -181,6 +212,56 @@ func diagnosticsFromVerifier(remapped []verifier.Diagnostic, generated []byte) [
 		}
 		out = append(out, converted)
 	}
+	return out
+}
+
+// renderCatalogTemplate parses and renders a catalog template string against
+// the captures map. Parses are cached per (entry-id, field) so repeated
+// diagnostics for the same entry skip the parse cost. On any parse or
+// execute error, the raw source string is returned unchanged — remediation
+// copy must never crash diagnostics on malformed templates; the catalog
+// drift / fuzz harness covers the malformed-template failure mode at load
+// time.
+func renderCatalogTemplate(entryID, field, src string, captures map[string]string) string {
+	if !strings.Contains(src, "{{") {
+		return src
+	}
+	key := entryID + ":" + field
+	var tpl *template.Template
+	if cached, ok := catalogTemplateCache.Load(key); ok {
+		tpl = cached.(*template.Template)
+	} else {
+		parsed, err := template.New(key).Parse(src)
+		if err != nil {
+			return src
+		}
+		catalogTemplateCache.Store(key, parsed)
+		tpl = parsed
+	}
+	var buf bytes.Buffer
+	data := struct {
+		Captures map[string]string
+	}{Captures: captures}
+	if err := tpl.Execute(&buf, data); err != nil {
+		return src
+	}
+	return buf.String()
+}
+
+// catalogCaptureKeys returns the catalog-declared capture keys for an
+// entry, filtered to those that actually fired (present in captures), in
+// sorted order for deterministic note emission.
+func catalogCaptureKeys(entry verifier.CatalogEntry, captures map[string]string) []string {
+	if len(captures) == 0 || len(entry.Match.Captures) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(entry.Match.Captures))
+	for name := range entry.Match.Captures {
+		if _, ok := captures[name]; ok {
+			out = append(out, name)
+		}
+	}
+	sort.Strings(out)
 	return out
 }
 

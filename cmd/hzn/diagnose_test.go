@@ -415,6 +415,50 @@ func TestDiagnoseAddsVerifierSpecificSuggestions(t *testing.T) {
 	}
 }
 
+// TestDiagnoseUsesCatalogForKnownVerifierMessage pins the diagnose path's
+// catalog enrichment: a known verifier message must produce the catalog
+// entry's HZN code, render the catalog remediation into .Suggest, and
+// surface the catalog id as a `verifier-catalog: <id>` note.
+func TestDiagnoseUsesCatalogForKnownVerifierMessage(t *testing.T) {
+	raw := "R2 invalid mem access 'scalar'"
+	diagnostics := diagnosticsFromVerifierLog(raw, ir.SourceMap{}, nil)
+	if len(diagnostics) != 1 {
+		t.Fatalf("diagnostics = %d, want 1", len(diagnostics))
+	}
+	if diagnostics[0].Code != "HZN3110" {
+		t.Fatalf("code = %q, want HZN3110 (VC0001)", diagnostics[0].Code)
+	}
+	if !strings.Contains(diagnostics[0].Suggest, "nil guard") {
+		t.Fatalf("suggest = %q, want VC0001 remediation substring (e.g. \"nil guard\")", diagnostics[0].Suggest)
+	}
+	if !hasNoteContaining(diagnostics[0], "verifier-catalog: VC0001") {
+		t.Fatalf("notes = %#v, want note containing \"verifier-catalog: VC0001\"", diagnostics[0].Notes)
+	}
+}
+
+// TestDiagnoseFallsBackToHZN3100WhenCatalogDoesNotMatch pins the no-match
+// contract: a verifier message that does not match any catalog entry must
+// fall back to HZN3100 with an empty Suggest and no `verifier-catalog:` note
+// (no stale heuristic, no misleading remediation).
+func TestDiagnoseFallsBackToHZN3100WhenCatalogDoesNotMatch(t *testing.T) {
+	raw := "verifier failed: completely unrelated chaos"
+	diagnostics := diagnosticsFromVerifierLog(raw, ir.SourceMap{}, nil)
+	if len(diagnostics) != 1 {
+		t.Fatalf("diagnostics = %d, want 1", len(diagnostics))
+	}
+	if diagnostics[0].Code != "HZN3100" {
+		t.Fatalf("code = %q, want HZN3100 (no catalog match)", diagnostics[0].Code)
+	}
+	if diagnostics[0].Suggest != "" {
+		t.Fatalf("suggest = %q, want empty for no-catalog-match path", diagnostics[0].Suggest)
+	}
+	for _, note := range diagnostics[0].Notes {
+		if strings.Contains(note, "verifier-catalog:") {
+			t.Fatalf("notes contain catalog id on no-match path: %#v", diagnostics[0].Notes)
+		}
+	}
+}
+
 func diagnoseLineContaining(t *testing.T, text string, needle string) int {
 	t.Helper()
 	for i, line := range strings.Split(text, "\n") {
