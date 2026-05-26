@@ -105,12 +105,22 @@ func TestLoadManifestAcceptsV0AndV1(t *testing.T) {
 
 	t.Run("unknown schema produces error", func(t *testing.T) {
 		raw := []byte(`{"schema":"m31labs.dev/horizon/capability/v99","package":"x","capabilities":[]}`)
-		_, _, err := LoadManifest(raw)
+		_, diags, err := LoadManifest(raw)
 		if err == nil {
 			t.Fatal("LoadManifest(unknown schema): got nil error, want error")
 		}
 		if !strings.Contains(err.Error(), "unsupported schema") {
 			t.Errorf("error = %q, want message containing 'unsupported schema'", err.Error())
+		}
+		// Must produce the HZN3302 error diagnostic.
+		var foundErr bool
+		for _, d := range diags {
+			if d.Code == "HZN3302" && d.Severity == diag.SeverityError {
+				foundErr = true
+			}
+		}
+		if !foundErr {
+			t.Errorf("LoadManifest(unknown schema) diagnostics = %v, want HZN3302 error", diags)
 		}
 	})
 
