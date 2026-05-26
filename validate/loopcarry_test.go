@@ -78,8 +78,8 @@ func TestLoopCarryDetectsDoubleSubmitInsideForBody(t *testing.T) {
 
 	diags := validate.Program(prog)
 	hzn2102 := countDiag(diags, "HZN2102")
-	if hzn2102 == 0 {
-		t.Fatalf("HZN2102 count = 0, want >= 1 (double-submit inside loop should be caught by fixpoint)")
+	if hzn2102 != 1 {
+		t.Fatalf("HZN2102 count = %d, want exactly 1 (double-submit inside loop should be caught once by fixpoint; dedup prevents duplicate emission)", hzn2102)
 	}
 }
 
@@ -172,8 +172,8 @@ func TestLoopCarryDetectsWriteAfterSubmitInsideForBody(t *testing.T) {
 
 	diags := validate.Program(prog)
 	hzn2103 := countDiag(diags, "HZN2103")
-	if hzn2103 == 0 {
-		t.Fatalf("HZN2103 count = 0, want >= 1 (write-after-submit inside loop should be caught)")
+	if hzn2103 != 1 {
+		t.Fatalf("HZN2103 count = %d, want exactly 1 (write-after-submit inside loop should be caught once; dedup prevents duplicate emission)", hzn2103)
 	}
 }
 
@@ -221,8 +221,8 @@ func TestLoopCarryDetectsUnguardedDerefInsideForBody(t *testing.T) {
 
 	diags := validate.Program(prog)
 	hzn2500 := countDiag(diags, "HZN2500")
-	if hzn2500 == 0 {
-		t.Fatalf("HZN2500 count = 0, want >= 1 (unguarded deref inside loop should be caught)")
+	if hzn2500 != 1 {
+		t.Fatalf("HZN2500 count = %d, want exactly 1 (unguarded deref inside loop should be caught once; dedup prevents duplicate emission)", hzn2500)
 	}
 }
 

@@ -160,6 +160,10 @@ func validateTypedRingbuf(fn ir.Function, ringMaps map[string]ir.Map) []diag.Dia
 	aliases := newAliasGraph()
 	reportedMissingNil := map[string]bool{}
 	reportedLive := map[string]bool{}
+	// reportedAt deduplicates HZN2102/HZN2103/HZN2105 diagnostics across the
+	// bounded 2-iteration loop-carry walk. The same (code, span) pair may be
+	// visited twice — once per iteration — so we suppress the second emission.
+	reportedAt := map[string]bool{}
 	var diags []diag.Diagnostic
 	reportLive := func(varName string, primary span.Span) {
 		root := aliases.root(varName)
@@ -182,12 +186,16 @@ func validateTypedRingbuf(fn ir.Function, ringMaps map[string]ir.Map) []diag.Dia
 				reportedMissingNil[root] = true
 			}
 		case "consumed", "maybe_consumed":
-			diags = append(diags, diag.Diagnostic{
-				Code:     "HZN2103",
-				Severity: diag.SeverityError,
-				Message:  fmt.Sprintf("write to ringbuf reservation %q after submit or discard", root),
-				Primary:  primary,
-			})
+			key := fmt.Sprintf("HZN2103:%s:%d:%d", root, primary.Start.Line, primary.Start.Column)
+			if !reportedAt[key] {
+				reportedAt[key] = true
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN2103",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("write to ringbuf reservation %q after submit or discard", root),
+					Primary:  primary,
+				})
+			}
 		}
 	}
 	var walk func([]ir.Statement)
@@ -232,19 +240,27 @@ func validateTypedRingbuf(fn ir.Function, ringMaps map[string]ir.Map) []diag.Dia
 						}
 						state.State = "consumed"
 					case "consumed", "maybe_consumed":
-						diags = append(diags, diag.Diagnostic{
-							Code:     "HZN2102",
-							Severity: diag.SeverityError,
-							Message:  fmt.Sprintf("ringbuf reservation %q is submitted or discarded more than once", root),
-							Primary:  stmt.Span,
-						})
+						key := fmt.Sprintf("HZN2102:%s:%d:%d", root, stmt.Span.Start.Line, stmt.Span.Start.Column)
+						if !reportedAt[key] {
+							reportedAt[key] = true
+							diags = append(diags, diag.Diagnostic{
+								Code:     "HZN2102",
+								Severity: diag.SeverityError,
+								Message:  fmt.Sprintf("ringbuf reservation %q is submitted or discarded more than once", root),
+								Primary:  stmt.Span,
+							})
+						}
 					case "nil":
-						diags = append(diags, diag.Diagnostic{
-							Code:     "HZN2105",
-							Severity: diag.SeverityError,
-							Message:  fmt.Sprintf("nil ringbuf reservation %q cannot be submitted or discarded", root),
-							Primary:  stmt.Span,
-						})
+						key := fmt.Sprintf("HZN2105:%s:%d:%d", root, stmt.Span.Start.Line, stmt.Span.Start.Column)
+						if !reportedAt[key] {
+							reportedAt[key] = true
+							diags = append(diags, diag.Diagnostic{
+								Code:     "HZN2105",
+								Severity: diag.SeverityError,
+								Message:  fmt.Sprintf("nil ringbuf reservation %q cannot be submitted or discarded", root),
+								Primary:  stmt.Span,
+							})
+						}
 					case "escaped":
 						// escaped: call already received the resource; treat as consumed.
 						state.State = "consumed"
@@ -383,10 +399,14 @@ func validateTypedRingbuf(fn ir.Function, ringMaps map[string]ir.Map) []diag.Dia
 				// Merge pre-loop + post-iter-1 → may-have-iterated state.
 				// This models the case where the body executed 0 or 1 times already.
 				mayHaveIterated := mergeReserveBranchStates(savedStates, afterIter1, false, false)
-				// Iteration 2: walk body again with may-have-iterated state.
-				// Any diagnostics (HZN2102, HZN2103, etc.) fired here catch
-				// cross-iteration regressions — the state machine shows that a
-				// second iteration would violate resource constraints.
+				// Bounded 2-iteration walk. For the resource-state lattice values reachable
+				// from v0.2 grammar (maybe_nil, live, consumed, maybe_consumed, nil, escaped),
+				// two iterations suffice to detect cross-iteration regressions like
+				// double-submit and write-after-submit. The lattice is finite and merge is
+				// idempotent for these specific transitions in practice, but we do NOT
+				// prove a general fixpoint theorem — if a future state value or transition
+				// causes iter-3 to differ from iter-2, the fixpoint is unsound and should
+				// be revisited (roadmap entry will track if it ever happens).
 				// Range-over and for {} are not modeled here; HZN2200 rejects
 				// unbounded for {} at AnalyzeLoops. (roadmap: v0.3+)
 				states = mayHaveIterated

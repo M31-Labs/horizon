@@ -309,9 +309,12 @@ func validateTypedMapLookups(fn ir.Function, lookupMaps map[string]ir.Map) []dia
 				}
 				states = mergedStates
 			case "for":
-				// Bounded 2-iteration fixpoint for loop-carry state soundness (#5).
-				// Walking the body once misses unguarded derefs that occur on
-				// iteration 2+ when a lookup state is already maybe_nil.
+				// Bounded 2-iteration walk for loop-carry state soundness (#5).
+				// The lookup-state lattice (nil → maybe_nil → guarded) has height 2
+				// and a provably monotone join (lub), so two iterations are sufficient
+				// — iter-3 is always identical to iter-2 for any reachable transition.
+				// Walking the body once misses unguarded derefs on iteration 2+ when a
+				// lookup state is already maybe_nil.
 				// Range-over and for {} not modeled; HZN2200 rejects for {}.
 				if stmt.Init != nil {
 					walk([]ir.Statement{*stmt.Init})

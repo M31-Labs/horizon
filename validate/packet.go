@@ -245,7 +245,10 @@ func validateXDPPacketHeaders(fn ir.Function) []diag.Diagnostic {
 				}
 				states = mergedStates
 			case "for":
-				// Bounded 2-iteration fixpoint for loop-carry state soundness (#5).
+				// Bounded 2-iteration walk for loop-carry state soundness (#5).
+				// The packet-header lattice (nil → maybe_nil → guarded) has height 2
+				// and a provably monotone join (lub), so two iterations are sufficient
+				// — iter-3 is always identical to iter-2 for any reachable transition.
 				// Walking the body once misses unguarded packet-header derefs on
 				// iteration 2+ when the header state is still maybe_nil entering the loop.
 				// Range-over and for {} not modeled; HZN2200 rejects for {}.
