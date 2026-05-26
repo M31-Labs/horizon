@@ -61,3 +61,179 @@ func (s stubDeclRef) GetSpan() span.Span { return s.span }
 // satisfy ast.Decl is not required — DeclRef only requires GetSpan.
 var _ DeclRef = stubDeclRef{}
 var _ = ast.File{}
+
+// parseTestPackage parses an in-memory map of fileName → source into an
+// ast.Package suitable for CheckPackages. Files are sorted by name so order
+// is deterministic across runs.
+func parseTestPackage(t *testing.T, dir, pkgName string, sources map[string]string) ast.Package {
+	t.Helper()
+	names := make([]string, 0, len(sources))
+	for name := range sources {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	pkg := ast.Package{Name: pkgName}
+	for _, name := range names {
+		file := parseTestFileAt(t, dir+"/"+name, sources[name])
+		if pkg.Name == "" {
+			pkg.Name = file.Package
+		}
+		pkg.Files = append(pkg.Files, file)
+	}
+	return pkg
+}
+
+// TestCheckPackageWrapsCheckPackages pins the backward-compatible thin
+// wrapper: CheckPackage([]ast.File) must produce the same per-file
+// diagnostics as routing the same files through CheckPackages with an empty
+// graph. This guarantees existing single-package callers continue to work
+// unchanged after Subtask 3b lands the new entrypoint.
+func TestCheckPackageWrapsCheckPackages(t *testing.T) {
+	file := parseTestFileAt(t, "a.hzn", `package probes
+
+type Event struct {
+    pid u32
+}
+`)
+	got := CheckPackage([]ast.File{file})
+	if len(got) != 1 {
+		t.Fatalf("CheckPackage returned %d slices, want 1", len(got))
+	}
+	if len(got[0]) != 0 {
+		t.Fatalf("CheckPackage diagnostics = %#v, want none", got[0])
+	}
+}
+
+// TestSelectorTypeResolvesToImportedStruct verifies the happy path of
+// qualified selector-type lookup: a root package can reference a struct
+// defined in an imported package via `<alias>.<TypeName>` and the type
+// checker resolves it without emitting HZN1102.
+func TestSelectorTypeResolvesToImportedStruct(t *testing.T) {
+	root := parseTestPackage(t, "/root", "main", map[string]string{
+		"prog.hzn": `package main
+
+import bpf "m31labs.dev/horizon/runtime/kernel"
+import events "m31labs.dev/horizon-test/events"
+
+map Events ringbuf[events.ExecEvent]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    return 0
+}
+`,
+	})
+	dep := parseTestPackage(t, "/dep/events", "events", map[string]string{
+		"events.hzn": `package events
+
+type ExecEvent struct {
+    pid u32
+}
+`,
+	})
+	graph := ImportGraph{
+		Edges: map[string]map[string]string{
+			"/root": {
+				"bpf":    "m31labs.dev/horizon/runtime/kernel",
+				"events": "/dep/events",
+			},
+		},
+		Packages: map[string]ast.Package{
+			"/root":      root,
+			"/dep/events": dep,
+		},
+		BuiltinAliases: map[string]bool{"bpf": true},
+	}
+	results := CheckPackages([]ast.Package{root, dep}, graph)
+	rootDiags := results["/root"]
+	for _, perFile := range rootDiags {
+		for _, d := range perFile {
+			if d.Severity == diag.SeverityError {
+				t.Fatalf("unexpected error in root package: %#v", d)
+			}
+		}
+	}
+}
+
+// TestSelectorTypeRejectsUnknownPackageAlias fires HZN1557 when a
+// selector-type references an alias that was never imported.
+func TestSelectorTypeRejectsUnknownPackageAlias(t *testing.T) {
+	root := parseTestPackage(t, "/root", "main", map[string]string{
+		"prog.hzn": `package main
+
+import bpf "m31labs.dev/horizon/runtime/kernel"
+
+map Events ringbuf[unknown.ExecEvent]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    return 0
+}
+`,
+	})
+	graph := ImportGraph{
+		Edges: map[string]map[string]string{
+			"/root": {"bpf": "m31labs.dev/horizon/runtime/kernel"},
+		},
+		Packages:       map[string]ast.Package{"/root": root},
+		BuiltinAliases: map[string]bool{"bpf": true},
+	}
+	results := CheckPackages([]ast.Package{root}, graph)
+	if !hasDiagCode(results["/root"], "HZN1557") {
+		t.Fatalf("expected HZN1557 for unknown import alias; got %#v", results["/root"])
+	}
+}
+
+// TestSelectorTypeRejectsUnknownStructInImportedPackage fires HZN1558 when
+// the alias resolves but the named struct does not exist in the imported
+// package.
+func TestSelectorTypeRejectsUnknownStructInImportedPackage(t *testing.T) {
+	root := parseTestPackage(t, "/root", "main", map[string]string{
+		"prog.hzn": `package main
+
+import bpf "m31labs.dev/horizon/runtime/kernel"
+import events "m31labs.dev/horizon-test/events"
+
+map Events ringbuf[events.MissingEvent]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    return 0
+}
+`,
+	})
+	dep := parseTestPackage(t, "/dep/events", "events", map[string]string{
+		"events.hzn": `package events
+
+type ExecEvent struct {
+    pid u32
+}
+`,
+	})
+	graph := ImportGraph{
+		Edges: map[string]map[string]string{
+			"/root": {
+				"bpf":    "m31labs.dev/horizon/runtime/kernel",
+				"events": "/dep/events",
+			},
+		},
+		Packages: map[string]ast.Package{
+			"/root":      root,
+			"/dep/events": dep,
+		},
+		BuiltinAliases: map[string]bool{"bpf": true},
+	}
+	results := CheckPackages([]ast.Package{root, dep}, graph)
+	if !hasDiagCode(results["/root"], "HZN1558") {
+		t.Fatalf("expected HZN1558 for unknown struct in imported package; got %#v", results["/root"])
+	}
+}
+
+func hasDiagCode(perFile [][]diag.Diagnostic, code string) bool {
+	for _, fileDiags := range perFile {
+		if slices.IndexFunc(fileDiags, func(d diag.Diagnostic) bool { return d.Code == code }) >= 0 {
+			return true
+		}
+	}
+	return false
+}

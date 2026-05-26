@@ -3,6 +3,7 @@ package types
 import (
 	"fmt"
 	"math/big"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -20,15 +21,60 @@ func Check(file ast.File) []diag.Diagnostic {
 	return diags[0]
 }
 
+// CheckPackage type-checks every file in a single Horizon package and
+// returns per-file diagnostics. It is the legacy single-package entrypoint;
+// the multi-package path lives in CheckPackages and CheckPackage now
+// forwards to it with an empty ImportGraph, preserving today's behavior for
+// callers that don't have cross-package imports.
+//
+// (roadmap #20 — Phase 2 Subtask 3b.)
 func CheckPackage(files []ast.File) [][]diag.Diagnostic {
+	return checkPackageInternal(files, nil, nil)
+}
+
+// CheckPackages is the cross-package type-check entrypoint. Each root in
+// roots is checked against the resolved import graph: user-package aliases
+// reserved by `import alias "path"` are threaded through name-resolution,
+// and qualified `<alias>.<TypeName>` selector types are looked up in the
+// imported package's declaration index.
+//
+// The return value is keyed by package directory (matching the keys in
+// graph.Packages). Each entry is the per-file diagnostic slice produced by
+// the underlying checker for that package's files. (roadmap #20 — Phase 2
+// Subtask 3b.)
+func CheckPackages(roots []ast.Package, graph ImportGraph) map[string][][]diag.Diagnostic {
+	out := map[string][][]diag.Diagnostic{}
+	dirByPkg := reverseGraphIndex(graph)
+	for _, root := range roots {
+		dir := lookupPackageDir(root, dirByPkg)
+		var aliases map[string]bool
+		var importedPkgs map[string]ast.Package
+		if dir != "" {
+			aliases = packageAliasSet(graph, dir)
+			importedPkgs = importedPackagesByAlias(graph, dir)
+		}
+		out[dir] = checkPackageInternal(root.Files, aliases, importedPkgs)
+	}
+	return out
+}
+
+// checkPackageInternal is the shared implementation that powers both
+// CheckPackage (no imports) and CheckPackages (with import context).
+// importAliases is the alias set reserved at top-level scope; importedPkgs
+// is the alias → imported-package map used to resolve qualified
+// `<alias>.<TypeName>` selector types and stored-value type checks.
+func checkPackageInternal(files []ast.File, importAliases map[string]bool, importedPkgs map[string]ast.Package) [][]diag.Diagnostic {
+	importedDecls := buildImportedDecls(importedPkgs)
 	diags := make([][]diag.Diagnostic, len(files))
 	index := newPackageDeclIndex()
 	env := NewEnv()
 	for i, file := range files {
-		collectPackageFileDecls(file, &index, env, &diags[i])
+		collectPackageFileDecls(file, &index, env, &diags[i], importAliases)
 	}
+	registerQualifiedKnownTypes(&index, importedDecls)
 	files = resolveTypeAliasesInFiles(files, index.typeAliases)
 	resolved := indexResolvedDecls(files)
+	registerQualifiedResolvedDecls(&resolved, importedPkgs)
 	callGraphDiags := validateFunctionCallGraph(resolved.funcs)
 	for i, file := range files {
 		for _, decl := range file.Decls {
@@ -53,6 +99,9 @@ func CheckPackage(files []ast.File) [][]diag.Diagnostic {
 			}
 		}
 	}
+	for i, file := range files {
+		diags[i] = append(diags[i], validateQualifiedSelectorRefs(file, importAliases, importedDecls)...)
+	}
 	return diags
 }
 
@@ -68,7 +117,7 @@ func newPackageDeclIndex() packageDeclIndex {
 	}
 }
 
-func collectPackageFileDecls(file ast.File, index *packageDeclIndex, env *Env, diags *[]diag.Diagnostic) {
+func collectPackageFileDecls(file ast.File, index *packageDeclIndex, env *Env, diags *[]diag.Diagnostic, importAliases map[string]bool) {
 	if file.Package == "" {
 		*diags = append(*diags, diag.Diagnostic{
 			Code:     "HZN1001",
@@ -78,24 +127,24 @@ func collectPackageFileDecls(file ast.File, index *packageDeclIndex, env *Env, d
 		})
 	}
 	for _, decl := range file.Decls {
-		collectPackageDecl(decl, index, env, diags)
+		collectPackageDecl(decl, index, env, diags, importAliases)
 	}
 }
 
-func collectPackageDecl(decl ast.Decl, index *packageDeclIndex, env *Env, diags *[]diag.Diagnostic) {
+func collectPackageDecl(decl ast.Decl, index *packageDeclIndex, env *Env, diags *[]diag.Diagnostic, importAliases map[string]bool) {
 	name := declName(decl)
-	if name != "" && !declarePackageName(diags, env, name, decl) {
+	if name != "" && !declarePackageNameWithAliases(diags, env, name, decl, importAliases) {
 		return
 	}
 	switch d := decl.(type) {
 	case ast.TypeDecl:
 		collectTypeDecl(d, index)
 	case ast.TypeGroupDecl:
-		collectTypeGroupDecl(d, index, env, diags)
+		collectTypeGroupDecl(d, index, env, diags, importAliases)
 	case ast.EnumDecl:
-		collectEnumDecl(d, env, diags)
+		collectEnumDecl(d, env, diags, importAliases)
 	case ast.ConstGroupDecl:
-		collectConstGroupDecl(d, env, diags)
+		collectConstGroupDecl(d, env, diags, importAliases)
 	}
 }
 
@@ -109,26 +158,26 @@ func collectTypeDecl(decl ast.TypeDecl, index *packageDeclIndex) {
 	}
 }
 
-func collectTypeGroupDecl(decl ast.TypeGroupDecl, index *packageDeclIndex, env *Env, diags *[]diag.Diagnostic) {
+func collectTypeGroupDecl(decl ast.TypeGroupDecl, index *packageDeclIndex, env *Env, diags *[]diag.Diagnostic, importAliases map[string]bool) {
 	for _, typ := range decl.Types {
-		if typ.Name == "" || !declarePackageName(diags, env, typ.Name, typ) {
+		if typ.Name == "" || !declarePackageNameWithAliases(diags, env, typ.Name, typ, importAliases) {
 			continue
 		}
 		collectTypeDecl(typ, index)
 	}
 }
 
-func collectEnumDecl(decl ast.EnumDecl, env *Env, diags *[]diag.Diagnostic) {
+func collectEnumDecl(decl ast.EnumDecl, env *Env, diags *[]diag.Diagnostic, importAliases map[string]bool) {
 	for _, value := range decl.Values {
-		if value.Name == "" || !declarePackageName(diags, env, value.Name, value) {
+		if value.Name == "" || !declarePackageNameWithAliases(diags, env, value.Name, value, importAliases) {
 			continue
 		}
 	}
 }
 
-func collectConstGroupDecl(decl ast.ConstGroupDecl, env *Env, diags *[]diag.Diagnostic) {
+func collectConstGroupDecl(decl ast.ConstGroupDecl, env *Env, diags *[]diag.Diagnostic, importAliases map[string]bool) {
 	for _, constant := range decl.Consts {
-		if constant.Name == "" || !declarePackageName(diags, env, constant.Name, constant) {
+		if constant.Name == "" || !declarePackageNameWithAliases(diags, env, constant.Name, constant, importAliases) {
 			continue
 		}
 	}
@@ -2217,6 +2266,281 @@ func (c *funcBodyChecker) localNameDiagnostic(name string, primary span.Span, lo
 		}, true
 	}
 	return diag.Diagnostic{}, false
+}
+
+// reverseGraphIndex builds a dir → []filePath index used to identify which
+// directory a given ast.Package belongs to. Packages don't carry their own
+// directory field, so we match by the file paths registered on each
+// package's files (each ast.File's Span.File is the source path the parser
+// loaded). The first match wins.
+func reverseGraphIndex(graph ImportGraph) map[string]string {
+	out := map[string]string{}
+	for dir, pkg := range graph.Packages {
+		for _, file := range pkg.Files {
+			out[string(file.Span.File)] = dir
+		}
+	}
+	return out
+}
+
+// lookupPackageDir returns the directory key for pkg using the reverse
+// index, or filepath.Dir of the first file as a fallback when the graph
+// does not register the package (e.g. a synthetic test root).
+func lookupPackageDir(pkg ast.Package, byFile map[string]string) string {
+	for _, file := range pkg.Files {
+		if dir, ok := byFile[string(file.Span.File)]; ok {
+			return dir
+		}
+	}
+	if len(pkg.Files) > 0 {
+		return filepath.Dir(string(pkg.Files[0].Span.File))
+	}
+	return ""
+}
+
+// packageAliasSet returns the set of import aliases bound inside the
+// package rooted at dir, including builtin aliases. Builtin aliases are
+// included so that top-level declarations cannot shadow a builtin import
+// (`import bpf "…/kernel"; type bpf struct {…}` is still rejected via the
+// HZN1004 path because compilerNamespace already returns true for bpf).
+func packageAliasSet(graph ImportGraph, dir string) map[string]bool {
+	if graph.Edges == nil {
+		return nil
+	}
+	edges := graph.Edges[dir]
+	if len(edges) == 0 {
+		return nil
+	}
+	aliases := make(map[string]bool, len(edges))
+	for alias := range edges {
+		aliases[alias] = true
+	}
+	return aliases
+}
+
+// importedPackagesByAlias indexes the import graph by local alias for the
+// package at dir, returning only non-builtin imports. Each entry is the
+// resolved dependency ast.Package as parsed by the resolver — callers walk
+// its files to derive both the simple declaration index and the resolved
+// struct decls.
+func importedPackagesByAlias(graph ImportGraph, dir string) map[string]ast.Package {
+	if graph.Edges == nil || graph.Packages == nil {
+		return nil
+	}
+	edges := graph.Edges[dir]
+	if len(edges) == 0 {
+		return nil
+	}
+	out := map[string]ast.Package{}
+	for alias, depDir := range edges {
+		if graph.BuiltinAliases[alias] {
+			continue
+		}
+		depPkg, ok := graph.Packages[depDir]
+		if !ok {
+			continue
+		}
+		out[alias] = depPkg
+	}
+	return out
+}
+
+// buildImportedDecls runs collectPackageFileDecls over every file of every
+// imported package, producing one packageDeclIndex per alias. The per-
+// import collection runs without alias context — qualified-type resolution
+// only needs the top-level declarations of the imported package, not its
+// own import edges.
+func buildImportedDecls(importedPkgs map[string]ast.Package) map[string]*packageDeclIndex {
+	if len(importedPkgs) == 0 {
+		return nil
+	}
+	out := map[string]*packageDeclIndex{}
+	for alias, pkg := range importedPkgs {
+		idx := newPackageDeclIndex()
+		env := NewEnv()
+		var sink []diag.Diagnostic
+		for _, file := range pkg.Files {
+			collectPackageFileDecls(file, &idx, env, &sink, nil)
+		}
+		out[alias] = &idx
+	}
+	return out
+}
+
+// registerQualifiedResolvedDecls re-exposes each imported package's struct
+// declarations under their qualified `<alias>.<TypeName>` form so that
+// validators expecting a resolvedDeclIndex (validateMapDecl,
+// validateStoredTypeRef, ringbufValueNeedsStructDiagnostic) accept
+// imported types as first-class user structs.
+func registerQualifiedResolvedDecls(resolved *resolvedDeclIndex, importedPkgs map[string]ast.Package) {
+	for alias, pkg := range importedPkgs {
+		for _, file := range pkg.Files {
+			for _, decl := range file.Decls {
+				switch d := decl.(type) {
+				case ast.TypeDecl:
+					if d.IsAlias() || d.Name == "" {
+						continue
+					}
+					qualified := alias + "." + d.Name
+					resolved.structs[qualified] = d
+					resolved.userStructs[qualified] = d
+				case ast.TypeGroupDecl:
+					for _, typ := range d.Types {
+						if typ.IsAlias() || typ.Name == "" {
+							continue
+						}
+						qualified := alias + "." + typ.Name
+						resolved.structs[qualified] = typ
+						resolved.userStructs[qualified] = typ
+					}
+				}
+			}
+		}
+	}
+}
+
+// registerQualifiedKnownTypes makes every imported package's struct type
+// visible to the local package's validateTypeRef path under its qualified
+// `<alias>.<TypeName>` form. Without this, validateTypeRef would emit
+// HZN1102 ("unknown type") for any selector-typed field. The qualified
+// names go into the same knownTypes map that builtin types live in.
+func registerQualifiedKnownTypes(index *packageDeclIndex, importedDecls map[string]*packageDeclIndex) {
+	for alias, depIdx := range importedDecls {
+		if depIdx == nil {
+			continue
+		}
+		for name := range depIdx.knownTypes {
+			if isScalar(name) || strings.Contains(name, ".") {
+				// Scalars and pre-qualified builtins (e.g. xdp.Eth) are
+				// never re-exposed under an importer's alias prefix.
+				continue
+			}
+			qualified := alias + "." + name
+			index.knownTypes[qualified] = true
+		}
+	}
+}
+
+// validateQualifiedSelectorRefs walks every type reference in a file and
+// emits HZN1557 / HZN1558 for malformed qualified selector types. HZN1557
+// fires when the qualifier is not a known import alias; HZN1558 fires when
+// the qualifier is known but the named type is not declared in the
+// imported package. The function operates after the local type-check pass
+// so that all existing diagnostics still surface — the qualified-selector
+// checks only add specificity where validateTypeRef would otherwise emit a
+// generic HZN1102.
+func validateQualifiedSelectorRefs(file ast.File, importAliases map[string]bool, importedDecls map[string]*packageDeclIndex) []diag.Diagnostic {
+	if len(importAliases) == 0 && len(importedDecls) == 0 {
+		return nil
+	}
+	var diags []diag.Diagnostic
+	var walk func(ref ast.TypeRef)
+	walk = func(ref ast.TypeRef) {
+		if ref.Elem != nil {
+			walk(*ref.Elem)
+		}
+		for _, arg := range ref.Args {
+			walk(arg)
+		}
+		name := ref.Name
+		if name == "" || !strings.Contains(name, ".") {
+			return
+		}
+		alias, typeName, ok := splitQualifiedTypeName(name)
+		if !ok {
+			return
+		}
+		// Skip references that resolve via the hardcoded compilerNamespace
+		// path (tracepoint.Exec, xdp.Eth, etc.). The local knownTypes
+		// already covers those; only the user-package selector case needs
+		// new diagnostics.
+		if compilerNamespace(alias) && !importAliases[alias] {
+			return
+		}
+		if !importAliases[alias] {
+			diags = append(diags, diag.Diagnostic{
+				Code:     "HZN1557",
+				Severity: diag.SeverityError,
+				Message:  fmt.Sprintf("unknown import alias %q in qualified type %q", alias, name),
+				Primary:  ref.Span,
+				Suggest:  fmt.Sprintf("declare an import like `import %s \"<path>\"` before referencing %s.%s", alias, alias, typeName),
+			})
+			return
+		}
+		depIdx, ok := importedDecls[alias]
+		if !ok || depIdx == nil {
+			// Alias resolves to a builtin namespace; nothing to do.
+			return
+		}
+		if depIdx.knownTypes[typeName] {
+			return
+		}
+		diags = append(diags, diag.Diagnostic{
+			Code:     "HZN1558",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("type %q is not declared in imported package %q", typeName, alias),
+			Primary:  ref.Span,
+			Suggest:  fmt.Sprintf("check the spelling of %s, or add `type %s struct { … }` to the imported package", typeName, typeName),
+		})
+	}
+	for _, decl := range file.Decls {
+		walkDeclTypeRefs(decl, walk)
+	}
+	return diags
+}
+
+// walkDeclTypeRefs invokes visit on every TypeRef reachable from a
+// top-level declaration. The walk covers struct fields, map key/value
+// types, function parameter / return types, const types, and type-alias
+// targets — i.e. every place buildTypeRef can land a node in the AST.
+func walkDeclTypeRefs(decl ast.Decl, visit func(ast.TypeRef)) {
+	switch d := decl.(type) {
+	case ast.TypeDecl:
+		if d.IsAlias() {
+			visit(d.Alias)
+		}
+		for _, field := range d.Fields {
+			visit(field.Type)
+		}
+	case ast.TypeGroupDecl:
+		for _, typ := range d.Types {
+			if typ.IsAlias() {
+				visit(typ.Alias)
+			}
+			for _, field := range typ.Fields {
+				visit(field.Type)
+			}
+		}
+	case ast.MapDecl:
+		visit(d.Key)
+		visit(d.Val)
+	case ast.FuncDecl:
+		for _, param := range d.Params {
+			visit(param.Type)
+		}
+		visit(d.Return)
+	case ast.ConstDecl:
+		visit(d.Type)
+	case ast.ConstGroupDecl:
+		for _, c := range d.Consts {
+			visit(c.Type)
+		}
+	}
+}
+
+// splitQualifiedTypeName splits "alias.TypeName" into ("alias", "TypeName",
+// true). Names without exactly one dot return ok=false; nested selectors
+// (e.g. "a.b.c") are not v0.2 syntax and are left alone.
+func splitQualifiedTypeName(name string) (string, string, bool) {
+	idx := strings.Index(name, ".")
+	if idx <= 0 || idx == len(name)-1 {
+		return "", "", false
+	}
+	rest := name[idx+1:]
+	if strings.Contains(rest, ".") {
+		return "", "", false
+	}
+	return name[:idx], rest, true
 }
 
 func compilerNamespace(name string) bool {
