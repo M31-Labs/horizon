@@ -1,0 +1,85 @@
+{
+  "schema": "m31labs.dev/horizon/helpers/v1",
+  "version": "1",
+  "helpers": [
+    {
+      "name": "bpf.current_pid",
+      "kernel_symbol": "bpf_get_current_pid_tgid",
+      "observes": ["task.tgid"],
+      "introduced": "v0.1.0"
+    },
+    {
+      "name": "bpf.current_ppid",
+      "kernel_symbol": "bpf_get_current_task",
+      "observes": ["task.real_parent.tgid"],
+      "requires": ["task_struct.real_parent"],
+      "introduced": "v0.1.0"
+    },
+    {
+      "name": "bpf.current_uid",
+      "kernel_symbol": "bpf_get_current_uid_gid",
+      "observes": ["task.uid"],
+      "introduced": "v0.1.0"
+    },
+    {
+      "name": "bpf.current_comm",
+      "kernel_symbol": "bpf_get_current_comm",
+      "observes": ["task.comm"],
+      "introduced": "v0.1.0"
+    },
+    {
+      "name": "bpf.ktime_get_ns",
+      "kernel_symbol": "bpf_ktime_get_ns",
+      "observes": ["kernel.time.monotonic"],
+      "introduced": "v0.1.0"
+    },
+    {
+      "name": "bpf.probe_read_user_str",
+      "kernel_symbol": "bpf_probe_read_user_str",
+      "observes": ["userspace.string"],
+      "introduced": "v0.1.0"
+    },
+    {
+      "name": "ringbuf.reserve",
+      "kernel_symbol": "bpf_ringbuf_reserve",
+      "mutates": ["ringbuf:$"],
+      "resource": "reserve",
+      "introduced": "v0.1.0"
+    },
+    {
+      "name": "ringbuf.submit",
+      "kernel_symbol": "bpf_ringbuf_submit",
+      "mutates": ["ringbuf:$"],
+      "resource": "submit",
+      "introduced": "v0.1.0"
+    },
+    {
+      "name": "ringbuf.discard",
+      "kernel_symbol": "bpf_ringbuf_discard",
+      "mutates": ["ringbuf:$"],
+      "resource": "discard",
+      "introduced": "v0.1.0"
+    },
+    {
+      "name": "map.lookup",
+      "kernel_symbol": "bpf_map_lookup_elem",
+      "observes": ["map:$"],
+      "resource": "lookup",
+      "introduced": "v0.1.0"
+    },
+    {
+      "name": "map.update",
+      "kernel_symbol": "bpf_map_update_elem",
+      "mutates": ["map:$"],
+      "resource": "update",
+      "introduced": "v0.1.0"
+    },
+    {
+      "name": "map.delete",
+      "kernel_symbol": "bpf_map_delete_elem",
+      "mutates": ["map:$"],
+      "resource": "delete",
+      "introduced": "v0.1.0"
+    }
+  ]
+}
