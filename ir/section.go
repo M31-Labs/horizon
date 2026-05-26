@@ -10,6 +10,8 @@ const (
 	ProgramLSM        ProgramKind = "lsm"
 	ProgramKprobe     ProgramKind = "kprobe"
 	ProgramKretprobe  ProgramKind = "kretprobe"
+	ProgramUprobe     ProgramKind = "uprobe"
+	ProgramUretprobe  ProgramKind = "uretprobe"
 )
 
 type Section struct {

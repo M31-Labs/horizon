@@ -1449,6 +1449,8 @@ func cContext(fn ir.Function) string {
 		return "void *" + name
 	case ir.ProgramKprobe, ir.ProgramKretprobe:
 		return "struct pt_regs *" + name
+	case ir.ProgramUprobe, ir.ProgramUretprobe:
+		return "struct pt_regs *" + name
 	default:
 		return "void *" + name
 	}

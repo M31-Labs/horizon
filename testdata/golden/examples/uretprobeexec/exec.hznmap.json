@@ -1,0 +1,322 @@
+{
+  "generated": {
+    "language": "c"
+  },
+  "mappings": [
+    {
+      "function": "",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 24
+        },
+        "start": {
+          "column": 1,
+          "line": 18
+        }
+      },
+      "node": "struct",
+      "section": "",
+      "source": {
+        "end": {
+          "column": 2,
+          "line": 5
+        },
+        "end_byte": 62,
+        "file": "examples/uretprobeexec/exec.hzn",
+        "start": {
+          "column": 6,
+          "line": 3
+        },
+        "start_byte": 21
+      }
+    },
+    {
+      "function": "",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 29
+        },
+        "start": {
+          "column": 1,
+          "line": 24
+        }
+      },
+      "node": "map",
+      "section": "",
+      "source": {
+        "end": {
+          "column": 52,
+          "line": 7
+        },
+        "end_byte": 115,
+        "file": "examples/uretprobeexec/exec.hzn",
+        "start": {
+          "column": 1,
+          "line": 7
+        },
+        "start_byte": 64
+      }
+    },
+    {
+      "function": "OnExecReturn",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 33
+        },
+        "start": {
+          "column": 1,
+          "line": 29
+        }
+      },
+      "node": "map_wrapper",
+      "section": "uretprobe",
+      "source": {
+        "end": {
+          "column": 43,
+          "line": 14
+        },
+        "end_byte": 353,
+        "file": "examples/uretprobeexec/exec.hzn",
+        "start": {
+          "column": 14,
+          "line": 14
+        },
+        "start_byte": 324
+      }
+    },
+    {
+      "function": "OnExecReturn",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 37
+        },
+        "start": {
+          "column": 1,
+          "line": 33
+        }
+      },
+      "node": "map_wrapper",
+      "section": "uretprobe",
+      "source": {
+        "end": {
+          "column": 38,
+          "line": 19
+        },
+        "end_byte": 454,
+        "file": "examples/uretprobeexec/exec.hzn",
+        "start": {
+          "column": 5,
+          "line": 19
+        },
+        "start_byte": 421
+      }
+    },
+    {
+      "function": "OnExecReturn",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 42
+        },
+        "start": {
+          "column": 1,
+          "line": 41
+        }
+      },
+      "node": "short_var",
+      "section": "uretprobe",
+      "source": {
+        "end": {
+          "column": 43,
+          "line": 14
+        },
+        "end_byte": 353,
+        "file": "examples/uretprobeexec/exec.hzn",
+        "start": {
+          "column": 5,
+          "line": 14
+        },
+        "start_byte": 315
+      }
+    },
+    {
+      "function": "OnExecReturn",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 44
+        },
+        "start": {
+          "column": 1,
+          "line": 43
+        }
+      },
+      "node": "return",
+      "section": "uretprobe",
+      "source": {
+        "end": {
+          "column": 17,
+          "line": 16
+        },
+        "end_byte": 392,
+        "file": "examples/uretprobeexec/exec.hzn",
+        "start": {
+          "column": 9,
+          "line": 16
+        },
+        "start_byte": 384
+      }
+    },
+    {
+      "function": "OnExecReturn",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 45
+        },
+        "start": {
+          "column": 1,
+          "line": 42
+        }
+      },
+      "node": "if",
+      "section": "uretprobe",
+      "source": {
+        "end": {
+          "column": 6,
+          "line": 17
+        },
+        "end_byte": 398,
+        "file": "examples/uretprobeexec/exec.hzn",
+        "start": {
+          "column": 5,
+          "line": 15
+        },
+        "start_byte": 358
+      }
+    },
+    {
+      "function": "OnExecReturn",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 46
+        },
+        "start": {
+          "column": 1,
+          "line": 45
+        }
+      },
+      "node": "assign",
+      "section": "uretprobe",
+      "source": {
+        "end": {
+          "column": 18,
+          "line": 18
+        },
+        "end_byte": 416,
+        "file": "examples/uretprobeexec/exec.hzn",
+        "start": {
+          "column": 5,
+          "line": 18
+        },
+        "start_byte": 403
+      }
+    },
+    {
+      "function": "OnExecReturn",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 47
+        },
+        "start": {
+          "column": 1,
+          "line": 46
+        }
+      },
+      "node": "expr",
+      "section": "uretprobe",
+      "source": {
+        "end": {
+          "column": 38,
+          "line": 19
+        },
+        "end_byte": 454,
+        "file": "examples/uretprobeexec/exec.hzn",
+        "start": {
+          "column": 5,
+          "line": 19
+        },
+        "start_byte": 421
+      }
+    },
+    {
+      "function": "OnExecReturn",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 48
+        },
+        "start": {
+          "column": 1,
+          "line": 47
+        }
+      },
+      "node": "return",
+      "section": "uretprobe",
+      "source": {
+        "end": {
+          "column": 13,
+          "line": 20
+        },
+        "end_byte": 467,
+        "file": "examples/uretprobeexec/exec.hzn",
+        "start": {
+          "column": 5,
+          "line": 20
+        },
+        "start_byte": 459
+      }
+    },
+    {
+      "function": "OnExecReturn",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 49
+        },
+        "start": {
+          "column": 1,
+          "line": 37
+        }
+      },
+      "node": "function",
+      "section": "uretprobe",
+      "source": {
+        "end": {
+          "column": 2,
+          "line": 21
+        },
+        "end_byte": 469,
+        "file": "examples/uretprobeexec/exec.hzn",
+        "start": {
+          "column": 1,
+          "line": 11
+        },
+        "start_byte": 199
+      }
+    }
+  ],
+  "schema": "m31labs.dev/horizon/sourcemap/v0",
+  "sources": [
+    {
+      "id": 0,
+      "path": "examples/uretprobeexec/exec.hzn"
+    }
+  ]
+}

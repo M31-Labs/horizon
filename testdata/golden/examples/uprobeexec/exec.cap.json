@@ -1,0 +1,120 @@
+{
+  "capabilities": [
+    {
+      "danger": "observe",
+      "emits": "UprobeExecEvent",
+      "kind": "source",
+      "maps": {
+        "events": [
+          "UprobeExecEvents"
+        ],
+        "read": [],
+        "write": []
+      },
+      "name": "kernel.userspace.exec.observe",
+      "program": "OnExecEntry",
+      "requirements": {
+        "features": [
+          "tracefs",
+          "uprobes"
+        ],
+        "helpers": [
+          {
+            "min_kernel": "5.8",
+            "name": "bpf_ringbuf_reserve"
+          },
+          {
+            "min_kernel": "5.8",
+            "name": "bpf_ringbuf_submit"
+          }
+        ],
+        "maps": [
+          {
+            "min_kernel": "5.8",
+            "name": "ringbuf"
+          }
+        ],
+        "min_kernel": "5.8",
+        "permissions": [
+          "bpf_program_load",
+          "perf_event_open"
+        ],
+        "programs": [
+          {
+            "min_kernel": "4.3",
+            "name": "uprobe"
+          }
+        ]
+      },
+      "section": "uprobe//usr/bin/ls:main"
+    }
+  ],
+  "maps": [
+    {
+      "kind": "ringbuf",
+      "name": "UprobeExecEvents",
+      "value": "UprobeExecEvent"
+    }
+  ],
+  "package": "probes",
+  "programs": [
+    {
+      "attach": "/usr/bin/ls:main",
+      "capabilities": [
+        "kernel.userspace.exec.observe"
+      ],
+      "kind": "uprobe",
+      "name": "OnExecEntry",
+      "section": "uprobe"
+    }
+  ],
+  "requirements": {
+    "features": [
+      "tracefs",
+      "uprobes"
+    ],
+    "helpers": [
+      {
+        "min_kernel": "5.8",
+        "name": "bpf_ringbuf_reserve"
+      },
+      {
+        "min_kernel": "5.8",
+        "name": "bpf_ringbuf_submit"
+      }
+    ],
+    "maps": [
+      {
+        "min_kernel": "5.8",
+        "name": "ringbuf"
+      }
+    ],
+    "min_kernel": "5.8",
+    "permissions": [
+      "bpf_program_load",
+      "perf_event_open"
+    ],
+    "programs": [
+      {
+        "min_kernel": "4.3",
+        "name": "uprobe"
+      }
+    ]
+  },
+  "schema": "m31labs.dev/horizon/capability/v0",
+  "types": [
+    {
+      "align": 4,
+      "fields": [
+        {
+          "name": "pid",
+          "offset": 0,
+          "type": "u32"
+        }
+      ],
+      "kind": "struct",
+      "name": "UprobeExecEvent",
+      "size": 4
+    }
+  ]
+}

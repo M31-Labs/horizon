@@ -44,6 +44,8 @@ func ExpectedKernelCapabilityPrefix(kind string, attach string, section string) 
 		case "tcp_v4_connect":
 			return "kernel.network.tcp.connect."
 		}
+	case "uprobe", "uretprobe":
+		return "kernel.userspace.exec."
 	}
 	return ""
 }

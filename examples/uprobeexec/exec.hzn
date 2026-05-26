@@ -1,0 +1,21 @@
+package probes
+
+type UprobeExecEvent struct {
+    pid u32
+}
+
+map UprobeExecEvents ringbuf[UprobeExecEvent]
+
+capability UprobeExecObserve danger observe = "kernel.userspace.exec.observe"
+
+@capability(UprobeExecObserve)
+@uprobe("/usr/bin/ls:main")
+func OnExecEntry(ctx uprobe.Context) i32 {
+    event := UprobeExecEvents.reserve()
+    if event == nil {
+        return 0
+    }
+    event.pid = 0
+    UprobeExecEvents.submit(event)
+    return 0
+}

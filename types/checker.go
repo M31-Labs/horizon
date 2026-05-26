@@ -406,6 +406,8 @@ func builtinTypes() map[string]bool {
 		"lsm.Context":       true,
 		"kprobe.Context":    true,
 		"kretprobe.Context": true,
+		"uprobe.Context":    true,
+		"uretprobe.Context": true,
 	}
 }
 
@@ -952,7 +954,7 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 			Severity: diag.SeverityError,
 			Message:  fmt.Sprintf("function %q has multiple eBPF program sections", decl.Name),
 			Primary:  decl.Span,
-			Suggest:  `use exactly one section attribute such as @tracepoint(...), @xdp, @tc("ingress"), @cgroup("connect4"), @lsm("file_open"), @kprobe(...), or @kretprobe(...)`,
+			Suggest:  `use exactly one section attribute such as @tracepoint(...), @xdp, @tc("ingress"), @cgroup("connect4"), @lsm("file_open"), @kprobe(...), @kretprobe(...), @uprobe("path:sym"), or @uretprobe("path:sym")`,
 		})
 	}
 	for _, attr := range decl.Attrs {
@@ -1093,6 +1095,46 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 					Suggest:  `use a non-empty kernel symbol such as @kretprobe("do_sys_openat2")`,
 				})
 			}
+		case "uprobe":
+			if !attrHasStringArg(attr) {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1327",
+					Severity: diag.SeverityError,
+					Message:  `@uprobe requires one "binaryPath:symbol" string argument`,
+					Primary:  attr.Span,
+				})
+				break
+			}
+			attach := attrStringArg(attr)
+			if !validUprobeAttach(attach) {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1328",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("@uprobe attach %q must use binaryPath:symbol form", attach),
+					Primary:  attr.Span,
+					Suggest:  `use a path:symbol pair such as @uprobe("/usr/bin/ls:main")`,
+				})
+			}
+		case "uretprobe":
+			if !attrHasStringArg(attr) {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1329",
+					Severity: diag.SeverityError,
+					Message:  `@uretprobe requires one "binaryPath:symbol" string argument`,
+					Primary:  attr.Span,
+				})
+				break
+			}
+			attach := attrStringArg(attr)
+			if !validUprobeAttach(attach) {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1330",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("@uretprobe attach %q must use binaryPath:symbol form", attach),
+					Primary:  attr.Span,
+					Suggest:  `use a path:symbol pair such as @uretprobe("/usr/bin/ls:main")`,
+				})
+			}
 		case "capability":
 			diags = append(diags, validateCapabilityAttr(attr, capabilities)...)
 			if isHelper {
@@ -1201,6 +1243,24 @@ func validateCapabilityDecl(decl ast.CapabilityDecl) []diag.Diagnostic {
 func validTracepointAttach(attach string) bool {
 	category, event, ok := strings.Cut(attach, ":")
 	return ok && validAttachToken(category) && validAttachToken(event)
+}
+
+// validUprobeAttach validates an uprobe/uretprobe attach string of the form
+// "binaryPath:symbol". The binary path may contain slashes; the symbol must be
+// a non-empty, non-whitespace token without colons.
+func validUprobeAttach(attach string) bool {
+	colon := strings.LastIndex(attach, ":")
+	if colon <= 0 {
+		return false
+	}
+	binaryPath := attach[:colon]
+	symbol := attach[colon+1:]
+	if binaryPath == "" || symbol == "" {
+		return false
+	}
+	return !strings.ContainsFunc(symbol, func(r rune) bool {
+		return r == 0 || r == '"' || r == '\'' || r == '\\' || r == '`' || r <= ' '
+	})
 }
 
 func validAttachToken(token string) bool {
@@ -1555,6 +1615,10 @@ func sectionAttrs(attrs []ast.Attr) []sectionSpec {
 			out = append(out, sectionSpec{Attr: attr, Context: "kprobe.Context"})
 		case "kretprobe":
 			out = append(out, sectionSpec{Attr: attr, Context: "kretprobe.Context"})
+		case "uprobe":
+			out = append(out, sectionSpec{Attr: attr, Context: "uprobe.Context"})
+		case "uretprobe":
+			out = append(out, sectionSpec{Attr: attr, Context: "uretprobe.Context"})
 		}
 	}
 	return out

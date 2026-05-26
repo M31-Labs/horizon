@@ -475,6 +475,24 @@ func sectionFromAttrs(attrs []ast.Attr) Section {
 				Attach: attach,
 				Name:   "kretprobe/" + attach,
 			}
+		case "uprobe":
+			// SEC("uprobe") is used rather than SEC("uprobe/binary:symbol") because
+			// libbpf's embedded-path form requires double-slash and clang does not
+			// validate attach targets at compile time. The binary and symbol are
+			// loader-time concerns expressed via link.OpenExecutable(...).Uprobe(...).
+			attach := stringArg(attr)
+			return Section{
+				Kind:   ProgramUprobe,
+				Attach: attach,
+				Name:   "uprobe",
+			}
+		case "uretprobe":
+			attach := stringArg(attr)
+			return Section{
+				Kind:   ProgramUretprobe,
+				Attach: attach,
+				Name:   "uretprobe",
+			}
 		}
 	}
 	return Section{}
@@ -779,6 +797,9 @@ func manifestSection(section Section) string {
 		return "lsm/" + section.Attach
 	}
 	if (section.Kind == ProgramKprobe || section.Kind == ProgramKretprobe) && section.Attach != "" {
+		return string(section.Kind) + "/" + section.Attach
+	}
+	if (section.Kind == ProgramUprobe || section.Kind == ProgramUretprobe) && section.Attach != "" {
 		return string(section.Kind) + "/" + section.Attach
 	}
 	return section.Name

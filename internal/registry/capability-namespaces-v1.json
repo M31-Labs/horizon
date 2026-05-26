@@ -78,6 +78,20 @@
       "attach_strings": ["ingress", "egress"],
       "allowed_danger_leaves": ["observe", "drop", "block"],
       "introduced": "v0.1.0"
+    },
+    {
+      "namespace": "kernel.userspace.exec",
+      "attach_surface": "uprobe",
+      "attach_strings": [],
+      "allowed_danger_leaves": ["observe"],
+      "introduced": "v0.2.0"
+    },
+    {
+      "namespace": "kernel.userspace.exec",
+      "attach_surface": "uretprobe",
+      "attach_strings": [],
+      "allowed_danger_leaves": ["observe"],
+      "introduced": "v0.2.0"
     }
   ]
 }

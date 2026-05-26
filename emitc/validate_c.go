@@ -201,6 +201,10 @@ func validateCSectionName(section string, lineNo int) error {
 		return nil
 	case "tc/ingress", "tc/egress", "cgroup/connect4", "cgroup/connect6":
 		return nil
+	// uprobe and uretprobe use a bare section name; the binary/symbol are
+	// loader-time concerns expressed via link.OpenExecutable(...).Uprobe(...).
+	case "uprobe", "uretprobe":
+		return nil
 	}
 	switch {
 	case strings.HasPrefix(section, "tracepoint/"):

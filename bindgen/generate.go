@@ -266,6 +266,8 @@ func emitsAttachMethod(fn ir.Function) bool {
 		return true
 	case ir.ProgramKprobe, ir.ProgramKretprobe:
 		return fn.Section.Attach != ""
+	case ir.ProgramUprobe, ir.ProgramUretprobe:
+		return fn.Section.Attach != ""
 	default:
 		return false
 	}
@@ -446,6 +448,10 @@ func emitAttach(b *bytes.Buffer, fn ir.Function) {
 		emitKprobeAttach(b, fn, "Kprobe")
 	case ir.ProgramKretprobe:
 		emitKprobeAttach(b, fn, "Kretprobe")
+	case ir.ProgramUprobe:
+		emitUprobeAttach(b, fn, false)
+	case ir.ProgramUretprobe:
+		emitUprobeAttach(b, fn, true)
 	}
 }
 
@@ -555,6 +561,40 @@ func emitKprobeAttach(b *bytes.Buffer, fn ir.Function, linkFunc string) {
 `, field, field, fn.Name, linkFunc, fn.Section.Attach, field)
 }
 
+// emitUprobeAttach emits an Attach method for a uprobe or uretprobe program.
+// The attach string has the form "binaryPath:symbol"; at attach time this is
+// split and passed to link.OpenExecutable(binaryPath).Uprobe/Uretprobe(symbol, ...).
+func emitUprobeAttach(b *bytes.Buffer, fn ir.Function, isRet bool) {
+	if fn.Section.Attach == "" {
+		return
+	}
+	binary, symbol, ok := strings.Cut(fn.Section.Attach, ":")
+	if !ok {
+		// Attach string without ":" — use it as the binary path with empty symbol.
+		binary = fn.Section.Attach
+	}
+	field := exported(fn.Name)
+	linkMethod := "Uprobe"
+	if isRet {
+		linkMethod = "Uretprobe"
+	}
+	fmt.Fprintf(b, `func (o *Objects) Attach%s(binaryPath string) (link.Link, error) {
+	if o == nil || o.%s == nil {
+		return nil, fmt.Errorf("%s program is not loaded")
+	}
+	if binaryPath == "" {
+		binaryPath = %q
+	}
+	ex, err := link.OpenExecutable(binaryPath)
+	if err != nil {
+		return nil, fmt.Errorf("open executable %%s: %%w", binaryPath, err)
+	}
+	return ex.%s(%q, o.%s, nil)
+}
+
+`, field, field, fn.Name, binary, linkMethod, symbol, field)
+}
+
 func emitImports(b *bytes.Buffer, program ir.Program) {
 	needsRingbuf := hasRingbuf(program)
 	needsAttach := hasAttach(program)
@@ -624,7 +664,7 @@ func hasRingbuf(program ir.Program) bool {
 func hasAttach(program ir.Program) bool {
 	for _, fn := range program.Functions {
 		switch fn.Section.Kind {
-		case ir.ProgramTracepoint, ir.ProgramXDP, ir.ProgramTC, ir.ProgramCgroup, ir.ProgramLSM, ir.ProgramKprobe, ir.ProgramKretprobe:
+		case ir.ProgramTracepoint, ir.ProgramXDP, ir.ProgramTC, ir.ProgramCgroup, ir.ProgramLSM, ir.ProgramKprobe, ir.ProgramKretprobe, ir.ProgramUprobe, ir.ProgramUretprobe:
 			return true
 		}
 	}
