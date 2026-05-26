@@ -80,6 +80,31 @@ All notable changes to Horizon are documented in this file. Format follows
 - Kernel-version test matrix scaffolding (`.github/workflows/kernel-matrix.yml`, `scripts/kernel-matrix/`, `make kernel-smoke`): structural artifacts only. Trigger is `workflow_dispatch` only until canned BTF-enabled qcow2 images publish at `M31-Labs/horizon-kernel-images`. Boot/smoke scripts are stubbed with EX_CONFIG (exit 78) until images land. Once images exist, a follow-up will add auto-triggers (`pull_request`/`push`) and fill in the boot bodies. Per spec §4.2.1, 6.1 + 6.6 are required for Phase 0 exit; 5.10 / 5.15 are best-effort. (roadmap: #19)
 - Behavior tests for generated bindings: `LoadObjects` survives nil-section/empty-map cases without panic, and ringbuf readers unwind cleanly on context cancellation. (roadmap: #18)
 - Helper side-effect modeling: each `Capability` in the manifest now carries an additive `helper_effects` array describing what observations, mutations, kernel requirements, and resource verbs each program's helper calls represent. Annotations live in the vendored `internal/registry/helpers-v1.json` registry, drift-checked against the compiler-known helper inventory. Downstream consumers (Continuum) can vendor the same registry. See `docs/migrations/v0-to-v1-manifest.md` §helper_effects. (roadmap: #8)
+- Multi-file packages: a Horizon source tree may now span multiple `.hzn`
+  files that share a single `package` declaration. The compiler aggregates
+  every file under the build root into one logical package via
+  `ast.GroupByPackage`, type-checks the union (cross-file duplicate
+  identifiers fire `HZN1551` with the prior file path attached), and
+  lowers the merged AST through a single IR build. Examples ship as
+  `examples/multifile-execcount/` (root package split across files) and
+  `examples/imported-execcount/` (root + vendored dependency). (roadmap: #20)
+- Cross-package imports: `import alias "path/to/pkg"` resolves relative to
+  the build root, walks vendored sources under `vendor/`, and routes
+  qualified references (`alias.Type`, `alias.helper()`, `@capability(alias.Name)`)
+  through the type checker, IR builder, and capability aggregator. Each
+  contributing package is lowered independently; the aggregator merges
+  per-package manifests, stamping `Origin` on `Capability`, `Map`, and
+  `TypeSchema` so downstream consumers can trace which import each artifact
+  came from. Collisions across packages (duplicate map names, capability
+  names, struct names) surface as `HZN15xx` diagnostics through
+  `hzn check`. Cross-package builtin aliases (e.g. `import bee
+  "m31labs.dev/horizon/runtime/kernel"`) route to the compiler namespace.
+  Builds with only-unreachable imported entrypoints emit advisory
+  `HZN1561`. Parser fuzz seeds and an `examples/imported-execcount/`
+  vendored fixture exercise the end-to-end flow. Remote import fetching,
+  package versioning, re-exports, and per-package published manifests
+  remain v0.3 candidates. See `docs/migrations/v0.2-package-composition.md`.
+  (roadmap: #21)
 
 ## [v0.1.2] — 2026-05-25
 
