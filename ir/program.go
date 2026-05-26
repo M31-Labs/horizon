@@ -9,7 +9,6 @@ type Program struct {
 	Functions    []Function
 	Maps         []Map
 	Capabilities []Capability
-	SourceMap    SourceMap
 }
 
 type Const struct {

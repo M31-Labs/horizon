@@ -6,6 +6,9 @@ All notable changes to Horizon are documented in this file. Format follows
 
 ## [Unreleased]
 
+### Changed
+- `ir.Program` no longer carries a partially-populated `SourceMap` field. Source maps are owned end-to-end by `emitc.Output`. No CLI / artifact change. (roadmap: #12)
+
 ### Added
 - `hzn build` and `hzn workbench -compile` now accept `-clang-timeout=<duration>` and read `HZN_CLANG_TIMEOUT` from the environment. Default remains 30s. (roadmap: #11)
 

@@ -83,7 +83,6 @@ func Merge(programs ...Program) Program {
 		merged.Functions = append(merged.Functions, program.Functions...)
 		merged.Maps = append(merged.Maps, program.Maps...)
 		merged.Capabilities = append(merged.Capabilities, program.Capabilities...)
-		merged.SourceMap.Mappings = append(merged.SourceMap.Mappings, program.SourceMap.Mappings...)
 	}
 	merged.Capabilities = refreshCapabilityAccesses(merged)
 	return merged
