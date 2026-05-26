@@ -288,3 +288,83 @@ func TestMapLookupConsumeHelperDocumentsConsumption(t *testing.T) {
 	}
 }
 
+// ── Task 6: packet caller propagation ─────────────────────────────────────────
+
+// xdpEthExpr builds: xdp.eth(ctx)
+func xdpEthExpr() *ir.Expr {
+	return &ir.Expr{
+		Kind: "call",
+		Func: &ir.Expr{
+			Kind:    "selector",
+			Operand: &ir.Expr{Kind: "ident", Name: "xdp"},
+			Field:   "eth",
+		},
+		Args: []ir.Expr{{Kind: "ident", Name: "ctx"}},
+	}
+}
+
+// xdpProgWithHelper builds an ir.Program with an XDP entrypoint "Bad" whose
+// body is entryStmts and one or more user helpers placed BEFORE the
+// entrypoint for deterministic topological order.
+func xdpProgWithHelper(entryStmts []ir.Statement, helpers ...ir.Function) ir.Program {
+	fns := make([]ir.Function, 0, len(helpers)+1)
+	fns = append(fns, helpers...)
+	fns = append(fns, ir.Function{
+		Name:    "Bad",
+		Section: ir.Section{Kind: ir.ProgramXDP, Name: "xdp"},
+		Body:    []ir.Block{{Statements: entryStmts}},
+	})
+	return ir.Program{Functions: fns}
+}
+
+// TestPacketHeaderDerefFiresAfterPreserveHelper verifies that when the helper
+// merely inspects the packet header pointer without dereferencing it, the
+// caller's `maybe_nil` state is NOT widened to `escaped` — so a trailing
+// unguarded deref still fires HZN2600. Mirrors the map-lookup case: the
+// Phase 1 fallback eagerly widens `maybe_nil` → `escaped` on any call,
+// over-suppressing the deref check after the helper returns.
+//
+// Before Task 6: checkArgEscapesPacket marks the header "escaped",
+// silencing HZN2600.
+// After Task 6: applyHelperEffectPacket sees inspect's Preserves summary
+// and leaves the state untouched, so the trailing `eth.proto` access fires
+// HZN2600.
+func TestPacketHeaderDerefFiresAfterPreserveHelper(t *testing.T) {
+	// helper: func inspect(eth *xdp.Eth) bool { return true }  (never references eth)
+	inspect := helperFn("inspect",
+		[]ir.Param{resourceParam("eth", "Eth")},
+		[]ir.Statement{
+			{Kind: "return", Value: &ir.Expr{Kind: "bool", Value: "true"}},
+		},
+	)
+	// entry:
+	//   eth := xdp.eth(ctx)
+	//   inspect(eth)
+	//   if eth.proto == 0 { return 0 }   // HZN2600 — never nil-checked
+	//   return 0
+	ethProto := &ir.Expr{
+		Kind:    "selector",
+		Operand: identExpr("eth"),
+		Field:   "proto",
+	}
+	entry := []ir.Statement{
+		{Kind: "short_var", Name: "eth", Value: xdpEthExpr()},
+		{Kind: "expr", Expr: userCallExpr("inspect", ir.Expr{Kind: "ident", Name: "eth"})},
+		{
+			Kind: "if",
+			Cond: &ir.Expr{
+				Kind:  "binary",
+				Op:    "==",
+				Left:  ethProto,
+				Right: &ir.Expr{Kind: "int", Value: "0"},
+			},
+			Then: []ir.Statement{returnZero()},
+		},
+		returnZero(),
+	}
+	prog := xdpProgWithHelper(entry, inspect)
+	diags := validate.Program(prog)
+	if got := countDiag(diags, "HZN2600"); got != 1 {
+		t.Fatalf("HZN2600 count = %d, want 1 (Preserves should stop over-suppression of unguarded packet deref)", got)
+	}
+}

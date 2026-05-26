@@ -14,7 +14,17 @@ import (
 // retained for the per-function re-walk. sites.PacketHeader is used as the
 // index to avoid iterating all program functions — only XDP functions that hold
 // at least one packet-header site are analyzed.
-func AnalyzePacket(program ir.Program, sites Sites) []diag.Diagnostic {
+//
+// effects is the program-level user-helper effect summary built once by
+// validate.Program (Phase 2 #13). When a tracked packet header is passed to a
+// user helper, applyHelperEffectPacket consults this summary to decide whether
+// to widen the caller's state to `escaped`. For packet headers the load-bearing
+// case is Preserves: a helper that does not consume the header should NOT
+// suppress the caller's deref check. Consumes/Mixed at the caller side are
+// indistinguishable from Preserves for the packet-header state machine — the
+// caller still has to nil-check before its own field access because packet
+// headers are not "owned" the way ringbuf reservations are.
+func AnalyzePacket(program ir.Program, sites Sites, effects HelperEffects) []diag.Diagnostic {
 	// Use sites.PacketHeader as the index: only functions that hold at least one
 	// packet header site need nil-check state-machine analysis. Deduplicate by
 	// function pointer; the function's section kind is already guaranteed to be
@@ -26,7 +36,7 @@ func AnalyzePacket(program ir.Program, sites Sites) []diag.Diagnostic {
 			continue
 		}
 		seen[site.Function] = true
-		diags = append(diags, validateXDPPacketHeaders(*site.Function)...)
+		diags = append(diags, validateXDPPacketHeaders(*site.Function, effects)...)
 	}
 	return diags
 }
@@ -36,7 +46,7 @@ type packetHeaderState struct {
 	State  string
 }
 
-func validateXDPPacketHeaders(fn ir.Function) []diag.Diagnostic {
+func validateXDPPacketHeaders(fn ir.Function, effects HelperEffects) []diag.Diagnostic {
 	states := map[string]packetHeaderState{}
 	aliases := newAliasGraph()
 	reported := map[string]bool{}
@@ -113,8 +123,16 @@ func validateXDPPacketHeaders(fn ir.Function) []diag.Diagnostic {
 				checkExpr(stmt.Value)
 			case "expr":
 				checkExpr(stmt.Expr)
-				// Detect call-argument escapes for packet header states.
-				checkArgEscapesPacket(stmt.Expr, states, aliases)
+				// Apply the user-helper effect summary to the call's args.
+				// For packet headers, Preserves is the load-bearing case —
+				// it stops the Phase 1 over-suppression that turned
+				// `maybe_nil` → `escaped` on any call, silencing the
+				// caller's downstream deref check. Consumes / Mixed at the
+				// caller side do not change state for packet headers (the
+				// caller still needs its own nil-check before its own
+				// field access). Escapes / Unknown fall back to Phase 1
+				// behavior.
+				applyHelperEffectPacket(stmt.Expr, states, aliases, effects)
 			case "return":
 				checkExpr(stmt.Value)
 			case "if":
@@ -278,33 +296,87 @@ func validateXDPPacketHeaders(fn ir.Function) []diag.Diagnostic {
 	return diags
 }
 
-// checkArgEscapesPacket marks packet header states as "escaped" when passed as
-// call arguments. Escaped headers suppress HZN2600 deref checks post-call.
-// Cross-function tracking deferred to Phase 2 #13.
+// applyHelperEffectPacket transitions caller-side packet-header state at
+// every call site, consulting the program-level HelperEffects summary.
 //
-// See validate/ringbuf.go::checkArgEscapesRingbuf for the rationale on the
-// "any non-live state escapes" rule (asymmetric vs ringbuf's "only live escapes").
-func checkArgEscapesPacket(expr *ir.Expr, states map[string]packetHeaderState, aliases *aliasGraph) {
+// For packet headers, the Phase 1 rule was: any non-live header state passed
+// to ANY call widens to "escaped" — including `maybe_nil`, which over-
+// suppressed the caller's downstream deref check (HZN2600). This is the
+// load-bearing regression Task 6 fixes.
+//
+// Per-call-site behavior:
+//
+//  1. User-helper call (bare-ident callee): per arg, consult
+//     effects.EffectFor(name, i):
+//     - Preserves → state unchanged (the load-bearing case — stops over-
+//       suppression so the caller's deref check still fires).
+//     - Consumes  → state unchanged. Packet headers are not "owned" the
+//       way ringbuf reservations are; the helper's internal deref does
+//       not absolve the caller of its own nil-check. Indistinguishable
+//       from Preserves at the caller side today; the distinction is kept
+//       on the summary side because v0.3 may use it differently.
+//     - Mixed     → state unchanged. Same reasoning as Consumes.
+//     - Escapes / Unknown → Phase 1 fallback: any non-live state widens
+//       to "escaped".
+//
+//  2. Any other call (compiler-known helper like xdp.eth, or a selector
+//     form that isn't a known helper): fall back to Phase 1 escape — any
+//     non-live state widens to "escaped". This preserves the conservative
+//     behavior for call sites we cannot precisely classify.
+//
+// The function recurses into Args so nested calls (f(g(eth))) are processed
+// in lexical order — g's effect on eth applies before f's.
+//
+// NOTE: packet preserves the Phase 1 asymmetry vs ringbuf — escape applies
+// to ANY non-live state (including `maybe_nil`), not just `live`. The
+// fallback gate is `state.State != "live" && state.State != "escaped"`,
+// matching pre-Task-6 behavior for unanalyzable calls.
+func applyHelperEffectPacket(expr *ir.Expr, states map[string]packetHeaderState, aliases *aliasGraph, effects HelperEffects) {
 	if expr == nil {
 		return
 	}
 	if expr.Kind == "call" {
+		helperName := userHelperName(expr.Func)
 		for i := range expr.Args {
 			arg := &expr.Args[i]
-			if arg.Kind == "ident" {
-				root := aliases.root(arg.Name)
-				if state, ok := states[root]; ok && state.State != "live" && state.State != "escaped" {
-					state.State = "escaped"
-					states[root] = state
-				}
+			// Recurse into the arg FIRST so nested calls classify their
+			// effect on the arg before the outer call.
+			applyHelperEffectPacket(arg, states, aliases, effects)
+			if arg.Kind != "ident" {
+				continue
 			}
-			checkArgEscapesPacket(arg, states, aliases)
+			root := aliases.root(arg.Name)
+			state, ok := states[root]
+			if !ok {
+				continue
+			}
+			if helperName != "" {
+				switch effects.EffectFor(helperName, i) {
+				case HelperEffectPreserves, HelperEffectConsumes, HelperEffectMixed:
+					// State unchanged — for packet headers, the caller
+					// still owes a nil-check before its own field access
+					// regardless of what the helper did internally.
+				default:
+					// HelperEffectEscapes or HelperEffectUnknown: fall
+					// back to Phase 1 "any non-live → escaped".
+					if state.State != "live" && state.State != "escaped" {
+						state.State = "escaped"
+						states[root] = state
+					}
+				}
+				continue
+			}
+			// Non-user-helper call site (selector form): Phase 1 fallback.
+			if state.State != "live" && state.State != "escaped" {
+				state.State = "escaped"
+				states[root] = state
+			}
 		}
 	}
-	checkArgEscapesPacket(expr.Operand, states, aliases)
-	checkArgEscapesPacket(expr.Left, states, aliases)
-	checkArgEscapesPacket(expr.Right, states, aliases)
-	checkArgEscapesPacket(expr.Func, states, aliases)
+	applyHelperEffectPacket(expr.Operand, states, aliases, effects)
+	applyHelperEffectPacket(expr.Left, states, aliases, effects)
+	applyHelperEffectPacket(expr.Right, states, aliases, effects)
+	applyHelperEffectPacket(expr.Func, states, aliases, effects)
 }
 
 func xdpPacketHeaderCall(expr *ir.Expr) (string, bool) {
