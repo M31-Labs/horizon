@@ -18,10 +18,121 @@ var (
 )
 
 // AnalyzeRingbuf runs the ringbuf validator's rule logic over pre-collected sites.
-// Internally delegates to ValidateRingbuf for now; migrated to consume sites
-// directly in a follow-up commit within this task.
+// The state-machine analysis (maybe_nil → live → consumed) requires branch-
+// merging control-flow context that Sites does not expose. sites.RingbufReserve
+// is used as the index of functions that hold reserve sites; the state machine
+// re-walk (validateTypedRingbuf) is retained for those functions. Typed
+// functions without reserves are also analyzed to catch consume-without-reserve
+// errors (HZN2101), preserving legacy behavior. Legacy text-path functions are
+// handled via bodyLines.
 func AnalyzeRingbuf(program ir.Program, sites Sites) []diag.Diagnostic {
-	return ValidateRingbuf(program)
+	ringMaps := map[string]ir.Map{}
+	for _, m := range program.Maps {
+		if m.Kind == ir.MapKindRingbuf {
+			ringMaps[m.Name] = m
+		}
+	}
+	if len(ringMaps) == 0 {
+		return nil
+	}
+
+	var diags []diag.Diagnostic
+	for _, fn := range program.Functions {
+		if hasTypedStatements(fn) {
+			diags = append(diags, validateTypedRingbuf(fn, ringMaps)...)
+			continue
+		}
+		states := map[string]reserveState{}
+		reportedMissingNil := map[string]bool{}
+		for _, line := range bodyLines(fn) {
+			if match := ringReserveRE.FindStringSubmatch(line); len(match) == 3 {
+				varName, mapName := match[1], match[2]
+				if _, ok := ringMaps[mapName]; ok {
+					states[varName] = reserveState{Map: mapName, State: "maybe_nil"}
+				}
+				continue
+			}
+			if match := ringNilCheckRE.FindStringSubmatch(line); len(match) == 3 {
+				varName := match[1]
+				if varName == "" {
+					varName = match[2]
+				}
+				if state, ok := states[varName]; ok && state.State == "maybe_nil" {
+					state.State = "live"
+					states[varName] = state
+				}
+				continue
+			}
+			if match := ringConsumeRE.FindStringSubmatch(line); len(match) == 4 {
+				mapName, op, varName := match[1], match[2], match[3]
+				if _, ok := ringMaps[mapName]; !ok {
+					continue
+				}
+				state, ok := states[varName]
+				if !ok {
+					diags = append(diags, diag.Diagnostic{
+						Code:     "HZN2101",
+						Severity: diag.SeverityError,
+						Message:  fmt.Sprintf("%s consumes unknown ringbuf reservation %q", op, varName),
+						Primary:  fn.Span,
+					})
+					continue
+				}
+				switch state.State {
+				case "maybe_nil":
+					if !reportedMissingNil[varName] {
+						diags = append(diags, missingNilCheck(fn, varName))
+						reportedMissingNil[varName] = true
+					}
+					state.State = "consumed"
+				case "consumed":
+					diags = append(diags, diag.Diagnostic{
+						Code:     "HZN2102",
+						Severity: diag.SeverityError,
+						Message:  fmt.Sprintf("ringbuf reservation %q is submitted or discarded more than once", varName),
+						Primary:  fn.Span,
+					})
+				default:
+					state.State = "consumed"
+				}
+				states[varName] = state
+				continue
+			}
+			if match := ringWriteRE.FindStringSubmatch(line); len(match) == 2 {
+				varName := match[1]
+				state, ok := states[varName]
+				if !ok {
+					continue
+				}
+				switch state.State {
+				case "maybe_nil":
+					if !reportedMissingNil[varName] {
+						diags = append(diags, missingNilCheck(fn, varName))
+						reportedMissingNil[varName] = true
+					}
+				case "consumed":
+					diags = append(diags, diag.Diagnostic{
+						Code:     "HZN2103",
+						Severity: diag.SeverityError,
+						Message:  fmt.Sprintf("write to ringbuf reservation %q after submit or discard", varName),
+						Primary:  fn.Span,
+					})
+				}
+			}
+		}
+		for varName, state := range states {
+			if state.State == "consumed" {
+				continue
+			}
+			diags = append(diags, diag.Diagnostic{
+				Code:     "HZN2104",
+				Severity: diag.SeverityError,
+				Message:  fmt.Sprintf("ringbuf reservation %q may return without submit or discard", varName),
+				Primary:  fn.Span,
+			})
+		}
+	}
+	return diags
 }
 
 type reserveState struct {
