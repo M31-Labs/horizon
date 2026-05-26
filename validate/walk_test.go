@@ -42,11 +42,14 @@ func TestValidatorContractAcrossExamples(t *testing.T) {
 }
 
 // expectedDiagCodes returns the baseline diagnostic codes per example,
-// recorded before the unified-walk refactor. All ten current examples compile
-// cleanly with zero validator diagnostics.
+// recorded before the unified-walk refactor. All examples compile cleanly
+// with zero validator diagnostics. The eventbatch entry was added when
+// Phase 2 #13 (helpers-take-resources) shipped — it pins the new
+// resource-typed helper-parameter surface as compiling with zero diagnostics.
 func expectedDiagCodes(name string) string {
 	return map[string]string{
 		"cgroupconnect": "",
+		"eventbatch":    "",
 		"execcount":     "",
 		"execdeny":      "",
 		"execwatch":     "",
