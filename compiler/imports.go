@@ -328,14 +328,21 @@ func loadPackage(dir, singlePath string) (ast.Package, []diag.Diagnostic, error)
 	var pkg ast.Package
 	var diags []diag.Diagnostic
 	for _, path := range paths {
-		parsed, perr := parser.ParsePath(path)
+		// Normalize to a working-directory-relative path before parsing so
+		// AST file spans (and every downstream artifact that carries them —
+		// source maps, reports, hznmap) match the single-package
+		// AnalyzePath convention. ResolveImports works in absolute-path
+		// terms for resolution correctness; only the *recorded* span needs
+		// to be relative.
+		parsePath := relativeToCwd(path)
+		parsed, perr := parser.ParsePath(parsePath)
 		if perr != nil {
-			diags = append(diags, frontEndDiagnostic(path, perr))
+			diags = append(diags, frontEndDiagnostic(parsePath, perr))
 			continue
 		}
 		file, ferr := ast.Build(parsed)
 		if ferr != nil {
-			diags = append(diags, frontEndDiagnostic(path, ferr))
+			diags = append(diags, frontEndDiagnostic(parsePath, ferr))
 			continue
 		}
 		if pkg.Name == "" {
