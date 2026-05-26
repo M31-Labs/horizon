@@ -27,7 +27,7 @@ func FromIR(program ir.Program) Manifest {
 			Name:         fn.Name,
 			Kind:         string(fn.Section.Kind),
 			Attach:       fn.Section.Attach,
-			Section:      manifestSection(fn.Section),
+			Section:      fn.Section.ManifestName(),
 			Capabilities: caps,
 		})
 	}
@@ -96,33 +96,6 @@ func functionsByName(functions []ir.Function) map[string]ir.Function {
 	return out
 }
 
-func manifestSection(section ir.Section) string {
-	if section.Kind == ir.ProgramTracepoint && section.Attach != "" {
-		return "tracepoint/" + section.Attach
-	}
-	if section.Kind == ir.ProgramXDP {
-		return "xdp"
-	}
-	if section.Kind == ir.ProgramTC {
-		return "tc/" + section.Attach
-	}
-	if section.Kind == ir.ProgramCgroup {
-		return "cgroup/" + section.Attach
-	}
-	if section.Kind == ir.ProgramLSM {
-		return "lsm/" + section.Attach
-	}
-	if (section.Kind == ir.ProgramKprobe || section.Kind == ir.ProgramKretprobe) && section.Attach != "" {
-		return string(section.Kind) + "/" + section.Attach
-	}
-	if (section.Kind == ir.ProgramUprobe || section.Kind == ir.ProgramUretprobe) && section.Attach != "" {
-		return string(section.Kind) + "/" + section.Attach
-	}
-	if (section.Kind == ir.ProgramFentry || section.Kind == ir.ProgramFexit) && section.Attach != "" {
-		return string(section.Kind) + "/" + section.Attach
-	}
-	return section.Name
-}
 
 func manifestType(typ ir.Type) string {
 	if typ.Ptr {

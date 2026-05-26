@@ -105,7 +105,7 @@ func refreshCapabilityAccesses(program Program) []Capability {
 			cap.Maps = access.Maps
 			cap.Emits = access.Emits
 			if cap.Section == "" {
-				cap.Section = manifestSection(fn.Section)
+				cap.Section = fn.Section.ManifestName()
 			}
 			if cap.Danger == "" {
 				cap.Danger = inferDanger(fn)
@@ -353,7 +353,7 @@ func buildCapabilities(decl ast.FuncDecl, fn Function, maps []Map, capabilityAli
 			Name:    name,
 			Kind:    CapabilitySource,
 			Program: fn.Name,
-			Section: manifestSection(fn.Section),
+			Section: fn.Section.ManifestName(),
 			Emits:   access.Emits,
 			Maps:    access.Maps,
 			Danger:  danger,
@@ -797,30 +797,3 @@ func functionStatements(fn Function) []Statement {
 	return out
 }
 
-func manifestSection(section Section) string {
-	if section.Kind == ProgramTracepoint && section.Attach != "" {
-		return "tracepoint/" + section.Attach
-	}
-	if section.Kind == ProgramXDP {
-		return "xdp"
-	}
-	if section.Kind == ProgramTC {
-		return "tc/" + section.Attach
-	}
-	if section.Kind == ProgramCgroup {
-		return "cgroup/" + section.Attach
-	}
-	if section.Kind == ProgramLSM {
-		return "lsm/" + section.Attach
-	}
-	if (section.Kind == ProgramKprobe || section.Kind == ProgramKretprobe) && section.Attach != "" {
-		return string(section.Kind) + "/" + section.Attach
-	}
-	if (section.Kind == ProgramUprobe || section.Kind == ProgramUretprobe) && section.Attach != "" {
-		return string(section.Kind) + "/" + section.Attach
-	}
-	if (section.Kind == ProgramFentry || section.Kind == ProgramFexit) && section.Attach != "" {
-		return string(section.Kind) + "/" + section.Attach
-	}
-	return section.Name
-}
