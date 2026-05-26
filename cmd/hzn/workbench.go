@@ -78,18 +78,20 @@ type workbenchOptions struct {
 	ClangTimeout time.Duration
 }
 
+const defaultClangTimeoutValue = 30 * time.Second
+
 func defaultClangTimeout() time.Duration {
 	if v := os.Getenv("HZN_CLANG_TIMEOUT"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil {
 			return d
 		}
 	}
-	return 30 * time.Second
+	return defaultClangTimeoutValue
 }
 
 func defaultWorkbenchOptions() workbenchOptions {
 	return workbenchOptions{
-		ClangTimeout: 30 * time.Second,
+		ClangTimeout: defaultClangTimeoutValue,
 	}
 }
 
@@ -284,7 +286,11 @@ func writeWorkbenchArtifacts(result *compiler.Result, opts workbenchOptions) (wo
 
 	report.Artifacts = paths.artifacts(false)
 	if opts.Compile {
-		ctx, cancel := context.WithTimeout(context.Background(), opts.ClangTimeout)
+		timeout := opts.ClangTimeout
+		if timeout <= 0 {
+			timeout = defaultClangTimeoutValue
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
 		if err := hclang.Compile(ctx, paths.C, paths.Object, hclang.Options{}); err != nil {
 			report.Status = "clang_error"
