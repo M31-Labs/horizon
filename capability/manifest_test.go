@@ -7,6 +7,45 @@ import (
 	"m31labs.dev/horizon/ir"
 )
 
+// TestNewManifestEmitsV1Schema verifies that NewManifest produces a manifest
+// with the SchemaV1 identifier in the schema field.
+func TestNewManifestEmitsV1Schema(t *testing.T) {
+	m := NewManifest("probes")
+	if m.Schema != SchemaV1 {
+		t.Fatalf("NewManifest schema = %q, want %q", m.Schema, SchemaV1)
+	}
+}
+
+// TestFromIREmitsDangerAxes verifies that FromIR produces manifests where the
+// capability Danger field is a DangerAxes triple, not a flat string.
+func TestFromIREmitsDangerAxes(t *testing.T) {
+	m := FromIR(ir.Program{
+		Package: "probes",
+		Functions: []ir.Function{{
+			Name: "OnExec",
+			Section: ir.Section{
+				Kind:   ir.ProgramTracepoint,
+				Name:   "tracepoint/sched/sched_process_exec",
+				Attach: "sched:sched_process_exec",
+			},
+		}},
+		Capabilities: []ir.Capability{{
+			Name:    "kernel.process.exec.observe",
+			Kind:    ir.CapabilitySource,
+			Danger:  ir.DangerObserve,
+			Program: "OnExec",
+			Section: "tracepoint/sched:sched_process_exec",
+		}},
+	})
+	if len(m.Capabilities) != 1 {
+		t.Fatalf("FromIR produced %d capabilities, want 1", len(m.Capabilities))
+	}
+	want := DangerAxes{Mode: "observe", Scope: "event", Reversibility: "none"}
+	if m.Capabilities[0].Danger != want {
+		t.Fatalf("Danger = %+v, want %+v", m.Capabilities[0].Danger, want)
+	}
+}
+
 func TestValidateManifest(t *testing.T) {
 	m := NewManifest("probes")
 	m.Programs = append(m.Programs, Program{Name: "OnExec", Kind: "tracepoint", Attach: "sched:sched_process_exec", Section: "tracepoint/sched:sched_process_exec", Capabilities: []string{"kernel.process.exec.observe"}})
@@ -386,19 +425,19 @@ func TestValidateRejectsInvalidTypeLayoutMetadata(t *testing.T) {
 	tooLargeOffset := 12
 	tests := map[string]Manifest{
 		"negative size": {
-			Schema:       SchemaV0,
+			Schema:       SchemaV1,
 			Package:      "probes",
 			Capabilities: []Capability{},
 			Types:        []TypeSchema{{Name: "Event", Kind: "struct", Size: &negativeSize}},
 		},
 		"zero align": {
-			Schema:       SchemaV0,
+			Schema:       SchemaV1,
 			Package:      "probes",
 			Capabilities: []Capability{},
 			Types:        []TypeSchema{{Name: "Event", Kind: "struct", Align: &zeroAlign}},
 		},
 		"negative offset": {
-			Schema:       SchemaV0,
+			Schema:       SchemaV1,
 			Package:      "probes",
 			Capabilities: []Capability{},
 			Types: []TypeSchema{{
@@ -408,7 +447,7 @@ func TestValidateRejectsInvalidTypeLayoutMetadata(t *testing.T) {
 			}},
 		},
 		"offset exceeds size": {
-			Schema:       SchemaV0,
+			Schema:       SchemaV1,
 			Package:      "probes",
 			Capabilities: []Capability{},
 			Types: []TypeSchema{{
@@ -431,7 +470,7 @@ func TestValidateRejectsInvalidTypeLayoutMetadata(t *testing.T) {
 func TestValidateRejectsDuplicateManifestIdentities(t *testing.T) {
 	tests := map[string]Manifest{
 		"program": {
-			Schema:  SchemaV0,
+			Schema:  SchemaV1,
 			Package: "probes",
 			Programs: []Program{
 				{Name: "OnExec", Kind: "tracepoint", Section: "tracepoint/sched:sched_process_exec"},
@@ -440,7 +479,7 @@ func TestValidateRejectsDuplicateManifestIdentities(t *testing.T) {
 			Capabilities: []Capability{},
 		},
 		"map": {
-			Schema:  SchemaV0,
+			Schema:  SchemaV1,
 			Package: "probes",
 			Maps: []Map{
 				{Name: "Events", Kind: "ringbuf", Value: "Event"},
@@ -449,7 +488,7 @@ func TestValidateRejectsDuplicateManifestIdentities(t *testing.T) {
 			Capabilities: []Capability{},
 		},
 		"type": {
-			Schema:  SchemaV0,
+			Schema:  SchemaV1,
 			Package: "probes",
 			Types: []TypeSchema{
 				{Name: "Event", Kind: "struct"},
@@ -458,7 +497,7 @@ func TestValidateRejectsDuplicateManifestIdentities(t *testing.T) {
 			Capabilities: []Capability{},
 		},
 		"type field": {
-			Schema:       SchemaV0,
+			Schema:       SchemaV1,
 			Package:      "probes",
 			Types:        []TypeSchema{{Name: "Event", Kind: "struct", Fields: []FieldSchema{{Name: "pid", Type: "u32"}, {Name: "pid", Type: "u32"}}}},
 			Capabilities: []Capability{},
@@ -475,48 +514,53 @@ func TestValidateRejectsDuplicateManifestIdentities(t *testing.T) {
 
 func TestValidateRejectsUnsupportedEnumValues(t *testing.T) {
 	tests := map[string]Manifest{
-		"program kind": {
+		"wrong schema": {
 			Schema:       SchemaV0,
+			Package:      "probes",
+			Capabilities: []Capability{},
+		},
+		"program kind": {
+			Schema:       SchemaV1,
 			Package:      "probes",
 			Programs:     []Program{{Name: "OnExec", Kind: "definitely_not_a_program_kind_xyz", Section: "sockops"}},
 			Capabilities: []Capability{},
 		},
 		"map kind": {
-			Schema:       SchemaV0,
+			Schema:       SchemaV1,
 			Package:      "probes",
 			Maps:         []Map{{Name: "Events", Kind: "queue", Value: "u32"}},
 			Capabilities: []Capability{},
 		},
 		"map max entries": {
-			Schema:       SchemaV0,
+			Schema:       SchemaV1,
 			Package:      "probes",
 			Maps:         []Map{{Name: "Events", Kind: "ringbuf", Value: "u32", MaxEntries: "0"}},
 			Capabilities: []Capability{},
 		},
 		"ringbuf max entries": {
-			Schema:       SchemaV0,
+			Schema:       SchemaV1,
 			Package:      "probes",
 			Maps:         []Map{{Name: "Events", Kind: "ringbuf", Value: "u32", MaxEntries: "3000"}},
 			Capabilities: []Capability{},
 		},
 		"type kind": {
-			Schema:       SchemaV0,
+			Schema:       SchemaV1,
 			Package:      "probes",
 			Types:        []TypeSchema{{Name: "Event", Kind: "union"}},
 			Capabilities: []Capability{},
 		},
 		"capability kind": {
-			Schema:       SchemaV0,
+			Schema:       SchemaV1,
 			Package:      "probes",
 			Capabilities: []Capability{{Name: "kernel.process.exec.observe", Kind: "sink", Danger: DangerAxes{Mode: "observe", Scope: "event", Reversibility: "none"}, Program: "OnExec", Section: "tracepoint/sched/sched_process_exec"}},
 		},
 		"danger": {
-			Schema:       SchemaV0,
+			Schema:       SchemaV1,
 			Package:      "probes",
 			Capabilities: []Capability{{Name: "kernel.process.exec.observe", Kind: "source", Danger: DangerAxes{Mode: "destroy", Scope: "event", Reversibility: "none"}, Program: "OnExec", Section: "tracepoint/sched/sched_process_exec"}},
 		},
 		"capability namespace": {
-			Schema:   SchemaV0,
+			Schema:   SchemaV1,
 			Package:  "probes",
 			Programs: []Program{{Name: "Drop", Kind: "xdp", Section: "xdp"}},
 			Capabilities: []Capability{{
@@ -528,7 +572,7 @@ func TestValidateRejectsUnsupportedEnumValues(t *testing.T) {
 			}},
 		},
 		"unknown helper requirement": {
-			Schema:       SchemaV0,
+			Schema:       SchemaV1,
 			Package:      "probes",
 			Capabilities: []Capability{},
 			Requirements: &Requirements{
@@ -537,7 +581,7 @@ func TestValidateRejectsUnsupportedEnumValues(t *testing.T) {
 			},
 		},
 		"invalid requirement version": {
-			Schema:       SchemaV0,
+			Schema:       SchemaV1,
 			Package:      "probes",
 			Capabilities: []Capability{},
 			Requirements: &Requirements{
@@ -546,7 +590,7 @@ func TestValidateRejectsUnsupportedEnumValues(t *testing.T) {
 			},
 		},
 		"aggregate lower than feature": {
-			Schema:       SchemaV0,
+			Schema:       SchemaV1,
 			Package:      "probes",
 			Capabilities: []Capability{},
 			Requirements: &Requirements{
@@ -555,7 +599,7 @@ func TestValidateRejectsUnsupportedEnumValues(t *testing.T) {
 			},
 		},
 		"unknown permission requirement": {
-			Schema:       SchemaV0,
+			Schema:       SchemaV1,
 			Package:      "probes",
 			Capabilities: []Capability{},
 			Requirements: &Requirements{
@@ -563,7 +607,7 @@ func TestValidateRejectsUnsupportedEnumValues(t *testing.T) {
 			},
 		},
 		"duplicate permission requirement": {
-			Schema:       SchemaV0,
+			Schema:       SchemaV1,
 			Package:      "probes",
 			Capabilities: []Capability{},
 			Requirements: &Requirements{
@@ -571,7 +615,7 @@ func TestValidateRejectsUnsupportedEnumValues(t *testing.T) {
 			},
 		},
 		"unknown feature requirement": {
-			Schema:       SchemaV0,
+			Schema:       SchemaV1,
 			Package:      "probes",
 			Capabilities: []Capability{},
 			Requirements: &Requirements{
@@ -579,7 +623,7 @@ func TestValidateRejectsUnsupportedEnumValues(t *testing.T) {
 			},
 		},
 		"duplicate feature requirement": {
-			Schema:       SchemaV0,
+			Schema:       SchemaV1,
 			Package:      "probes",
 			Capabilities: []Capability{},
 			Requirements: &Requirements{
@@ -587,7 +631,7 @@ func TestValidateRejectsUnsupportedEnumValues(t *testing.T) {
 			},
 		},
 		"capability requirement": {
-			Schema:  SchemaV0,
+			Schema:  SchemaV1,
 			Package: "probes",
 			Capabilities: []Capability{{
 				Name:    "kernel.process.exec.observe",
@@ -625,25 +669,25 @@ func TestValidateRejectsProgramCapabilityIndexMismatches(t *testing.T) {
 	dropCap := Capability{Name: "kernel.network.xdp.drop", Kind: "source", Danger: DangerAxes{Mode: "control", Scope: "network", Reversibility: "restart"}, Program: "Drop", Section: "xdp"}
 	tests := map[string]Manifest{
 		"missing program capability list": {
-			Schema:       SchemaV0,
+			Schema:       SchemaV1,
 			Package:      "probes",
 			Programs:     []Program{{Name: "OnExec", Kind: "tracepoint", Section: "tracepoint/sched:sched_process_exec"}},
 			Capabilities: []Capability{execCap},
 		},
 		"unknown listed capability": {
-			Schema:       SchemaV0,
+			Schema:       SchemaV1,
 			Package:      "probes",
 			Programs:     []Program{{Name: "OnExec", Kind: "tracepoint", Section: "tracepoint/sched:sched_process_exec", Capabilities: []string{"kernel.process.exec.observe"}}},
 			Capabilities: []Capability{},
 		},
 		"duplicate listed capability": {
-			Schema:       SchemaV0,
+			Schema:       SchemaV1,
 			Package:      "probes",
 			Programs:     []Program{{Name: "OnExec", Kind: "tracepoint", Section: "tracepoint/sched:sched_process_exec", Capabilities: []string{"kernel.process.exec.observe", "kernel.process.exec.observe"}}},
 			Capabilities: []Capability{execCap},
 		},
 		"wrong owner": {
-			Schema:  SchemaV0,
+			Schema:  SchemaV1,
 			Package: "probes",
 			Programs: []Program{
 				{Name: "OnExec", Kind: "tracepoint", Section: "tracepoint/sched:sched_process_exec", Capabilities: []string{"kernel.network.xdp.drop"}},
@@ -652,19 +696,19 @@ func TestValidateRejectsProgramCapabilityIndexMismatches(t *testing.T) {
 			Capabilities: []Capability{dropCap},
 		},
 		"top-level capability missing from program list": {
-			Schema:       SchemaV0,
+			Schema:       SchemaV1,
 			Package:      "probes",
 			Programs:     []Program{{Name: "OnExec", Kind: "tracepoint", Section: "tracepoint/sched:sched_process_exec", Capabilities: []string{"kernel.process.exec.observe"}}},
 			Capabilities: []Capability{execCap, countCap},
 		},
 		"duplicate top-level capability": {
-			Schema:       SchemaV0,
+			Schema:       SchemaV1,
 			Package:      "probes",
 			Programs:     []Program{{Name: "OnExec", Kind: "tracepoint", Section: "tracepoint/sched:sched_process_exec", Capabilities: []string{"kernel.process.exec.observe"}}},
 			Capabilities: []Capability{execCap, execCap},
 		},
 		"empty listed capability": {
-			Schema:       SchemaV0,
+			Schema:       SchemaV1,
 			Package:      "probes",
 			Programs:     []Program{{Name: "OnExec", Kind: "tracepoint", Section: "tracepoint/sched:sched_process_exec", Capabilities: []string{""}}},
 			Capabilities: []Capability{execCap},

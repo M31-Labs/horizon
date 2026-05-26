@@ -78,8 +78,8 @@ func validateManifestHeader(m Manifest) error {
 	if m.Schema == "" {
 		return validationErrorf("capability manifest schema is required")
 	}
-	if m.Schema != SchemaV0 && m.Schema != SchemaV1 {
-		return validationErrorf("unsupported capability manifest schema %q", m.Schema)
+	if m.Schema != SchemaV1 {
+		return validationErrorf("unsupported capability manifest schema %q (want %s)", m.Schema, SchemaV1)
 	}
 	if m.Package == "" {
 		return validationErrorf("capability manifest package is required")

@@ -93,7 +93,7 @@ type FeatureRequirement struct {
 
 func NewManifest(packageName string) Manifest {
 	return Manifest{
-		Schema:       SchemaV0,
+		Schema:       SchemaV1,
 		Package:      packageName,
 		Capabilities: []Capability{},
 	}

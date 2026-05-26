@@ -149,7 +149,7 @@ func TestDoctorReadyWithCapabilityManifestRequirements(t *testing.T) {
 		uint64(1)<<linuxCapNetAdmin |
 		uint64(1)<<linuxCapSysAdmin
 	report := runDoctorChecks(doctorManifestConfig(t, mask), capability.Manifest{
-		Schema:       capability.SchemaV0,
+		Schema:       capability.SchemaV1,
 		Package:      "probes",
 		Capabilities: []capability.Capability{},
 		Requirements: &capability.Requirements{
@@ -198,7 +198,7 @@ func TestDoctorNotReadyWithUnsatisfiedCapabilityManifestRequirements(t *testing.
 	cfg.CgroupControllers = filepath.Join(t.TempDir(), "missing-cgroup.controllers")
 
 	report := runDoctorChecks(cfg, capability.Manifest{
-		Schema:       capability.SchemaV0,
+		Schema:       capability.SchemaV1,
 		Package:      "probes",
 		Capabilities: []capability.Capability{},
 		Requirements: &capability.Requirements{
@@ -221,7 +221,7 @@ func TestDoctorChecksPerCapabilityManifestRequirements(t *testing.T) {
 	cfg.TracefsPaths = []string{filepath.Join(t.TempDir(), "missing-tracefs")}
 
 	report := runDoctorChecks(cfg, capability.Manifest{
-		Schema:  capability.SchemaV0,
+		Schema:  capability.SchemaV1,
 		Package: "probes",
 		Capabilities: []capability.Capability{{
 			Name:    "kernel.process.exec.observe",
@@ -255,7 +255,7 @@ func TestDoctorChecksPerCapabilityManifestRequirements(t *testing.T) {
 func TestDoctorReadsCapabilityManifest(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "exec.cap.json")
 	manifest := capability.Manifest{
-		Schema:       capability.SchemaV0,
+		Schema:       capability.SchemaV1,
 		Package:      "probes",
 		Capabilities: []capability.Capability{},
 		Requirements: &capability.Requirements{

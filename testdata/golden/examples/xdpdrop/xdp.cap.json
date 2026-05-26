@@ -61,5 +61,5 @@
       }
     ]
   },
-  "schema": "m31labs.dev/horizon/capability/v0"
+  "schema": "m31labs.dev/horizon/capability/v1"
 }
