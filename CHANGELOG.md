@@ -22,6 +22,14 @@ All notable changes to Horizon are documented in this file. Format follows
   remain conservatively NOT promoted (only one disjunct may hold).
   DeMorgan equivalences (`!(x == nil)`) and mixed-op chains deferred
   to v0.3. (roadmap: #2)
+- Validate-layer state machines (ringbuf, maps, packet) now model
+  resource state across `for` loop iterations via a bounded 2-iteration
+  fixpoint. Patterns that would change state between iterations — e.g.,
+  `submit(event)` inside a loop without re-reserving — now correctly
+  fire HZN2102 (double-submit). Sound patterns (reserve→nil-check→submit
+  per iteration) continue to pass. Range-over and `for {}` are not
+  specially modeled (HZN2200 still rejects `for {}`; range-over not in
+  v0.2 grammar). (roadmap: #5)
 
 ### Added
 - `hzn build` and `hzn workbench -compile` now accept `-clang-timeout=<duration>` and read `HZN_CLANG_TIMEOUT` from the environment. Default remains 30s. (roadmap: #11)
