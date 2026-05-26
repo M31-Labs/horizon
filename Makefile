@@ -119,5 +119,4 @@ clang-smoke:
 
 kernel-smoke:
 	@if [ -z "$(KERNEL)" ]; then echo "usage: make kernel-smoke KERNEL=<5.10|5.15|6.1|6.6> OUT=<bpf-obj-dir>"; exit 2; fi
-	@if [ -z "$(OUT)" ]; then echo "usage: make kernel-smoke KERNEL=<v> OUT=<bpf-obj-dir>"; exit 2; fi
 	bash scripts/kernel-matrix/run.sh $(KERNEL) $(OUT)

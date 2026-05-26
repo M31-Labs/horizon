@@ -86,7 +86,8 @@ jobs:
         run: bash scripts/kernel-matrix/run.sh ${{ matrix.kernel }} /tmp/bpf-objs
       - name: Enforce gate
         run: |
-          gate=$(jq -r '.images[] | select(.kernel=="${{ matrix.kernel }}") | .gate' scripts/kernel-matrix/images.json)
+          gate=$(jq -er --arg k "${{ matrix.kernel }}" '.images[] | select(.kernel==$k) | .gate' scripts/kernel-matrix/images.json) \
+            || { echo "::error::kernel ${{ matrix.kernel }} missing from images.json"; exit 1; }
           if [ "${{ steps.smoke.outcome }}" = "success" ]; then
             echo "kernel ${{ matrix.kernel }} smoke passed"
             exit 0

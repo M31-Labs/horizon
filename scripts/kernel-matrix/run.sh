@@ -65,10 +65,13 @@ echo "sha256: $SHA"
 echo "gate:   $GATE"
 echo "bpf:    $BPF_DIR ($(find "$BPF_DIR" -name '*.bpf.o' | wc -l) objects)"
 
-if [ "$SHA" = "FILL_IN_AFTER_PUBLISHING_IMAGE" ]; then
-    echo "::warning::kernel-matrix images are not yet published"
+# A valid sha256 is 64 lowercase hex characters. Anything else (the sentinel,
+# a typo, an uppercase digest, a truncated value) is treated as "not yet
+# published" so we never attempt to fetch unverified images.
+if ! [[ "$SHA" =~ ^[a-f0-9]{64}$ ]]; then
+    echo "::warning::kernel-matrix image for $KERNEL has invalid/missing sha256 ($SHA)"
     echo "::warning::see #19 follow-up issue: M31-Labs/horizon-kernel-images"
-    echo "skipping boot/smoke until images land"
+    echo "skipping boot/smoke until a valid sha256 is filled in"
     exit 78  # POSIX EX_CONFIG — distinguishes "stubbed" from "tested and failed"
 fi
 
