@@ -48,6 +48,15 @@ type Capability struct {
 	Maps          MapAccess      `json:"maps"`
 	Requirements  *Requirements  `json:"requirements,omitempty"`
 	HelperEffects []HelperEffect `json:"helper_effects,omitempty"`
+	// Origin records the import alias of the dependency package this
+	// capability was contributed by. Root-package capabilities have
+	// Origin == "" and use their bare Name; imported-package capabilities
+	// have Origin set to the import alias and a Name that has been
+	// qualified during aggregation (e.g. "events.ExecObserve" with
+	// Origin "events"). The field is additive and omit-empty so manifest
+	// schema v1 consumers that don't understand origin tagging keep
+	// working unchanged. (roadmap #21 Phase 2 Subtask 5a)
+	Origin string `json:"origin,omitempty"`
 }
 
 type MapAccess struct {
@@ -64,6 +73,12 @@ type Map struct {
 	MaxEntries         string `json:"max_entries,omitempty"`
 	SteadyStateEntries string `json:"steady_state_entries,omitempty"`
 	AccessFreq         string `json:"access_freq,omitempty"`
+	// Origin records the import alias of the dependency package this map
+	// was contributed by; mirrors Capability.Origin. Root-package maps
+	// have Origin == "". Aggregation uses Origin to detect cross-package
+	// map collisions and to compose qualified names where applicable.
+	// (roadmap #21 Phase 2 Subtask 5a)
+	Origin string `json:"origin,omitempty"`
 }
 
 type TypeSchema struct {
