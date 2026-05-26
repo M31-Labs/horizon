@@ -30,6 +30,13 @@ All notable changes to Horizon are documented in this file. Format follows
   per iteration) continue to pass. Range-over and `for {}` are not
   specially modeled (HZN2200 still rejects `for {}`; range-over not in
   v0.2 grammar). (roadmap: #5)
+- Validate-layer regex fallbacks deleted. `validate/{ringbuf,loops,helpers}.go`
+  no longer contain `bodyLines + regex` paths for functions without typed
+  statements. With Phase 1 #1/#2/#5 landed, the typed-IR state machines
+  cover every supported program shape; the regex paths were masking
+  coverage gaps. Removal exposes any IR-build path that produces a
+  function with no typed statements as a parser/IR bug (none remain in
+  the test fixtures or examples). (roadmap: #3)
 
 ### Added
 - `hzn build` and `hzn workbench -compile` now accept `-clang-timeout=<duration>` and read `HZN_CLANG_TIMEOUT` from the environment. Default remains 30s. (roadmap: #11)
