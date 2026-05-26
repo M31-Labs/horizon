@@ -166,6 +166,92 @@ Do not call `json.Unmarshal` directly into `capability.Manifest` for v0 inputs
 — the `danger` field type is now `DangerAxes` (an object), not a string, so
 unmarshalling v0 JSON will fail.
 
+## helper_effects (additive, since v0.2.0)
+
+Each `Capability` entry in a v1 manifest may now carry an optional
+`helper_effects` array describing the semantic side effects of every kernel
+helper the program calls. The field is purely additive — manifests emitted
+before v0.2.0 never carried it, and consumers that ignore the field continue
+to work unchanged.
+
+### Field shape
+
+```json
+{
+  "name": "kernel.file.open.observe",
+  "kind": "source",
+  "danger": { "mode": "observe", "scope": "filesystem", "reversibility": "none" },
+  "program": "OnOpen",
+  "section": "kprobe/do_sys_openat2",
+  "emits": "OpenEvent",
+  "maps": { "read": [], "write": [], "events": ["OpenEvents"] },
+  "helper_effects": [
+    { "name": "bpf.current_pid", "observes": ["task.tgid"] },
+    { "name": "bpf.current_uid", "observes": ["task.uid"] },
+    { "name": "bpf.probe_read_user_str", "observes": ["userspace.string"] },
+    { "name": "ringbuf.reserve", "mutates": ["ringbuf:OpenEvents"], "resource": "reserve" },
+    { "name": "ringbuf.submit",  "mutates": ["ringbuf:OpenEvents"], "resource": "submit"  }
+  ]
+}
+```
+
+Each entry has the following fields (only `name` is required; the others are
+`omitempty`):
+
+| Field      | Type       | Meaning                                                                     |
+|------------|------------|-----------------------------------------------------------------------------|
+| `name`     | string     | Surface helper name, e.g. `bpf.current_pid`, `ringbuf.reserve`, `map.update` |
+| `observes` | []string   | Kernel state read by the helper (e.g. `task.tgid`, `userspace.string`)       |
+| `mutates`  | []string   | Kernel state written by the helper (e.g. `ringbuf:OpenEvents`, `map:Counts`) |
+| `requires` | []string   | BTF field requirements (e.g. `task_struct.real_parent`)                      |
+| `resource` | string     | Resource verb: `reserve` \| `submit` \| `discard` \| `lookup` \| `update` \| `delete` |
+
+The array is the deduplicated union of helper effects across every call site
+reachable from the capability's `program`, ordered lexically by `name`.
+Capabilities whose programs call no annotated helpers omit the field
+entirely (`omitempty`).
+
+### Registry location
+
+Helper annotations live in a vendored JSON registry at
+`internal/registry/helpers-v1.json`. The canonical source is
+`~/.hyphae/spaces/m31labs-horizon/specs/helpers-v1.json` and the repo carries
+a byte-identical copy; a drift test (`internal/registry/helpers_test.go`)
+asserts byte-equality against the Hyphae source when present. Downstream
+consumers (e.g. Continuum) vendor the same registry to share a single source
+of truth for the side-effect vocabulary.
+
+A second drift test (`capability/helper_effects_drift_test.go`) asserts that
+every helper the Horizon compiler recognizes has a registry entry — adding a
+helper without annotating it is a build-breaking error.
+
+### Vocabulary
+
+`observes` and `mutates` tokens are drawn from a closed vocabulary:
+
+- `task.*` — current task fields (`task.tgid`, `task.uid`, `task.comm`, `task.real_parent.tgid`)
+- `kernel.time.*` — clock observations (`kernel.time.monotonic`)
+- `userspace.*` — userspace memory observations (`userspace.string`)
+- `map:<name>` / `ringbuf:<name>` — resource identity; the registry stores
+  `map:$` / `ringbuf:$` as a sentinel and the manifest emitter substitutes
+  the concrete resource name at emit time.
+
+Tokens outside the vocabulary fail manifest validation.
+
+### Migration impact
+
+None. The field is `omitempty`, the manifest schema string remains
+`m31labs.dev/horizon/capability/v1`, and `capability.LoadManifest` accepts
+manifests with or without the field. v0→v1 migrated manifests gain an empty
+`helper_effects` (i.e. the field is elided) — re-emit through `hzn build` to
+populate it from the current source.
+
+### Reference
+
+- Decision memo: `~/.hyphae/spaces/m31labs-horizon/decisions/0002-helper-side-effects-v1.md`
+- Continuum integration spec §A.7 (helper side-effect registry contract)
+- Roadmap: #8
+
 ## Deprecation Timeline
 
 | Release | v0 manifest behavior                               |
