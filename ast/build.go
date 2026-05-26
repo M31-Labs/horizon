@@ -96,6 +96,16 @@ func buildMapDecl(parsed *parser.File, n *gotreesitter.Node) MapDecl {
 						decl.MaxEntries = value.Value
 					case IdentExpr:
 						decl.MaxEntries = value.Name
+					case SelectorExpr:
+						// Cross-package qualified const reference, e.g.
+						// `@max_entries(events.MaxBufSize)`. Preserve as
+						// "<alias>.<Name>" so the package-aware resolver
+						// in compiler/compile.go can match it against the
+						// imported package's const index (roadmap #20
+						// Phase 2 Subtask 4b).
+						if root, ok := value.Operand.(IdentExpr); ok {
+							decl.MaxEntries = root.Name + "." + value.Field
+						}
 					}
 				}
 			case "steady_state_entries":
@@ -105,6 +115,10 @@ func buildMapDecl(parsed *parser.File, n *gotreesitter.Node) MapDecl {
 						decl.SteadyStateEntries = value.Value
 					case IdentExpr:
 						decl.SteadyStateEntries = value.Name
+					case SelectorExpr:
+						if root, ok := value.Operand.(IdentExpr); ok {
+							decl.SteadyStateEntries = root.Name + "." + value.Field
+						}
 					}
 				}
 			case "access_freq":
