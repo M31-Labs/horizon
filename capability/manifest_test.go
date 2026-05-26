@@ -1,6 +1,8 @@
 package capability
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"m31labs.dev/horizon/compiler/diag"
@@ -789,6 +791,85 @@ func TestValidateAllowsPerCPUAndLRUMapKinds(t *testing.T) {
 	})
 	if err := Validate(m); err != nil {
 		t.Fatalf("Validate: %v", err)
+	}
+}
+
+// TestCapabilityHelperEffectsJSONOmitemptyWhenAbsent pins the additive
+// nature of the new HelperEffects field on Capability: a manifest whose
+// capability calls no annotated helpers must NOT serialize a
+// "helper_effects" key at all (neither "helper_effects":[] nor
+// "helper_effects":null). The `omitempty` tag is load-bearing — without
+// it every pre-Phase-2 golden snapshot would gain an empty array on the
+// next regen, defeating the additive-schema promise.
+func TestCapabilityHelperEffectsJSONOmitemptyWhenAbsent(t *testing.T) {
+	cap := Capability{
+		Name:    "kernel.process.exec.observe",
+		Kind:    "source",
+		Danger:  DangerAxes{Mode: "observe", Scope: "event", Reversibility: "none"},
+		Program: "OnExec",
+		Section: "tracepoint/sched:sched_process_exec",
+	}
+	encoded, err := json.Marshal(cap)
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+	if strings.Contains(string(encoded), "helper_effects") {
+		t.Fatalf("encoded capability contains helper_effects when empty: %s", encoded)
+	}
+}
+
+// TestCapabilityHelperEffectsJSONPresentWhenPopulated verifies the
+// emission shape: when HelperEffects is non-empty, the JSON carries
+// `"helper_effects":[...]` keyed by snake-case, with each entry's
+// observe / mutate / requires / resource fields routed through their own
+// `omitempty` tags. Order is whatever the caller hands in — the walker
+// guarantees sorted-by-Name input upstream.
+func TestCapabilityHelperEffectsJSONPresentWhenPopulated(t *testing.T) {
+	cap := Capability{
+		Name:    "kernel.file.open.observe",
+		Kind:    "source",
+		Danger:  DangerAxes{Mode: "observe", Scope: "filesystem", Reversibility: "none"},
+		Program: "OnOpen",
+		Section: "kprobe/do_sys_openat2",
+		HelperEffects: []HelperEffect{
+			{Name: "bpf.current_pid", Observes: []string{"task.tgid"}},
+			{Name: "ringbuf.reserve", Mutates: []string{"ringbuf:OpenEvents"}, Resource: "reserve"},
+		},
+	}
+	encoded, err := json.Marshal(cap)
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+	got := string(encoded)
+	if !strings.Contains(got, `"helper_effects":[`) {
+		t.Fatalf("encoded capability missing helper_effects array: %s", got)
+	}
+	if !strings.Contains(got, `"name":"bpf.current_pid"`) {
+		t.Fatalf("encoded capability missing bpf.current_pid entry: %s", got)
+	}
+	if !strings.Contains(got, `"observes":["task.tgid"]`) {
+		t.Fatalf("encoded capability missing observes for bpf.current_pid: %s", got)
+	}
+	if !strings.Contains(got, `"mutates":["ringbuf:OpenEvents"]`) {
+		t.Fatalf("encoded capability missing mutates for ringbuf.reserve: %s", got)
+	}
+	if !strings.Contains(got, `"resource":"reserve"`) {
+		t.Fatalf("encoded capability missing resource verb: %s", got)
+	}
+
+	// Round-trip — decoded shape must match the input.
+	var decoded Capability
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	if len(decoded.HelperEffects) != 2 {
+		t.Fatalf("decoded HelperEffects length = %d, want 2", len(decoded.HelperEffects))
+	}
+	if decoded.HelperEffects[0].Name != "bpf.current_pid" {
+		t.Fatalf("decoded[0].Name = %q, want bpf.current_pid", decoded.HelperEffects[0].Name)
+	}
+	if decoded.HelperEffects[1].Resource != "reserve" {
+		t.Fatalf("decoded[1].Resource = %q, want reserve", decoded.HelperEffects[1].Resource)
 	}
 }
 
