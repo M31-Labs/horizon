@@ -147,8 +147,8 @@ func TestEmitSourceMapIncludesGeneratedHelperWrappers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Emit openwatch: %v", err)
 	}
-	assertSourceMapLine(t, out, "static __always_inline long hzn_probe_read_user_str", "helper_wrapper", 26)
-	assertSourceMapLine(t, out, "static __always_inline __u64 hzn_kprobe_arg2", "probe_context_wrapper", 26)
+	assertSourceMapLine(t, out, "static __always_inline long hzn_probe_read_user_str", "helper_wrapper", 27)
+	assertSourceMapLine(t, out, "static __always_inline __u64 hzn_kprobe_arg2", "probe_context_wrapper", 27)
 
 	result, err = compiler.AnalyzePath("../examples/xdpdrop")
 	if err != nil {
@@ -180,8 +180,8 @@ func TestEmitSourceMapIncludesGeneratedHelperWrappers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Emit execcount: %v", err)
 	}
-	assertSourceMapLine(t, out, "static __always_inline struct hzn_type_Count *ExecCounts_lookup", "map_wrapper", 19)
-	assertSourceMapLine(t, out, "static __always_inline long ExecCounts_update", "map_wrapper", 21)
+	assertSourceMapLine(t, out, "static __always_inline struct hzn_type_Count *ExecCounts_lookup", "map_wrapper", 21)
+	assertSourceMapLine(t, out, "static __always_inline long ExecCounts_update", "map_wrapper", 23)
 }
 
 func TestEmitBoundedForClause(t *testing.T) {

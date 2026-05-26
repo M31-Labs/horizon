@@ -8,6 +8,8 @@ type Count struct {
     seen u64
 }
 
+@steady_state_entries(1024)
+@access_freq("high")
 map ExecCounts hash[u32, Count]
 
 capability ExecCount danger observe = "kernel.process.exec.observe"

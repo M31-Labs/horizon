@@ -143,6 +143,53 @@ func TestFromIRIncludesTypedEventSchemas(t *testing.T) {
 	}
 }
 
+func TestFromIRForwardsSteadyStateEntriesAndAccessFreq(t *testing.T) {
+	m := FromIR(ir.Program{
+		Package: "probes",
+		Functions: []ir.Function{{
+			Name: "OnExec",
+			Section: ir.Section{
+				Kind:   ir.ProgramTracepoint,
+				Name:   "tracepoint/sched/sched_process_exec",
+				Attach: "sched:sched_process_exec",
+			},
+		}},
+		Maps: []ir.Map{{
+			Name:               "Counts",
+			Kind:               ir.MapKindHash,
+			Key:                ir.Type{Name: "u32"},
+			Val:                ir.Type{Name: "u64"},
+			MaxEntries:         "4096",
+			SteadyStateEntries: "512",
+			AccessFreq:         "high",
+		}},
+		Capabilities: []ir.Capability{{
+			Name:    "kernel.process.exec.observe",
+			Kind:    ir.CapabilitySource,
+			Danger:  ir.DangerObserve,
+			Program: "OnExec",
+			Section: "tracepoint/sched:sched_process_exec",
+			Maps: ir.CapabilityMapAccess{
+				Read:  []string{"Counts"},
+				Write: []string{"Counts"},
+			},
+		}},
+	})
+	if len(m.Maps) != 1 {
+		t.Fatalf("maps = %d, want 1", len(m.Maps))
+	}
+	got := m.Maps[0]
+	if got.SteadyStateEntries != "512" {
+		t.Fatalf("steady_state_entries = %q, want 512", got.SteadyStateEntries)
+	}
+	if got.AccessFreq != "high" {
+		t.Fatalf("access_freq = %q, want high", got.AccessFreq)
+	}
+	if err := Validate(m); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+}
+
 func TestFromIRIncludesMapKeyAndValueTypes(t *testing.T) {
 	m := FromIR(ir.Program{
 		Package: "probes",

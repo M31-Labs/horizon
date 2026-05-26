@@ -59,9 +59,11 @@
   ],
   "maps": [
     {
+      "access_freq": "high",
       "key": "u32",
       "kind": "hash",
       "name": "ExecCounts",
+      "steady_state_entries": "1024",
       "value": "Count"
     }
   ],

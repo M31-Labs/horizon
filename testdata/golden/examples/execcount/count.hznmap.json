@@ -20,15 +20,15 @@
       "source": {
         "end": {
           "column": 29,
-          "line": 18
+          "line": 20
         },
-        "end_byte": 358,
+        "end_byte": 407,
         "file": "examples/execcount/count.hzn",
         "start": {
           "column": 12,
-          "line": 18
+          "line": 20
         },
-        "start_byte": 341
+        "start_byte": 390
       }
     },
     {
@@ -104,9 +104,9 @@
       "source": {
         "end": {
           "column": 32,
-          "line": 11
+          "line": 13
         },
-        "end_byte": 157,
+        "end_byte": 206,
         "file": "examples/execcount/count.hzn",
         "start": {
           "column": 1,
@@ -132,15 +132,15 @@
       "source": {
         "end": {
           "column": 36,
-          "line": 19
+          "line": 21
         },
-        "end_byte": 394,
+        "end_byte": 443,
         "file": "examples/execcount/count.hzn",
         "start": {
           "column": 14,
-          "line": 19
+          "line": 21
         },
-        "start_byte": 372
+        "start_byte": 421
       }
     },
     {
@@ -160,15 +160,15 @@
       "source": {
         "end": {
           "column": 58,
-          "line": 21
+          "line": 23
         },
-        "end_byte": 474,
+        "end_byte": 523,
         "file": "examples/execcount/count.hzn",
         "start": {
           "column": 12,
-          "line": 21
+          "line": 23
         },
-        "start_byte": 428
+        "start_byte": 477
       }
     },
     {
@@ -188,15 +188,15 @@
       "source": {
         "end": {
           "column": 29,
-          "line": 18
+          "line": 20
         },
-        "end_byte": 358,
+        "end_byte": 407,
         "file": "examples/execcount/count.hzn",
         "start": {
           "column": 5,
-          "line": 18
+          "line": 20
         },
-        "start_byte": 334
+        "start_byte": 383
       }
     },
     {
@@ -216,15 +216,15 @@
       "source": {
         "end": {
           "column": 36,
-          "line": 19
+          "line": 21
         },
-        "end_byte": 394,
+        "end_byte": 443,
         "file": "examples/execcount/count.hzn",
         "start": {
           "column": 5,
-          "line": 19
+          "line": 21
         },
-        "start_byte": 363
+        "start_byte": 412
       }
     },
     {
@@ -244,15 +244,15 @@
       "source": {
         "end": {
           "column": 21,
-          "line": 22
+          "line": 24
         },
-        "end_byte": 502,
+        "end_byte": 551,
         "file": "examples/execcount/count.hzn",
         "start": {
           "column": 13,
-          "line": 22
+          "line": 24
         },
-        "start_byte": 494
+        "start_byte": 543
       }
     },
     {
@@ -272,15 +272,15 @@
       "source": {
         "end": {
           "column": 10,
-          "line": 23
+          "line": 25
         },
-        "end_byte": 512,
+        "end_byte": 561,
         "file": "examples/execcount/count.hzn",
         "start": {
           "column": 9,
-          "line": 21
+          "line": 23
         },
-        "start_byte": 425
+        "start_byte": 474
       }
     },
     {
@@ -300,15 +300,15 @@
       "source": {
         "end": {
           "column": 17,
-          "line": 24
+          "line": 26
         },
-        "end_byte": 529,
+        "end_byte": 578,
         "file": "examples/execcount/count.hzn",
         "start": {
           "column": 9,
-          "line": 24
+          "line": 26
         },
-        "start_byte": 521
+        "start_byte": 570
       }
     },
     {
@@ -328,15 +328,15 @@
       "source": {
         "end": {
           "column": 6,
-          "line": 25
+          "line": 27
         },
-        "end_byte": 535,
+        "end_byte": 584,
         "file": "examples/execcount/count.hzn",
         "start": {
           "column": 5,
-          "line": 20
+          "line": 22
         },
-        "start_byte": 399
+        "start_byte": 448
       }
     },
     {
@@ -356,15 +356,15 @@
       "source": {
         "end": {
           "column": 32,
-          "line": 26
+          "line": 28
         },
-        "end_byte": 567,
+        "end_byte": 616,
         "file": "examples/execcount/count.hzn",
         "start": {
           "column": 5,
-          "line": 26
+          "line": 28
         },
-        "start_byte": 540
+        "start_byte": 589
       }
     },
     {
@@ -384,15 +384,15 @@
       "source": {
         "end": {
           "column": 13,
-          "line": 27
+          "line": 29
         },
-        "end_byte": 580,
+        "end_byte": 629,
         "file": "examples/execcount/count.hzn",
         "start": {
           "column": 5,
-          "line": 27
+          "line": 29
         },
-        "start_byte": 572
+        "start_byte": 621
       }
     },
     {
@@ -412,15 +412,15 @@
       "source": {
         "end": {
           "column": 2,
-          "line": 28
+          "line": 30
         },
-        "end_byte": 582,
+        "end_byte": 631,
         "file": "examples/execcount/count.hzn",
         "start": {
           "column": 1,
-          "line": 15
+          "line": 17
         },
-        "start_byte": 228
+        "start_byte": 277
       }
     }
   ],

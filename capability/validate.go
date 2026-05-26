@@ -134,6 +134,25 @@ func indexManifestMaps(mapSpecs []Map) (map[string]Map, error) {
 				return nil, validationErrorf("capability manifest ringbuf map %q max_entries must be a power of two", mapSpec.Name)
 			}
 		}
+		if mapSpec.SteadyStateEntries != "" {
+			sse, err := strconv.ParseUint(mapSpec.SteadyStateEntries, 0, 32)
+			if err != nil || sse == 0 {
+				return nil, validationErrorf("capability manifest map %q steady_state_entries must be a positive integer literal", mapSpec.Name)
+			}
+			if mapSpec.MaxEntries != "" {
+				maxE, err := strconv.ParseUint(mapSpec.MaxEntries, 0, 32)
+				if err == nil && sse > maxE {
+					return nil, validationErrorf("capability manifest map %q steady_state_entries (%d) must not exceed max_entries (%d)", mapSpec.Name, sse, maxE)
+				}
+			}
+		}
+		if mapSpec.AccessFreq != "" {
+			switch mapSpec.AccessFreq {
+			case "low", "medium", "high":
+			default:
+				return nil, validationErrorf(`capability manifest map %q access_freq must be "low", "medium", or "high"`, mapSpec.Name)
+			}
+		}
 		if _, exists := maps[mapSpec.Name]; exists {
 			return nil, validationErrorf("capability manifest map %q is declared more than once", mapSpec.Name)
 		}

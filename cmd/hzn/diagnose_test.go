@@ -219,7 +219,7 @@ func TestDiagnoseMapsHelperWrapperDiagnosticToAuthoredCall(t *testing.T) {
 	if len(diagnostics) != 1 {
 		t.Fatalf("diagnostics = %d, want 1", len(diagnostics))
 	}
-	if got, want := diagnostics[0].Primary.Start.Line, 26; got != want {
+	if got, want := diagnostics[0].Primary.Start.Line, 27; got != want {
 		t.Fatalf("primary line = %d, want %d; diagnostic = %#v", got, want, diagnostics[0])
 	}
 	if diagnostics[0].Source == nil || !strings.Contains(diagnostics[0].Source.Text, "bpf.probe_read_user_str") {
@@ -317,7 +317,7 @@ func TestDiagnoseMapsMapWrapperDiagnosticToAuthoredCall(t *testing.T) {
 	if len(diagnostics) != 1 {
 		t.Fatalf("diagnostics = %d, want 1", len(diagnostics))
 	}
-	if got, want := diagnostics[0].Primary.Start.Line, 19; got != want {
+	if got, want := diagnostics[0].Primary.Start.Line, 21; got != want {
 		t.Fatalf("primary line = %d, want %d; diagnostic = %#v", got, want, diagnostics[0])
 	}
 	if diagnostics[0].Source == nil || !strings.Contains(diagnostics[0].Source.Text, "ExecCounts.lookup") {

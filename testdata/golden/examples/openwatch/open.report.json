@@ -9,8 +9,8 @@
     {
       "package": "probes",
       "path": "examples/openwatch/open.hzn",
-      "sha256": "dcf73bbeb0d81660c3fe2385cfdc93c1c60d2b6dfc50cd2bcca5a9f2043a88e8",
-      "size": 699
+      "sha256": "19649133f5a185e427c2bd8ae0508e709e3dba3e051281232d4f99e377a9d825",
+      "size": 720
     }
   ],
   "status": "generated",

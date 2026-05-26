@@ -171,12 +171,14 @@ func buildStructGroup(decl ast.TypeGroupDecl, aliases map[string]ast.TypeRef) []
 
 func buildMap(decl ast.MapDecl, aliases map[string]ast.TypeRef) Map {
 	return Map{
-		Name:       decl.Name,
-		Kind:       MapKind(decl.Kind),
-		Key:        buildType(decl.Key, aliases),
-		Val:        buildType(decl.Val, aliases),
-		MaxEntries: decl.MaxEntries,
-		Span:       decl.Span,
+		Name:               decl.Name,
+		Kind:               MapKind(decl.Kind),
+		Key:                buildType(decl.Key, aliases),
+		Val:                buildType(decl.Val, aliases),
+		MaxEntries:         decl.MaxEntries,
+		SteadyStateEntries: decl.SteadyStateEntries,
+		AccessFreq:         decl.AccessFreq,
+		Span:               decl.Span,
 	}
 }
 

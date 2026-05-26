@@ -20,15 +20,15 @@
       "source": {
         "end": {
           "column": 34,
-          "line": 23
+          "line": 24
         },
-        "end_byte": 461,
+        "end_byte": 482,
         "file": "examples/openwatch/open.hzn",
         "start": {
           "column": 17,
-          "line": 23
+          "line": 24
         },
-        "start_byte": 444
+        "start_byte": 465
       }
     },
     {
@@ -48,15 +48,15 @@
       "source": {
         "end": {
           "column": 34,
-          "line": 24
+          "line": 25
         },
-        "end_byte": 495,
+        "end_byte": 516,
         "file": "examples/openwatch/open.hzn",
         "start": {
           "column": 17,
-          "line": 24
+          "line": 25
         },
-        "start_byte": 478
+        "start_byte": 499
       }
     },
     {
@@ -76,15 +76,15 @@
       "source": {
         "end": {
           "column": 34,
-          "line": 25
+          "line": 26
         },
-        "end_byte": 529,
+        "end_byte": 550,
         "file": "examples/openwatch/open.hzn",
         "start": {
           "column": 5,
-          "line": 25
+          "line": 26
         },
-        "start_byte": 500
+        "start_byte": 521
       }
     },
     {
@@ -104,15 +104,15 @@
       "source": {
         "end": {
           "column": 62,
-          "line": 26
+          "line": 27
         },
-        "end_byte": 591,
+        "end_byte": 612,
         "file": "examples/openwatch/open.hzn",
         "start": {
           "column": 8,
-          "line": 26
+          "line": 27
         },
-        "start_byte": 537
+        "start_byte": 558
       }
     },
     {
@@ -132,15 +132,15 @@
       "source": {
         "end": {
           "column": 61,
-          "line": 26
+          "line": 27
         },
-        "end_byte": 590,
+        "end_byte": 611,
         "file": "examples/openwatch/open.hzn",
         "start": {
           "column": 45,
-          "line": 26
+          "line": 27
         },
-        "start_byte": 574
+        "start_byte": 595
       }
     },
     {
@@ -188,9 +188,9 @@
       "source": {
         "end": {
           "column": 34,
-          "line": 12
+          "line": 13
         },
-        "end_byte": 182,
+        "end_byte": 203,
         "file": "examples/openwatch/open.hzn",
         "start": {
           "column": 1,
@@ -216,15 +216,15 @@
       "source": {
         "end": {
           "column": 34,
-          "line": 19
+          "line": 20
         },
-        "end_byte": 382,
+        "end_byte": 403,
         "file": "examples/openwatch/open.hzn",
         "start": {
           "column": 14,
-          "line": 19
+          "line": 20
         },
-        "start_byte": 362
+        "start_byte": 383
       }
     },
     {
@@ -244,15 +244,15 @@
       "source": {
         "end": {
           "column": 29,
-          "line": 30
+          "line": 31
         },
-        "end_byte": 683,
+        "end_byte": 704,
         "file": "examples/openwatch/open.hzn",
         "start": {
           "column": 5,
-          "line": 30
+          "line": 31
         },
-        "start_byte": 659
+        "start_byte": 680
       }
     },
     {
@@ -272,15 +272,15 @@
       "source": {
         "end": {
           "column": 34,
-          "line": 27
+          "line": 28
         },
-        "end_byte": 631,
+        "end_byte": 652,
         "file": "examples/openwatch/open.hzn",
         "start": {
           "column": 9,
-          "line": 27
+          "line": 28
         },
-        "start_byte": 606
+        "start_byte": 627
       }
     },
     {
@@ -300,15 +300,15 @@
       "source": {
         "end": {
           "column": 34,
-          "line": 19
+          "line": 20
         },
-        "end_byte": 382,
+        "end_byte": 403,
         "file": "examples/openwatch/open.hzn",
         "start": {
           "column": 5,
-          "line": 19
+          "line": 20
         },
-        "start_byte": 353
+        "start_byte": 374
       }
     },
     {
@@ -328,15 +328,15 @@
       "source": {
         "end": {
           "column": 17,
-          "line": 21
+          "line": 22
         },
-        "end_byte": 421,
+        "end_byte": 442,
         "file": "examples/openwatch/open.hzn",
         "start": {
           "column": 9,
-          "line": 21
+          "line": 22
         },
-        "start_byte": 413
+        "start_byte": 434
       }
     },
     {
@@ -356,15 +356,15 @@
       "source": {
         "end": {
           "column": 6,
-          "line": 22
+          "line": 23
         },
-        "end_byte": 427,
+        "end_byte": 448,
         "file": "examples/openwatch/open.hzn",
         "start": {
           "column": 5,
-          "line": 20
+          "line": 21
         },
-        "start_byte": 387
+        "start_byte": 408
       }
     },
     {
@@ -384,15 +384,15 @@
       "source": {
         "end": {
           "column": 34,
-          "line": 23
+          "line": 24
         },
-        "end_byte": 461,
+        "end_byte": 482,
         "file": "examples/openwatch/open.hzn",
         "start": {
           "column": 5,
-          "line": 23
+          "line": 24
         },
-        "start_byte": 432
+        "start_byte": 453
       }
     },
     {
@@ -412,15 +412,15 @@
       "source": {
         "end": {
           "column": 34,
-          "line": 24
+          "line": 25
         },
-        "end_byte": 495,
+        "end_byte": 516,
         "file": "examples/openwatch/open.hzn",
         "start": {
           "column": 5,
-          "line": 24
+          "line": 25
         },
-        "start_byte": 466
+        "start_byte": 487
       }
     },
     {
@@ -440,15 +440,15 @@
       "source": {
         "end": {
           "column": 34,
-          "line": 25
+          "line": 26
         },
-        "end_byte": 529,
+        "end_byte": 550,
         "file": "examples/openwatch/open.hzn",
         "start": {
           "column": 5,
-          "line": 25
+          "line": 26
         },
-        "start_byte": 500
+        "start_byte": 521
       }
     },
     {
@@ -468,15 +468,15 @@
       "source": {
         "end": {
           "column": 34,
-          "line": 27
+          "line": 28
         },
-        "end_byte": 631,
+        "end_byte": 652,
         "file": "examples/openwatch/open.hzn",
         "start": {
           "column": 9,
-          "line": 27
+          "line": 28
         },
-        "start_byte": 606
+        "start_byte": 627
       }
     },
     {
@@ -496,15 +496,15 @@
       "source": {
         "end": {
           "column": 17,
-          "line": 28
+          "line": 29
         },
-        "end_byte": 648,
+        "end_byte": 669,
         "file": "examples/openwatch/open.hzn",
         "start": {
           "column": 9,
-          "line": 28
+          "line": 29
         },
-        "start_byte": 640
+        "start_byte": 661
       }
     },
     {
@@ -524,15 +524,15 @@
       "source": {
         "end": {
           "column": 6,
-          "line": 29
+          "line": 30
         },
-        "end_byte": 654,
+        "end_byte": 675,
         "file": "examples/openwatch/open.hzn",
         "start": {
           "column": 5,
-          "line": 26
+          "line": 27
         },
-        "start_byte": 534
+        "start_byte": 555
       }
     },
     {
@@ -552,15 +552,15 @@
       "source": {
         "end": {
           "column": 29,
-          "line": 30
+          "line": 31
         },
-        "end_byte": 683,
+        "end_byte": 704,
         "file": "examples/openwatch/open.hzn",
         "start": {
           "column": 5,
-          "line": 30
+          "line": 31
         },
-        "start_byte": 659
+        "start_byte": 680
       }
     },
     {
@@ -580,15 +580,15 @@
       "source": {
         "end": {
           "column": 13,
-          "line": 31
+          "line": 32
         },
-        "end_byte": 696,
+        "end_byte": 717,
         "file": "examples/openwatch/open.hzn",
         "start": {
           "column": 5,
-          "line": 31
+          "line": 32
         },
-        "start_byte": 688
+        "start_byte": 709
       }
     },
     {
@@ -608,15 +608,15 @@
       "source": {
         "end": {
           "column": 2,
-          "line": 32
+          "line": 33
         },
-        "end_byte": 698,
+        "end_byte": 719,
         "file": "examples/openwatch/open.hzn",
         "start": {
           "column": 1,
-          "line": 16
+          "line": 17
         },
-        "start_byte": 256
+        "start_byte": 277
       }
     }
   ],

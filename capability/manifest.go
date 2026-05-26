@@ -56,11 +56,13 @@ type MapAccess struct {
 }
 
 type Map struct {
-	Name       string `json:"name"`
-	Kind       string `json:"kind"`
-	Key        string `json:"key,omitempty"`
-	Value      string `json:"value,omitempty"`
-	MaxEntries string `json:"max_entries,omitempty"`
+	Name               string `json:"name"`
+	Kind               string `json:"kind"`
+	Key                string `json:"key,omitempty"`
+	Value              string `json:"value,omitempty"`
+	MaxEntries         string `json:"max_entries,omitempty"`
+	SteadyStateEntries string `json:"steady_state_entries,omitempty"`
+	AccessFreq         string `json:"access_freq,omitempty"`
 }
 
 type TypeSchema struct {

@@ -75,6 +75,7 @@
   ],
   "maps": [
     {
+      "access_freq": "high",
       "kind": "ringbuf",
       "name": "OpenEvents",
       "value": "OpenEvent"

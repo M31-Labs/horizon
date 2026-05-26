@@ -9,8 +9,8 @@
     {
       "package": "probes",
       "path": "examples/execcount/count.hzn",
-      "sha256": "847230c5ca972f4f0134610419e68ed6afb85cc8bca5ce5d8a9a3b15dbad8b8f",
-      "size": 583
+      "sha256": "aa40cbc6a5fb2f06e5b011ac6cabb2a3d7e134934ff74cec361e8f88b855060f",
+      "size": 632
     }
   ],
   "status": "generated",

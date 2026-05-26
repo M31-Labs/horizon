@@ -31,10 +31,12 @@ func (k MapKind) HasPerCPUValue() bool {
 }
 
 type Map struct {
-	Name       string
-	Kind       MapKind
-	Key        Type
-	Val        Type
-	MaxEntries string
-	Span       span.Span
+	Name               string
+	Kind               MapKind
+	Key                Type
+	Val                Type
+	MaxEntries         string
+	SteadyStateEntries string // empty if not declared
+	AccessFreq         string // empty if not declared; values: "low", "medium", "high"
+	Span               span.Span
 }
