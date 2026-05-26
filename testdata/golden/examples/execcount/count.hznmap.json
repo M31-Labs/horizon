@@ -1,0 +1,434 @@
+{
+  "generated": {
+    "language": "c"
+  },
+  "mappings": [
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 22
+        },
+        "start": {
+          "column": 1,
+          "line": 18
+        }
+      },
+      "node": "helper_wrapper",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 29,
+          "line": 18
+        },
+        "end_byte": 364,
+        "file": "examples/execcount/count.hzn",
+        "start": {
+          "column": 12,
+          "line": 18
+        },
+        "start_byte": 347
+      }
+    },
+    {
+      "function": "",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 24
+        },
+        "start": {
+          "column": 1,
+          "line": 22
+        }
+      },
+      "node": "const",
+      "section": "",
+      "source": {
+        "end": {
+          "column": 24,
+          "line": 5
+        },
+        "end_byte": 88,
+        "file": "examples/execcount/count.hzn",
+        "start": {
+          "column": 7,
+          "line": 5
+        },
+        "start_byte": 71
+      }
+    },
+    {
+      "function": "",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 30
+        },
+        "start": {
+          "column": 1,
+          "line": 24
+        }
+      },
+      "node": "struct",
+      "section": "",
+      "source": {
+        "end": {
+          "column": 2,
+          "line": 9
+        },
+        "end_byte": 124,
+        "file": "examples/execcount/count.hzn",
+        "start": {
+          "column": 6,
+          "line": 7
+        },
+        "start_byte": 95
+      }
+    },
+    {
+      "function": "",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 37
+        },
+        "start": {
+          "column": 1,
+          "line": 30
+        }
+      },
+      "node": "map",
+      "section": "",
+      "source": {
+        "end": {
+          "column": 32,
+          "line": 11
+        },
+        "end_byte": 157,
+        "file": "examples/execcount/count.hzn",
+        "start": {
+          "column": 1,
+          "line": 11
+        },
+        "start_byte": 126
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 41
+        },
+        "start": {
+          "column": 1,
+          "line": 37
+        }
+      },
+      "node": "map_wrapper",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 36,
+          "line": 19
+        },
+        "end_byte": 400,
+        "file": "examples/execcount/count.hzn",
+        "start": {
+          "column": 14,
+          "line": 19
+        },
+        "start_byte": 378
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 45
+        },
+        "start": {
+          "column": 1,
+          "line": 41
+        }
+      },
+      "node": "map_wrapper",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 58,
+          "line": 21
+        },
+        "end_byte": 480,
+        "file": "examples/execcount/count.hzn",
+        "start": {
+          "column": 12,
+          "line": 21
+        },
+        "start_byte": 434
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 50
+        },
+        "start": {
+          "column": 1,
+          "line": 49
+        }
+      },
+      "node": "short_var",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 29,
+          "line": 18
+        },
+        "end_byte": 364,
+        "file": "examples/execcount/count.hzn",
+        "start": {
+          "column": 5,
+          "line": 18
+        },
+        "start_byte": 340
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 51
+        },
+        "start": {
+          "column": 1,
+          "line": 50
+        }
+      },
+      "node": "short_var",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 36,
+          "line": 19
+        },
+        "end_byte": 400,
+        "file": "examples/execcount/count.hzn",
+        "start": {
+          "column": 5,
+          "line": 19
+        },
+        "start_byte": 369
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 54
+        },
+        "start": {
+          "column": 1,
+          "line": 53
+        }
+      },
+      "node": "return",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 21,
+          "line": 22
+        },
+        "end_byte": 508,
+        "file": "examples/execcount/count.hzn",
+        "start": {
+          "column": 13,
+          "line": 22
+        },
+        "start_byte": 500
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 55
+        },
+        "start": {
+          "column": 1,
+          "line": 52
+        }
+      },
+      "node": "if",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 10,
+          "line": 23
+        },
+        "end_byte": 518,
+        "file": "examples/execcount/count.hzn",
+        "start": {
+          "column": 9,
+          "line": 21
+        },
+        "start_byte": 431
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 56
+        },
+        "start": {
+          "column": 1,
+          "line": 55
+        }
+      },
+      "node": "return",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 17,
+          "line": 24
+        },
+        "end_byte": 535,
+        "file": "examples/execcount/count.hzn",
+        "start": {
+          "column": 9,
+          "line": 24
+        },
+        "start_byte": 527
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 57
+        },
+        "start": {
+          "column": 1,
+          "line": 51
+        }
+      },
+      "node": "if",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 6,
+          "line": 25
+        },
+        "end_byte": 541,
+        "file": "examples/execcount/count.hzn",
+        "start": {
+          "column": 5,
+          "line": 20
+        },
+        "start_byte": 405
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 58
+        },
+        "start": {
+          "column": 1,
+          "line": 57
+        }
+      },
+      "node": "assign",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 32,
+          "line": 26
+        },
+        "end_byte": 573,
+        "file": "examples/execcount/count.hzn",
+        "start": {
+          "column": 5,
+          "line": 26
+        },
+        "start_byte": 546
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 59
+        },
+        "start": {
+          "column": 1,
+          "line": 58
+        }
+      },
+      "node": "return",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 13,
+          "line": 27
+        },
+        "end_byte": 586,
+        "file": "examples/execcount/count.hzn",
+        "start": {
+          "column": 5,
+          "line": 27
+        },
+        "start_byte": 578
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 60
+        },
+        "start": {
+          "column": 1,
+          "line": 45
+        }
+      },
+      "node": "function",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 2,
+          "line": 28
+        },
+        "end_byte": 588,
+        "file": "examples/execcount/count.hzn",
+        "start": {
+          "column": 1,
+          "line": 15
+        },
+        "start_byte": 234
+      }
+    }
+  ],
+  "schema": "m31labs.dev/horizon/sourcemap/v0",
+  "sources": [
+    {
+      "id": 0,
+      "path": "examples/execcount/count.hzn"
+    }
+  ]
+}

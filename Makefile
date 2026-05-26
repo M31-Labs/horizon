@@ -11,7 +11,7 @@ HZN_EXAMPLES := \
 	./examples/tcpass \
 	./examples/xdpdrop
 
-.PHONY: test check ci ci-go ci-clang fmt-check doctor setup-vmlinux workbench build-example build-examples bindings-smoke clang-smoke
+.PHONY: test check ci ci-go ci-clang fmt-check doctor setup-vmlinux workbench build-example build-examples bindings-smoke clang-smoke golden-update
 
 test:
 	@log="$$(mktemp)"; \
@@ -102,6 +102,9 @@ bindings-smoke:
 		if [ "$${GITHUB_ACTIONS:-}" = "true" ]; then echo "::endgroup::"; fi; \
 		if [ $$status -ne 0 ]; then exit $$status; fi; \
 	done
+
+golden-update:
+	go test ./compiler -run TestGoldenExamplesWorkbench -update-golden -v
 
 clang-smoke:
 	@log="$$(mktemp)"; \

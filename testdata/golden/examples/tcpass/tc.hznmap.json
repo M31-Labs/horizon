@@ -1,0 +1,70 @@
+{
+  "generated": {
+    "language": "c"
+  },
+  "mappings": [
+    {
+      "function": "PassIngress",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 32
+        },
+        "start": {
+          "column": 1,
+          "line": 31
+        }
+      },
+      "node": "return",
+      "section": "tc/ingress",
+      "source": {
+        "end": {
+          "column": 17,
+          "line": 8
+        },
+        "end_byte": 176,
+        "file": "examples/tcpass/tc.hzn",
+        "start": {
+          "column": 5,
+          "line": 8
+        },
+        "start_byte": 164
+      }
+    },
+    {
+      "function": "PassIngress",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 33
+        },
+        "start": {
+          "column": 1,
+          "line": 27
+        }
+      },
+      "node": "function",
+      "section": "tc/ingress",
+      "source": {
+        "end": {
+          "column": 2,
+          "line": 9
+        },
+        "end_byte": 178,
+        "file": "examples/tcpass/tc.hzn",
+        "start": {
+          "column": 1,
+          "line": 5
+        },
+        "start_byte": 83
+      }
+    }
+  ],
+  "schema": "m31labs.dev/horizon/sourcemap/v0",
+  "sources": [
+    {
+      "id": 0,
+      "path": "examples/tcpass/tc.hzn"
+    }
+  ]
+}

@@ -1,0 +1,70 @@
+{
+  "generated": {
+    "language": "c"
+  },
+  "mappings": [
+    {
+      "function": "DenyExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 31
+        },
+        "start": {
+          "column": 1,
+          "line": 30
+        }
+      },
+      "node": "return",
+      "section": "lsm/bprm_check_security",
+      "source": {
+        "end": {
+          "column": 20,
+          "line": 8
+        },
+        "end_byte": 185,
+        "file": "examples/execdeny/exec.hzn",
+        "start": {
+          "column": 5,
+          "line": 8
+        },
+        "start_byte": 170
+      }
+    },
+    {
+      "function": "DenyExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 32
+        },
+        "start": {
+          "column": 1,
+          "line": 26
+        }
+      },
+      "node": "function",
+      "section": "lsm/bprm_check_security",
+      "source": {
+        "end": {
+          "column": 2,
+          "line": 9
+        },
+        "end_byte": 187,
+        "file": "examples/execdeny/exec.hzn",
+        "start": {
+          "column": 1,
+          "line": 5
+        },
+        "start_byte": 79
+      }
+    }
+  ],
+  "schema": "m31labs.dev/horizon/sourcemap/v0",
+  "sources": [
+    {
+      "id": 0,
+      "path": "examples/execdeny/exec.hzn"
+    }
+  ]
+}

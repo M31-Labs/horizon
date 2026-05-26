@@ -1,0 +1,61 @@
+{
+  "capabilities": [
+    {
+      "danger": "block",
+      "kind": "source",
+      "maps": {
+        "events": [],
+        "read": [],
+        "write": []
+      },
+      "name": "kernel.process.exec.deny",
+      "program": "DenyExec",
+      "requirements": {
+        "features": [
+          "bpf_lsm"
+        ],
+        "min_kernel": "5.7",
+        "permissions": [
+          "bpf_program_load",
+          "lsm_admin"
+        ],
+        "programs": [
+          {
+            "min_kernel": "5.7",
+            "name": "lsm"
+          }
+        ]
+      },
+      "section": "lsm/bprm_check_security"
+    }
+  ],
+  "package": "probes",
+  "programs": [
+    {
+      "attach": "bprm_check_security",
+      "capabilities": [
+        "kernel.process.exec.deny"
+      ],
+      "kind": "lsm",
+      "name": "DenyExec",
+      "section": "lsm/bprm_check_security"
+    }
+  ],
+  "requirements": {
+    "features": [
+      "bpf_lsm"
+    ],
+    "min_kernel": "5.7",
+    "permissions": [
+      "bpf_program_load",
+      "lsm_admin"
+    ],
+    "programs": [
+      {
+        "min_kernel": "5.7",
+        "name": "lsm"
+      }
+    ]
+  },
+  "schema": "m31labs.dev/horizon/capability/v0"
+}

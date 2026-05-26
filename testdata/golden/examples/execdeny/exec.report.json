@@ -1,0 +1,38 @@
+{
+  "compile": false,
+  "diagnostic_count": 0,
+  "diagnostics": [],
+  "generator": "hzn workbench",
+  "package": "probes",
+  "schema": "m31labs.dev/horizon/report/v0",
+  "sources": [
+    {
+      "package": "probes",
+      "path": "examples/execdeny/exec.hzn",
+      "sha256": "2a07e86293d8db9ac867674ba84d73f668e013a61426215418d224eb3b5dd318",
+      "size": 188
+    }
+  ],
+  "status": "generated",
+  "summary": {
+    "capability_count": 1,
+    "capability_dangers": [
+      "block"
+    ],
+    "features": [
+      "bpf_lsm"
+    ],
+    "map_count": 0,
+    "min_kernel": "5.7",
+    "permissions": [
+      "bpf_program_load",
+      "lsm_admin"
+    ],
+    "program_count": 1,
+    "program_kinds": [
+      "lsm"
+    ],
+    "source_count": 1,
+    "type_count": 0
+  }
+}

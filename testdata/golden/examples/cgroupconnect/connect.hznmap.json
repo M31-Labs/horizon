@@ -1,0 +1,350 @@
+{
+  "generated": {
+    "language": "c"
+  },
+  "mappings": [
+    {
+      "function": "BlockSMTP",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 37
+        },
+        "start": {
+          "column": 1,
+          "line": 33
+        }
+      },
+      "node": "cgroup_context_wrapper",
+      "section": "cgroup/connect4",
+      "source": {
+        "end": {
+          "column": 26,
+          "line": 8
+        },
+        "end_byte": 199,
+        "file": "examples/cgroupconnect/connect.hzn",
+        "start": {
+          "column": 8,
+          "line": 8
+        },
+        "start_byte": 181
+      }
+    },
+    {
+      "function": "BlockSMTP",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 41
+        },
+        "start": {
+          "column": 1,
+          "line": 37
+        }
+      },
+      "node": "cgroup_context_wrapper",
+      "section": "cgroup/connect4",
+      "source": {
+        "end": {
+          "column": 28,
+          "line": 11
+        },
+        "end_byte": 284,
+        "file": "examples/cgroupconnect/connect.hzn",
+        "start": {
+          "column": 8,
+          "line": 11
+        },
+        "start_byte": 264
+      }
+    },
+    {
+      "function": "BlockSMTP",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 45
+        },
+        "start": {
+          "column": 1,
+          "line": 41
+        }
+      },
+      "node": "cgroup_context_wrapper",
+      "section": "cgroup/connect4",
+      "source": {
+        "end": {
+          "column": 28,
+          "line": 14
+        },
+        "end_byte": 370,
+        "file": "examples/cgroupconnect/connect.hzn",
+        "start": {
+          "column": 8,
+          "line": 14
+        },
+        "start_byte": 350
+      }
+    },
+    {
+      "function": "BlockSMTP",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 49
+        },
+        "start": {
+          "column": 1,
+          "line": 45
+        }
+      },
+      "node": "cgroup_context_wrapper",
+      "section": "cgroup/connect4",
+      "source": {
+        "end": {
+          "column": 57,
+          "line": 14
+        },
+        "end_byte": 399,
+        "file": "examples/cgroupconnect/connect.hzn",
+        "start": {
+          "column": 38,
+          "line": 14
+        },
+        "start_byte": 380
+      }
+    },
+    {
+      "function": "BlockSMTP",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 55
+        },
+        "start": {
+          "column": 1,
+          "line": 54
+        }
+      },
+      "node": "return",
+      "section": "cgroup/connect4",
+      "source": {
+        "end": {
+          "column": 28,
+          "line": 9
+        },
+        "end_byte": 250,
+        "file": "examples/cgroupconnect/connect.hzn",
+        "start": {
+          "column": 9,
+          "line": 9
+        },
+        "start_byte": 231
+      }
+    },
+    {
+      "function": "BlockSMTP",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 56
+        },
+        "start": {
+          "column": 1,
+          "line": 53
+        }
+      },
+      "node": "if",
+      "section": "cgroup/connect4",
+      "source": {
+        "end": {
+          "column": 6,
+          "line": 10
+        },
+        "end_byte": 256,
+        "file": "examples/cgroupconnect/connect.hzn",
+        "start": {
+          "column": 5,
+          "line": 8
+        },
+        "start_byte": 178
+      }
+    },
+    {
+      "function": "BlockSMTP",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 58
+        },
+        "start": {
+          "column": 1,
+          "line": 57
+        }
+      },
+      "node": "return",
+      "section": "cgroup/connect4",
+      "source": {
+        "end": {
+          "column": 28,
+          "line": 12
+        },
+        "end_byte": 336,
+        "file": "examples/cgroupconnect/connect.hzn",
+        "start": {
+          "column": 9,
+          "line": 12
+        },
+        "start_byte": 317
+      }
+    },
+    {
+      "function": "BlockSMTP",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 59
+        },
+        "start": {
+          "column": 1,
+          "line": 56
+        }
+      },
+      "node": "if",
+      "section": "cgroup/connect4",
+      "source": {
+        "end": {
+          "column": 6,
+          "line": 13
+        },
+        "end_byte": 342,
+        "file": "examples/cgroupconnect/connect.hzn",
+        "start": {
+          "column": 5,
+          "line": 11
+        },
+        "start_byte": 261
+      }
+    },
+    {
+      "function": "BlockSMTP",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 61
+        },
+        "start": {
+          "column": 1,
+          "line": 60
+        }
+      },
+      "node": "return",
+      "section": "cgroup/connect4",
+      "source": {
+        "end": {
+          "column": 27,
+          "line": 15
+        },
+        "end_byte": 456,
+        "file": "examples/cgroupconnect/connect.hzn",
+        "start": {
+          "column": 9,
+          "line": 15
+        },
+        "start_byte": 438
+      }
+    },
+    {
+      "function": "BlockSMTP",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 62
+        },
+        "start": {
+          "column": 1,
+          "line": 59
+        }
+      },
+      "node": "if",
+      "section": "cgroup/connect4",
+      "source": {
+        "end": {
+          "column": 6,
+          "line": 16
+        },
+        "end_byte": 462,
+        "file": "examples/cgroupconnect/connect.hzn",
+        "start": {
+          "column": 5,
+          "line": 14
+        },
+        "start_byte": 347
+      }
+    },
+    {
+      "function": "BlockSMTP",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 63
+        },
+        "start": {
+          "column": 1,
+          "line": 62
+        }
+      },
+      "node": "return",
+      "section": "cgroup/connect4",
+      "source": {
+        "end": {
+          "column": 24,
+          "line": 17
+        },
+        "end_byte": 486,
+        "file": "examples/cgroupconnect/connect.hzn",
+        "start": {
+          "column": 5,
+          "line": 17
+        },
+        "start_byte": 467
+      }
+    },
+    {
+      "function": "BlockSMTP",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 64
+        },
+        "start": {
+          "column": 1,
+          "line": 49
+        }
+      },
+      "node": "function",
+      "section": "cgroup/connect4",
+      "source": {
+        "end": {
+          "column": 2,
+          "line": 18
+        },
+        "end_byte": 488,
+        "file": "examples/cgroupconnect/connect.hzn",
+        "start": {
+          "column": 1,
+          "line": 5
+        },
+        "start_byte": 87
+      }
+    }
+  ],
+  "schema": "m31labs.dev/horizon/sourcemap/v0",
+  "sources": [
+    {
+      "id": 0,
+      "path": "examples/cgroupconnect/connect.hzn"
+    }
+  ]
+}

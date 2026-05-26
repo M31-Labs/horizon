@@ -1,0 +1,38 @@
+{
+  "compile": false,
+  "diagnostic_count": 0,
+  "diagnostics": [],
+  "generator": "hzn workbench",
+  "package": "probes",
+  "schema": "m31labs.dev/horizon/report/v0",
+  "sources": [
+    {
+      "package": "probes",
+      "path": "examples/xdpdrop/xdp.hzn",
+      "sha256": "71a4f65592f4ebca4f7e705cbe1220d1aa066fbd1be34548bd59438538ddbe84",
+      "size": 421
+    }
+  ],
+  "status": "generated",
+  "summary": {
+    "capability_count": 1,
+    "capability_dangers": [
+      "drop"
+    ],
+    "features": [
+      "netdev_xdp"
+    ],
+    "map_count": 0,
+    "min_kernel": "4.8",
+    "permissions": [
+      "bpf_program_load",
+      "net_admin"
+    ],
+    "program_count": 1,
+    "program_kinds": [
+      "xdp"
+    ],
+    "source_count": 1,
+    "type_count": 0
+  }
+}

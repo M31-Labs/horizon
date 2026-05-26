@@ -1,0 +1,38 @@
+{
+  "compile": false,
+  "diagnostic_count": 0,
+  "diagnostics": [],
+  "generator": "hzn workbench",
+  "package": "probes",
+  "schema": "m31labs.dev/horizon/report/v0",
+  "sources": [
+    {
+      "package": "probes",
+      "path": "examples/tcpass/tc.hzn",
+      "sha256": "c4295a48d4d8a8fb207a73c25e9e381e9a9fb5f42d9ac69a679e1bab246e8104",
+      "size": 179
+    }
+  ],
+  "status": "generated",
+  "summary": {
+    "capability_count": 1,
+    "capability_dangers": [
+      "observe"
+    ],
+    "features": [
+      "tc_clsact"
+    ],
+    "map_count": 0,
+    "min_kernel": "4.1",
+    "permissions": [
+      "bpf_program_load",
+      "net_admin"
+    ],
+    "program_count": 1,
+    "program_kinds": [
+      "tc"
+    ],
+    "source_count": 1,
+    "type_count": 0
+  }
+}

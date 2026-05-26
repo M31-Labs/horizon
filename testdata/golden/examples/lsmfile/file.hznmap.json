@@ -1,0 +1,70 @@
+{
+  "generated": {
+    "language": "c"
+  },
+  "mappings": [
+    {
+      "function": "ObserveFileOpen",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 31
+        },
+        "start": {
+          "column": 1,
+          "line": 30
+        }
+      },
+      "node": "return",
+      "section": "lsm/file_open",
+      "source": {
+        "end": {
+          "column": 21,
+          "line": 8
+        },
+        "end_byte": 199,
+        "file": "examples/lsmfile/file.hzn",
+        "start": {
+          "column": 5,
+          "line": 8
+        },
+        "start_byte": 183
+      }
+    },
+    {
+      "function": "ObserveFileOpen",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 32
+        },
+        "start": {
+          "column": 1,
+          "line": 26
+        }
+      },
+      "node": "function",
+      "section": "lsm/file_open",
+      "source": {
+        "end": {
+          "column": 2,
+          "line": 9
+        },
+        "end_byte": 201,
+        "file": "examples/lsmfile/file.hzn",
+        "start": {
+          "column": 1,
+          "line": 5
+        },
+        "start_byte": 88
+      }
+    }
+  ],
+  "schema": "m31labs.dev/horizon/sourcemap/v0",
+  "sources": [
+    {
+      "id": 0,
+      "path": "examples/lsmfile/file.hzn"
+    }
+  ]
+}

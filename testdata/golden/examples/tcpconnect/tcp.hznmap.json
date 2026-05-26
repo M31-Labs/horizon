@@ -1,0 +1,462 @@
+{
+  "generated": {
+    "language": "c"
+  },
+  "mappings": [
+    {
+      "function": "OnTCPConnect",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 22
+        },
+        "start": {
+          "column": 1,
+          "line": 18
+        }
+      },
+      "node": "helper_wrapper",
+      "section": "kprobe/tcp_v4_connect",
+      "source": {
+        "end": {
+          "column": 34,
+          "line": 22
+        },
+        "end_byte": 488,
+        "file": "examples/tcpconnect/tcp.hzn",
+        "start": {
+          "column": 17,
+          "line": 22
+        },
+        "start_byte": 471
+      }
+    },
+    {
+      "function": "OnTCPConnect",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 26
+        },
+        "start": {
+          "column": 1,
+          "line": 22
+        }
+      },
+      "node": "helper_wrapper",
+      "section": "kprobe/tcp_v4_connect",
+      "source": {
+        "end": {
+          "column": 34,
+          "line": 23
+        },
+        "end_byte": 522,
+        "file": "examples/tcpconnect/tcp.hzn",
+        "start": {
+          "column": 17,
+          "line": 23
+        },
+        "start_byte": 505
+      }
+    },
+    {
+      "function": "OnTCPConnect",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 30
+        },
+        "start": {
+          "column": 1,
+          "line": 26
+        }
+      },
+      "node": "helper_wrapper",
+      "section": "kprobe/tcp_v4_connect",
+      "source": {
+        "end": {
+          "column": 34,
+          "line": 24
+        },
+        "end_byte": 556,
+        "file": "examples/tcpconnect/tcp.hzn",
+        "start": {
+          "column": 5,
+          "line": 24
+        },
+        "start_byte": 527
+      }
+    },
+    {
+      "function": "",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 40
+        },
+        "start": {
+          "column": 1,
+          "line": 30
+        }
+      },
+      "node": "struct",
+      "section": "",
+      "source": {
+        "end": {
+          "column": 2,
+          "line": 9
+        },
+        "end_byte": 136,
+        "file": "examples/tcpconnect/tcp.hzn",
+        "start": {
+          "column": 6,
+          "line": 5
+        },
+        "start_byte": 70
+      }
+    },
+    {
+      "function": "",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 45
+        },
+        "start": {
+          "column": 1,
+          "line": 40
+        }
+      },
+      "node": "map",
+      "section": "",
+      "source": {
+        "end": {
+          "column": 46,
+          "line": 11
+        },
+        "end_byte": 183,
+        "file": "examples/tcpconnect/tcp.hzn",
+        "start": {
+          "column": 1,
+          "line": 11
+        },
+        "start_byte": 138
+      }
+    },
+    {
+      "function": "OnTCPConnect",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 49
+        },
+        "start": {
+          "column": 1,
+          "line": 45
+        }
+      },
+      "node": "map_wrapper",
+      "section": "kprobe/tcp_v4_connect",
+      "source": {
+        "end": {
+          "column": 40,
+          "line": 18
+        },
+        "end_byte": 409,
+        "file": "examples/tcpconnect/tcp.hzn",
+        "start": {
+          "column": 14,
+          "line": 18
+        },
+        "start_byte": 383
+      }
+    },
+    {
+      "function": "OnTCPConnect",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 53
+        },
+        "start": {
+          "column": 1,
+          "line": 49
+        }
+      },
+      "node": "map_wrapper",
+      "section": "kprobe/tcp_v4_connect",
+      "source": {
+        "end": {
+          "column": 35,
+          "line": 25
+        },
+        "end_byte": 591,
+        "file": "examples/tcpconnect/tcp.hzn",
+        "start": {
+          "column": 5,
+          "line": 25
+        },
+        "start_byte": 561
+      }
+    },
+    {
+      "function": "OnTCPConnect",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 58
+        },
+        "start": {
+          "column": 1,
+          "line": 57
+        }
+      },
+      "node": "short_var",
+      "section": "kprobe/tcp_v4_connect",
+      "source": {
+        "end": {
+          "column": 40,
+          "line": 18
+        },
+        "end_byte": 409,
+        "file": "examples/tcpconnect/tcp.hzn",
+        "start": {
+          "column": 5,
+          "line": 18
+        },
+        "start_byte": 374
+      }
+    },
+    {
+      "function": "OnTCPConnect",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 60
+        },
+        "start": {
+          "column": 1,
+          "line": 59
+        }
+      },
+      "node": "return",
+      "section": "kprobe/tcp_v4_connect",
+      "source": {
+        "end": {
+          "column": 17,
+          "line": 20
+        },
+        "end_byte": 448,
+        "file": "examples/tcpconnect/tcp.hzn",
+        "start": {
+          "column": 9,
+          "line": 20
+        },
+        "start_byte": 440
+      }
+    },
+    {
+      "function": "OnTCPConnect",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 61
+        },
+        "start": {
+          "column": 1,
+          "line": 58
+        }
+      },
+      "node": "if",
+      "section": "kprobe/tcp_v4_connect",
+      "source": {
+        "end": {
+          "column": 6,
+          "line": 21
+        },
+        "end_byte": 454,
+        "file": "examples/tcpconnect/tcp.hzn",
+        "start": {
+          "column": 5,
+          "line": 19
+        },
+        "start_byte": 414
+      }
+    },
+    {
+      "function": "OnTCPConnect",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 62
+        },
+        "start": {
+          "column": 1,
+          "line": 61
+        }
+      },
+      "node": "assign",
+      "section": "kprobe/tcp_v4_connect",
+      "source": {
+        "end": {
+          "column": 34,
+          "line": 22
+        },
+        "end_byte": 488,
+        "file": "examples/tcpconnect/tcp.hzn",
+        "start": {
+          "column": 5,
+          "line": 22
+        },
+        "start_byte": 459
+      }
+    },
+    {
+      "function": "OnTCPConnect",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 63
+        },
+        "start": {
+          "column": 1,
+          "line": 62
+        }
+      },
+      "node": "assign",
+      "section": "kprobe/tcp_v4_connect",
+      "source": {
+        "end": {
+          "column": 34,
+          "line": 23
+        },
+        "end_byte": 522,
+        "file": "examples/tcpconnect/tcp.hzn",
+        "start": {
+          "column": 5,
+          "line": 23
+        },
+        "start_byte": 493
+      }
+    },
+    {
+      "function": "OnTCPConnect",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 64
+        },
+        "start": {
+          "column": 1,
+          "line": 63
+        }
+      },
+      "node": "expr",
+      "section": "kprobe/tcp_v4_connect",
+      "source": {
+        "end": {
+          "column": 34,
+          "line": 24
+        },
+        "end_byte": 556,
+        "file": "examples/tcpconnect/tcp.hzn",
+        "start": {
+          "column": 5,
+          "line": 24
+        },
+        "start_byte": 527
+      }
+    },
+    {
+      "function": "OnTCPConnect",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 65
+        },
+        "start": {
+          "column": 1,
+          "line": 64
+        }
+      },
+      "node": "expr",
+      "section": "kprobe/tcp_v4_connect",
+      "source": {
+        "end": {
+          "column": 35,
+          "line": 25
+        },
+        "end_byte": 591,
+        "file": "examples/tcpconnect/tcp.hzn",
+        "start": {
+          "column": 5,
+          "line": 25
+        },
+        "start_byte": 561
+      }
+    },
+    {
+      "function": "OnTCPConnect",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 66
+        },
+        "start": {
+          "column": 1,
+          "line": 65
+        }
+      },
+      "node": "return",
+      "section": "kprobe/tcp_v4_connect",
+      "source": {
+        "end": {
+          "column": 13,
+          "line": 26
+        },
+        "end_byte": 604,
+        "file": "examples/tcpconnect/tcp.hzn",
+        "start": {
+          "column": 5,
+          "line": 26
+        },
+        "start_byte": 596
+      }
+    },
+    {
+      "function": "OnTCPConnect",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 67
+        },
+        "start": {
+          "column": 1,
+          "line": 53
+        }
+      },
+      "node": "function",
+      "section": "kprobe/tcp_v4_connect",
+      "source": {
+        "end": {
+          "column": 2,
+          "line": 27
+        },
+        "end_byte": 606,
+        "file": "examples/tcpconnect/tcp.hzn",
+        "start": {
+          "column": 1,
+          "line": 15
+        },
+        "start_byte": 269
+      }
+    }
+  ],
+  "schema": "m31labs.dev/horizon/sourcemap/v0",
+  "sources": [
+    {
+      "id": 0,
+      "path": "examples/tcpconnect/tcp.hzn"
+    }
+  ]
+}

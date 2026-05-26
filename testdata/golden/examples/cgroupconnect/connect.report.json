@@ -1,0 +1,38 @@
+{
+  "compile": false,
+  "diagnostic_count": 0,
+  "diagnostics": [],
+  "generator": "hzn workbench",
+  "package": "probes",
+  "schema": "m31labs.dev/horizon/report/v0",
+  "sources": [
+    {
+      "package": "probes",
+      "path": "examples/cgroupconnect/connect.hzn",
+      "sha256": "1dc7939a4ff19687b161d44469f37f17af88ffbc6dd4dcc4a11c228db564a5bc",
+      "size": 489
+    }
+  ],
+  "status": "generated",
+  "summary": {
+    "capability_count": 1,
+    "capability_dangers": [
+      "block"
+    ],
+    "features": [
+      "cgroup_v2"
+    ],
+    "map_count": 0,
+    "min_kernel": "4.17",
+    "permissions": [
+      "bpf_program_load",
+      "cgroup_admin"
+    ],
+    "program_count": 1,
+    "program_kinds": [
+      "cgroup"
+    ],
+    "source_count": 1,
+    "type_count": 0
+  }
+}

@@ -1,0 +1,128 @@
+{
+  "capabilities": [
+    {
+      "danger": "observe",
+      "kind": "source",
+      "maps": {
+        "events": [],
+        "read": [
+          "ExecCounts"
+        ],
+        "write": [
+          "ExecCounts"
+        ]
+      },
+      "name": "kernel.process.exec.count.observe",
+      "program": "OnExec",
+      "requirements": {
+        "features": [
+          "tracefs"
+        ],
+        "helpers": [
+          {
+            "min_kernel": "4.1",
+            "name": "bpf_get_current_pid_tgid"
+          },
+          {
+            "min_kernel": "3.19",
+            "name": "bpf_map_lookup_elem"
+          },
+          {
+            "min_kernel": "3.19",
+            "name": "bpf_map_update_elem"
+          }
+        ],
+        "maps": [
+          {
+            "min_kernel": "3.19",
+            "name": "hash"
+          }
+        ],
+        "min_kernel": "4.7",
+        "permissions": [
+          "bpf_program_load",
+          "perf_event_open"
+        ],
+        "programs": [
+          {
+            "min_kernel": "4.7",
+            "name": "tracepoint"
+          }
+        ]
+      },
+      "section": "tracepoint/sched:sched_process_exec"
+    }
+  ],
+  "maps": [
+    {
+      "key": "u32",
+      "kind": "hash",
+      "name": "ExecCounts",
+      "value": "Count"
+    }
+  ],
+  "package": "probes",
+  "programs": [
+    {
+      "attach": "sched:sched_process_exec",
+      "capabilities": [
+        "kernel.process.exec.count.observe"
+      ],
+      "kind": "tracepoint",
+      "name": "OnExec",
+      "section": "tracepoint/sched:sched_process_exec"
+    }
+  ],
+  "requirements": {
+    "features": [
+      "tracefs"
+    ],
+    "helpers": [
+      {
+        "min_kernel": "4.1",
+        "name": "bpf_get_current_pid_tgid"
+      },
+      {
+        "min_kernel": "3.19",
+        "name": "bpf_map_lookup_elem"
+      },
+      {
+        "min_kernel": "3.19",
+        "name": "bpf_map_update_elem"
+      }
+    ],
+    "maps": [
+      {
+        "min_kernel": "3.19",
+        "name": "hash"
+      }
+    ],
+    "min_kernel": "4.7",
+    "permissions": [
+      "bpf_program_load",
+      "perf_event_open"
+    ],
+    "programs": [
+      {
+        "min_kernel": "4.7",
+        "name": "tracepoint"
+      }
+    ]
+  },
+  "schema": "m31labs.dev/horizon/capability/v0",
+  "types": [
+    {
+      "align": 8,
+      "fields": [
+        {
+          "name": "seen",
+          "offset": 0,
+          "type": "u64"
+        }
+      ],
+      "kind": "struct",
+      "name": "Count",
+      "size": 8
+    }
+  ]
+}

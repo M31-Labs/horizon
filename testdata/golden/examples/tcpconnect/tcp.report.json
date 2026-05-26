@@ -1,0 +1,42 @@
+{
+  "compile": false,
+  "diagnostic_count": 0,
+  "diagnostics": [],
+  "generator": "hzn workbench",
+  "package": "probes",
+  "schema": "m31labs.dev/horizon/report/v0",
+  "sources": [
+    {
+      "package": "probes",
+      "path": "examples/tcpconnect/tcp.hzn",
+      "sha256": "c9122ad785a4b1cabe27e8f8c9b4741d173c97b680002c25c8552a89a8df424a",
+      "size": 607
+    }
+  ],
+  "status": "generated",
+  "summary": {
+    "capability_count": 1,
+    "capability_dangers": [
+      "observe"
+    ],
+    "features": [
+      "kprobes",
+      "tracefs"
+    ],
+    "map_count": 1,
+    "map_kinds": [
+      "ringbuf"
+    ],
+    "min_kernel": "5.8",
+    "permissions": [
+      "bpf_program_load",
+      "perf_event_open"
+    ],
+    "program_count": 1,
+    "program_kinds": [
+      "kprobe"
+    ],
+    "source_count": 1,
+    "type_count": 1
+  }
+}

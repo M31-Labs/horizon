@@ -1,0 +1,70 @@
+{
+  "generated": {
+    "language": "c"
+  },
+  "mappings": [
+    {
+      "function": "ObserveTaskKill",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 31
+        },
+        "start": {
+          "column": 1,
+          "line": 30
+        }
+      },
+      "node": "return",
+      "section": "lsm/task_kill",
+      "source": {
+        "end": {
+          "column": 21,
+          "line": 8
+        },
+        "end_byte": 194,
+        "file": "examples/killwatch/kill.hzn",
+        "start": {
+          "column": 5,
+          "line": 8
+        },
+        "start_byte": 178
+      }
+    },
+    {
+      "function": "ObserveTaskKill",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 32
+        },
+        "start": {
+          "column": 1,
+          "line": 26
+        }
+      },
+      "node": "function",
+      "section": "lsm/task_kill",
+      "source": {
+        "end": {
+          "column": 2,
+          "line": 9
+        },
+        "end_byte": 196,
+        "file": "examples/killwatch/kill.hzn",
+        "start": {
+          "column": 1,
+          "line": 5
+        },
+        "start_byte": 87
+      }
+    }
+  ],
+  "schema": "m31labs.dev/horizon/sourcemap/v0",
+  "sources": [
+    {
+      "id": 0,
+      "path": "examples/killwatch/kill.hzn"
+    }
+  ]
+}

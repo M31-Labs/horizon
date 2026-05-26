@@ -1,0 +1,42 @@
+{
+  "compile": false,
+  "diagnostic_count": 0,
+  "diagnostics": [],
+  "generator": "hzn workbench",
+  "package": "probes",
+  "schema": "m31labs.dev/horizon/report/v0",
+  "sources": [
+    {
+      "package": "probes",
+      "path": "examples/openwatch/open.hzn",
+      "sha256": "dcf73bbeb0d81660c3fe2385cfdc93c1c60d2b6dfc50cd2bcca5a9f2043a88e8",
+      "size": 699
+    }
+  ],
+  "status": "generated",
+  "summary": {
+    "capability_count": 1,
+    "capability_dangers": [
+      "observe"
+    ],
+    "features": [
+      "kprobes",
+      "tracefs"
+    ],
+    "map_count": 1,
+    "map_kinds": [
+      "ringbuf"
+    ],
+    "min_kernel": "5.8",
+    "permissions": [
+      "bpf_program_load",
+      "perf_event_open"
+    ],
+    "program_count": 1,
+    "program_kinds": [
+      "kprobe"
+    ],
+    "source_count": 1,
+    "type_count": 1
+  }
+}

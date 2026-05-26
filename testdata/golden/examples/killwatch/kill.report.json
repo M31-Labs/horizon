@@ -1,0 +1,38 @@
+{
+  "compile": false,
+  "diagnostic_count": 0,
+  "diagnostics": [],
+  "generator": "hzn workbench",
+  "package": "probes",
+  "schema": "m31labs.dev/horizon/report/v0",
+  "sources": [
+    {
+      "package": "probes",
+      "path": "examples/killwatch/kill.hzn",
+      "sha256": "6f6922f8086471882cf7c225fc8e379a76671a1303ecbf1804b721b366ec5805",
+      "size": 197
+    }
+  ],
+  "status": "generated",
+  "summary": {
+    "capability_count": 1,
+    "capability_dangers": [
+      "observe"
+    ],
+    "features": [
+      "bpf_lsm"
+    ],
+    "map_count": 0,
+    "min_kernel": "5.7",
+    "permissions": [
+      "bpf_program_load",
+      "lsm_admin"
+    ],
+    "program_count": 1,
+    "program_kinds": [
+      "lsm"
+    ],
+    "source_count": 1,
+    "type_count": 0
+  }
+}

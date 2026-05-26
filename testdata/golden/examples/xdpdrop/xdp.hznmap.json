@@ -1,0 +1,322 @@
+{
+  "generated": {
+    "language": "c"
+  },
+  "mappings": [
+    {
+      "function": "DropTCP",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 76
+        },
+        "start": {
+          "column": 1,
+          "line": 66
+        }
+      },
+      "node": "xdp_helper_wrapper",
+      "section": "xdp",
+      "source": {
+        "end": {
+          "column": 24,
+          "line": 16
+        },
+        "end_byte": 232,
+        "file": "examples/xdpdrop/xdp.hzn",
+        "start": {
+          "column": 12,
+          "line": 16
+        },
+        "start_byte": 220
+      }
+    },
+    {
+      "function": "DropTCP",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 92
+        },
+        "start": {
+          "column": 1,
+          "line": 76
+        }
+      },
+      "node": "xdp_helper_wrapper",
+      "section": "xdp",
+      "source": {
+        "end": {
+          "column": 24,
+          "line": 16
+        },
+        "end_byte": 232,
+        "file": "examples/xdpdrop/xdp.hzn",
+        "start": {
+          "column": 12,
+          "line": 16
+        },
+        "start_byte": 220
+      }
+    },
+    {
+      "function": "DropTCP",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 106
+        },
+        "start": {
+          "column": 1,
+          "line": 92
+        }
+      },
+      "node": "xdp_helper_wrapper",
+      "section": "xdp",
+      "source": {
+        "end": {
+          "column": 24,
+          "line": 16
+        },
+        "end_byte": 232,
+        "file": "examples/xdpdrop/xdp.hzn",
+        "start": {
+          "column": 12,
+          "line": 16
+        },
+        "start_byte": 220
+      }
+    },
+    {
+      "function": "DropTCP",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 117
+        },
+        "start": {
+          "column": 1,
+          "line": 106
+        }
+      },
+      "node": "xdp_helper_wrapper",
+      "section": "xdp",
+      "source": {
+        "end": {
+          "column": 24,
+          "line": 16
+        },
+        "end_byte": 232,
+        "file": "examples/xdpdrop/xdp.hzn",
+        "start": {
+          "column": 12,
+          "line": 16
+        },
+        "start_byte": 220
+      }
+    },
+    {
+      "function": "DropTCP",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 122
+        },
+        "start": {
+          "column": 1,
+          "line": 121
+        }
+      },
+      "node": "short_var",
+      "section": "xdp",
+      "source": {
+        "end": {
+          "column": 24,
+          "line": 16
+        },
+        "end_byte": 232,
+        "file": "examples/xdpdrop/xdp.hzn",
+        "start": {
+          "column": 5,
+          "line": 16
+        },
+        "start_byte": 213
+      }
+    },
+    {
+      "function": "DropTCP",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 124
+        },
+        "start": {
+          "column": 1,
+          "line": 123
+        }
+      },
+      "node": "return",
+      "section": "xdp",
+      "source": {
+        "end": {
+          "column": 24,
+          "line": 18
+        },
+        "end_byte": 276,
+        "file": "examples/xdpdrop/xdp.hzn",
+        "start": {
+          "column": 9,
+          "line": 18
+        },
+        "start_byte": 261
+      }
+    },
+    {
+      "function": "DropTCP",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 125
+        },
+        "start": {
+          "column": 1,
+          "line": 122
+        }
+      },
+      "node": "if",
+      "section": "xdp",
+      "source": {
+        "end": {
+          "column": 6,
+          "line": 19
+        },
+        "end_byte": 282,
+        "file": "examples/xdpdrop/xdp.hzn",
+        "start": {
+          "column": 5,
+          "line": 17
+        },
+        "start_byte": 237
+      }
+    },
+    {
+      "function": "DropTCP",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 129
+        },
+        "start": {
+          "column": 1,
+          "line": 128
+        }
+      },
+      "node": "return",
+      "section": "xdp",
+      "source": {
+        "end": {
+          "column": 28,
+          "line": 22
+        },
+        "end_byte": 367,
+        "file": "examples/xdpdrop/xdp.hzn",
+        "start": {
+          "column": 13,
+          "line": 22
+        },
+        "start_byte": 352
+      }
+    },
+    {
+      "function": "DropTCP",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 133
+        },
+        "start": {
+          "column": 1,
+          "line": 132
+        }
+      },
+      "node": "return",
+      "section": "xdp",
+      "source": {
+        "end": {
+          "column": 28,
+          "line": 24
+        },
+        "end_byte": 412,
+        "file": "examples/xdpdrop/xdp.hzn",
+        "start": {
+          "column": 13,
+          "line": 24
+        },
+        "start_byte": 397
+      }
+    },
+    {
+      "function": "DropTCP",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 136
+        },
+        "start": {
+          "column": 1,
+          "line": 125
+        }
+      },
+      "node": "switch",
+      "section": "xdp",
+      "source": {
+        "end": {
+          "column": 6,
+          "line": 25
+        },
+        "end_byte": 418,
+        "file": "examples/xdpdrop/xdp.hzn",
+        "start": {
+          "column": 5,
+          "line": 20
+        },
+        "start_byte": 287
+      }
+    },
+    {
+      "function": "DropTCP",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 137
+        },
+        "start": {
+          "column": 1,
+          "line": 117
+        }
+      },
+      "node": "function",
+      "section": "xdp",
+      "source": {
+        "end": {
+          "column": 2,
+          "line": 26
+        },
+        "end_byte": 420,
+        "file": "examples/xdpdrop/xdp.hzn",
+        "start": {
+          "column": 1,
+          "line": 13
+        },
+        "start_byte": 140
+      }
+    }
+  ],
+  "schema": "m31labs.dev/horizon/sourcemap/v0",
+  "sources": [
+    {
+      "id": 0,
+      "path": "examples/xdpdrop/xdp.hzn"
+    }
+  ]
+}
