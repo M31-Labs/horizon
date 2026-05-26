@@ -18,6 +18,7 @@ var examples = []string{
 	"killwatch", "lsmfile", "openwatch", "tcpconnect", "tcpass", "xdpdrop",
 	"uprobeexec", "uretprobeexec",
 	"fentryopen", "fexitopen",
+	"rawtpenter",
 }
 
 // Fields stripped before comparison because they vary per-run.

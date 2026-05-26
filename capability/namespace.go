@@ -53,6 +53,11 @@ func ExpectedKernelCapabilityPrefix(kind string, attach string, section string) 
 		case "do_execve", "do_execveat":
 			return "kernel.process.exec."
 		}
+	case "raw_tp":
+		switch attach {
+		case "sched_process_exec":
+			return "kernel.process.exec."
+		}
 	}
 	return ""
 }

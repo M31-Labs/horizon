@@ -410,6 +410,7 @@ func builtinTypes() map[string]bool {
 		"uretprobe.Context": true,
 		"fentry.Context":    true,
 		"fexit.Context":     true,
+		"raw_tp.Context":    true,
 	}
 }
 
@@ -956,7 +957,7 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 			Severity: diag.SeverityError,
 			Message:  fmt.Sprintf("function %q has multiple eBPF program sections", decl.Name),
 			Primary:  decl.Span,
-			Suggest:  `use exactly one section attribute such as @tracepoint(...), @xdp, @tc("ingress"), @cgroup("connect4"), @lsm("file_open"), @kprobe(...), @kretprobe(...), @uprobe("path:sym"), @uretprobe("path:sym"), @fentry("symbol"), or @fexit("symbol")`,
+			Suggest:  `use exactly one section attribute such as @tracepoint(...), @xdp, @tc("ingress"), @cgroup("connect4"), @lsm("file_open"), @kprobe(...), @kretprobe(...), @uprobe("path:sym"), @uretprobe("path:sym"), @fentry("symbol"), @fexit("symbol"), or @raw_tp("event")`,
 		})
 	}
 	for _, attr := range decl.Attrs {
@@ -1177,6 +1178,27 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 					Message:  fmt.Sprintf("@fexit symbol %q is not a valid kernel symbol", symbol),
 					Primary:  attr.Span,
 					Suggest:  `use a non-empty kernel symbol such as @fexit("do_filp_open")`,
+				})
+			}
+		case "raw_tp":
+			if !attrHasStringArg(attr) {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1335",
+					Severity: diag.SeverityError,
+					Message:  `@raw_tp requires one tracepoint event string argument`,
+					Primary:  attr.Span,
+					Suggest:  `use a raw tracepoint event such as @raw_tp("sched_process_exec")`,
+				})
+				break
+			}
+			event := attrStringArg(attr)
+			if !validAttachToken(event) {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1335",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("@raw_tp event %q is not a valid tracepoint event name", event),
+					Primary:  attr.Span,
+					Suggest:  `use a non-empty event name such as @raw_tp("sched_process_exec")`,
 				})
 			}
 		case "capability":
@@ -1667,6 +1689,8 @@ func sectionAttrs(attrs []ast.Attr) []sectionSpec {
 			out = append(out, sectionSpec{Attr: attr, Context: "fentry.Context"})
 		case "fexit":
 			out = append(out, sectionSpec{Attr: attr, Context: "fexit.Context"})
+		case "raw_tp":
+			out = append(out, sectionSpec{Attr: attr, Context: "raw_tp.Context"})
 		}
 	}
 	return out

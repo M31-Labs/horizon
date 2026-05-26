@@ -1455,6 +1455,10 @@ func cContext(fn ir.Function) string {
 		// fentry/fexit receive the arguments of the traced kernel function via
 		// BTF-described context; use pt_regs pointer as a portable opaque handle.
 		return "struct pt_regs *" + name
+	case ir.ProgramRawTP:
+		// raw_tp programs receive a bpf_raw_tracepoint_args pointer which carries
+		// the raw tracepoint arguments as an opaque u64 array.
+		return "struct bpf_raw_tracepoint_args *" + name
 	default:
 		return "void *" + name
 	}

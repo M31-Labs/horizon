@@ -106,6 +106,13 @@
       "attach_strings": ["do_filp_open"],
       "allowed_danger_leaves": ["observe"],
       "introduced": "v0.2.0"
+    },
+    {
+      "namespace": "kernel.process.exec",
+      "attach_surface": "raw_tp",
+      "attach_strings": ["sched_process_exec"],
+      "allowed_danger_leaves": ["observe"],
+      "introduced": "v0.2.0"
     }
   ]
 }

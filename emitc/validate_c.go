@@ -209,6 +209,10 @@ func validateCSectionName(section string, lineNo int) error {
 	// at load time via link.AttachTracing(TracingOptions{..., AttachType: ...}).
 	case "fentry", "fexit":
 		return nil
+	// raw_tp uses a bare section name; the event name is specified at load time
+	// via link.AttachRawTracepoint(RawTracepointOptions{Name: event, ...}).
+	case "raw_tp":
+		return nil
 	}
 	switch {
 	case strings.HasPrefix(section, "tracepoint/"):

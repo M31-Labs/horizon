@@ -510,6 +510,16 @@ func sectionFromAttrs(attrs []ast.Attr) Section {
 				Attach: attach,
 				Name:   "fexit",
 			}
+		case "raw_tp":
+			// SEC("raw_tp") is used rather than SEC("raw_tp/event") because the
+			// event name is specified at load time via
+			// link.AttachRawTracepoint(RawTracepointOptions{Name: event, Program: prog}).
+			attach := stringArg(attr)
+			return Section{
+				Kind:   ProgramRawTP,
+				Attach: attach,
+				Name:   "raw_tp",
+			}
 		}
 	}
 	return Section{}
