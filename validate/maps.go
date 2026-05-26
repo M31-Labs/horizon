@@ -15,7 +15,17 @@ import (
 // validateTypedMapLookups) re-walks per-function but uses sites.MapLookup as the
 // index to avoid iterating all program functions — only functions with at least
 // one map lookup site are analyzed.
-func AnalyzeMaps(program ir.Program, sites Sites) []diag.Diagnostic {
+//
+// effects is the program-level user-helper effect summary built once by
+// validate.Program (Phase 2 #13). When a tracked lookup result is passed to a
+// user helper, applyHelperEffectLookup consults this summary to decide whether
+// to widen the caller's state to `escaped`. For maps the load-bearing case is
+// Preserves: a helper that does not consume the lookup pointer should NOT
+// suppress the caller's deref check. Consumes/Mixed at the caller side are
+// indistinguishable from Preserves for the lookup state machine — the caller
+// still has to nil-check before its own deref because lookup pointers are
+// not "owned" the way ringbuf reservations are.
+func AnalyzeMaps(program ir.Program, sites Sites, effects HelperEffects) []diag.Diagnostic {
 	var diags []diag.Diagnostic
 	for _, m := range program.Maps {
 		switch m.Kind {
@@ -61,7 +71,7 @@ func AnalyzeMaps(program ir.Program, sites Sites) []diag.Diagnostic {
 				continue
 			}
 			seen[site.Function] = true
-			diags = append(diags, validateTypedMapLookups(*site.Function, lookupMaps)...)
+			diags = append(diags, validateTypedMapLookups(*site.Function, lookupMaps, effects)...)
 		}
 	}
 	return diags
@@ -97,7 +107,7 @@ type lookupState struct {
 	State  string
 }
 
-func validateTypedMapLookups(fn ir.Function, lookupMaps map[string]ir.Map) []diag.Diagnostic {
+func validateTypedMapLookups(fn ir.Function, lookupMaps map[string]ir.Map, effects HelperEffects) []diag.Diagnostic {
 	states := map[string]lookupState{}
 	aliases := newAliasGraph()
 	reported := map[string]bool{}
@@ -177,8 +187,15 @@ func validateTypedMapLookups(fn ir.Function, lookupMaps map[string]ir.Map) []dia
 				checkExpr(stmt.Value)
 			case "expr":
 				checkExpr(stmt.Expr)
-				// Detect call-argument escapes for map lookup results.
-				checkArgEscapesLookup(stmt.Expr, states, aliases)
+				// Apply the user-helper effect summary to the call's args.
+				// For maps, Preserves is the load-bearing case — it stops
+				// the Phase 1 over-suppression that turned `maybe_nil` →
+				// `escaped` on any call, silencing the caller's downstream
+				// deref check. Consumes / Mixed at the caller side do not
+				// change state for lookups (the caller still needs its own
+				// nil-check before its own deref). Escapes / Unknown fall
+				// back to Phase 1 behavior.
+				applyHelperEffectLookup(stmt.Expr, states, aliases, effects)
 			case "return":
 				checkExpr(stmt.Value)
 			case "if":
@@ -342,33 +359,87 @@ func validateTypedMapLookups(fn ir.Function, lookupMaps map[string]ir.Map) []dia
 	return diags
 }
 
-// checkArgEscapesLookup marks map lookup results as "escaped" when passed as
-// call arguments. Escaped lookup results suppress HZN2500 (we cannot prove
-// their nil status after the call). Cross-function tracking deferred to Phase 2 #13.
+// applyHelperEffectLookup transitions caller-side map-lookup state at every
+// call site, consulting the program-level HelperEffects summary.
 //
-// See validate/ringbuf.go::checkArgEscapesRingbuf for the rationale on the
-// "any non-live state escapes" rule (asymmetric vs ringbuf's "only live escapes").
-func checkArgEscapesLookup(expr *ir.Expr, states map[string]lookupState, aliases *aliasGraph) {
+// For maps, the Phase 1 rule was: any non-live lookup state passed to ANY
+// call widens to "escaped" — including `maybe_nil`, which over-suppressed
+// the caller's downstream deref check (HZN2500). This is the load-bearing
+// regression Task 5 fixes.
+//
+// Per-call-site behavior:
+//
+//  1. User-helper call (bare-ident callee): per arg, consult
+//     effects.EffectFor(name, i):
+//     - Preserves → state unchanged (the load-bearing case — stops over-
+//       suppression so the caller's deref check still fires).
+//     - Consumes  → state unchanged. Lookup pointers are not "owned" the
+//       way ringbuf reservations are; the helper's internal deref does not
+//       absolve the caller of its own nil-check. Indistinguishable from
+//       Preserves at the caller side today; the distinction is kept on
+//       the summary side because v0.3 may use it differently.
+//     - Mixed     → state unchanged. Same reasoning as Consumes.
+//     - Escapes / Unknown → Phase 1 fallback: any non-live state widens
+//       to "escaped".
+//
+//  2. Any other call (compiler-known map method like Counts.lookup, or a
+//     selector form that isn't a known helper): fall back to Phase 1
+//     escape — any non-live state widens to "escaped". This preserves the
+//     conservative behavior for call sites we cannot precisely classify.
+//
+// The function recurses into Args so nested calls (f(g(count))) are
+// processed in lexical order — g's effect on count applies before f's.
+//
+// NOTE: maps preserves the Phase 1 asymmetry vs ringbuf — escape applies to
+// ANY non-live state (including `maybe_nil`), not just `live`. The fallback
+// gate is `state.State != "live" && state.State != "escaped"`, matching
+// pre-Task-5 behavior for unanalyzable calls.
+func applyHelperEffectLookup(expr *ir.Expr, states map[string]lookupState, aliases *aliasGraph, effects HelperEffects) {
 	if expr == nil {
 		return
 	}
 	if expr.Kind == "call" {
+		helperName := userHelperName(expr.Func)
 		for i := range expr.Args {
 			arg := &expr.Args[i]
-			if arg.Kind == "ident" {
-				root := aliases.root(arg.Name)
-				if state, ok := states[root]; ok && state.State != "live" && state.State != "escaped" {
-					state.State = "escaped"
-					states[root] = state
-				}
+			// Recurse into the arg FIRST so nested calls classify their
+			// effect on the arg before the outer call.
+			applyHelperEffectLookup(arg, states, aliases, effects)
+			if arg.Kind != "ident" {
+				continue
 			}
-			checkArgEscapesLookup(arg, states, aliases)
+			root := aliases.root(arg.Name)
+			state, ok := states[root]
+			if !ok {
+				continue
+			}
+			if helperName != "" {
+				switch effects.EffectFor(helperName, i) {
+				case HelperEffectPreserves, HelperEffectConsumes, HelperEffectMixed:
+					// State unchanged — for maps, the caller still owes a
+					// nil-check before its own deref regardless of what
+					// the helper did internally.
+				default:
+					// HelperEffectEscapes or HelperEffectUnknown: fall
+					// back to Phase 1 "any non-live → escaped".
+					if state.State != "live" && state.State != "escaped" {
+						state.State = "escaped"
+						states[root] = state
+					}
+				}
+				continue
+			}
+			// Non-user-helper call site (selector form): Phase 1 fallback.
+			if state.State != "live" && state.State != "escaped" {
+				state.State = "escaped"
+				states[root] = state
+			}
 		}
 	}
-	checkArgEscapesLookup(expr.Operand, states, aliases)
-	checkArgEscapesLookup(expr.Left, states, aliases)
-	checkArgEscapesLookup(expr.Right, states, aliases)
-	checkArgEscapesLookup(expr.Func, states, aliases)
+	applyHelperEffectLookup(expr.Operand, states, aliases, effects)
+	applyHelperEffectLookup(expr.Left, states, aliases, effects)
+	applyHelperEffectLookup(expr.Right, states, aliases, effects)
+	applyHelperEffectLookup(expr.Func, states, aliases, effects)
 }
 
 func nilGuardSuggestion(fn ir.Function, varName string) string {

@@ -16,7 +16,7 @@ func Program(program ir.Program) []diag.Diagnostic {
 	diags = append(diags, AnalyzeLoops(program, sites)...)
 	diags = append(diags, AnalyzeStack(program, sites)...)
 	diags = append(diags, AnalyzeRingbuf(program, sites, effects)...)
-	diags = append(diags, AnalyzeMaps(program, sites)...)
+	diags = append(diags, AnalyzeMaps(program, sites, effects)...)
 	diags = append(diags, AnalyzeHelpers(program, sites)...)
 	diags = append(diags, AnalyzePacket(program, sites)...)
 	diags = append(diags, ValidateCapabilities(program)...)

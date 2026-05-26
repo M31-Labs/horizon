@@ -1,8 +1,9 @@
 // Cross-call propagation tests for the helper-effects substrate.
 //
-// These tests exercise Phase 2 #13 (maple) Task 4 — when an entrypoint
-// reserves a ringbuf reservation and then hands it to a user helper, the
-// caller's reservation state machine reflects the helper's effect:
+// These tests exercise Phase 2 #13 (maple) Tasks 4–6 — when an entrypoint
+// produces a tracked resource (ringbuf reservation, map lookup, packet
+// header) and then hands it to a user helper, the caller's state machine
+// reflects the helper's effect:
 //
 //   - Consumes  → live → consumed (later submit fires HZN2102)
 //   - Preserves → live → live     (later return fires HZN2104)
@@ -161,3 +162,129 @@ func TestRingbufLiveBecomesMaybeConsumedAfterMixedHelper(t *testing.T) {
 		t.Fatalf("HZN2104 count = %d, want 1 (helper Mixed effect should transition state to maybe_consumed)", got)
 	}
 }
+
+// ── Task 5: maps caller propagation ───────────────────────────────────────────
+
+// lookupExpr builds: Counts.lookup(pid)
+func lookupExpr(mapName, keyName string) *ir.Expr {
+	return &ir.Expr{
+		Kind: "call",
+		Func: &ir.Expr{
+			Kind:    "selector",
+			Operand: &ir.Expr{Kind: "ident", Name: mapName},
+			Field:   "lookup",
+		},
+		Args: []ir.Expr{{Kind: "ident", Name: keyName}},
+	}
+}
+
+// lookupProgWithHelper builds an ir.Program with a hash map "Counts" of type
+// Counter, a tracepoint entrypoint "Bad" whose body is entryStmts, and one or
+// more user helpers. Helpers are placed BEFORE the entrypoint so the
+// topological-sort order is deterministic.
+func lookupProgWithHelper(entryStmts []ir.Statement, helpers ...ir.Function) ir.Program {
+	fns := make([]ir.Function, 0, len(helpers)+1)
+	fns = append(fns, helpers...)
+	fns = append(fns, ir.Function{
+		Name:    "Bad",
+		Section: ir.Section{Kind: ir.ProgramTracepoint, Attach: "sched:sched_process_exec"},
+		Body:    []ir.Block{{Statements: entryStmts}},
+	})
+	return ir.Program{
+		Maps: []ir.Map{{
+			Name: "Counts",
+			Kind: ir.MapKindHash,
+			Key:  ir.Type{Name: "u32"},
+			Val:  ir.Type{Name: "Counter"},
+		}},
+		Functions: fns,
+	}
+}
+
+// TestMapLookupDerefFiresAfterPreserveHelper verifies that when the helper
+// merely inspects the lookup pointer without dereferencing it, the caller's
+// `maybe_nil` state is NOT widened to `escaped` — so a trailing unguarded
+// deref still fires HZN2500. This is the load-bearing case for maps: the
+// Phase 1 fallback eagerly widens `maybe_nil` → `escaped` on any call,
+// over-suppressing the deref check after the helper returns.
+//
+// Before Task 5: checkArgEscapesLookup marks the lookup result "escaped",
+// silencing HZN2500.
+// After Task 5: applyHelperEffectLookup sees inspect's Preserves summary
+// and leaves the state untouched, so the trailing `count.seen = 1` fires
+// HZN2500.
+func TestMapLookupDerefFiresAfterPreserveHelper(t *testing.T) {
+	// helper: func inspect(cnt *Counter) bool { return true }  (never references cnt)
+	inspect := helperFn("inspect",
+		[]ir.Param{resourceParam("cnt", "Counter")},
+		[]ir.Statement{
+			{Kind: "return", Value: &ir.Expr{Kind: "bool", Value: "true"}},
+		},
+	)
+	// entry:
+	//   count := Counts.lookup(pid)
+	//   inspect(count)
+	//   count.seen = 1   // HZN2500 — never nil-checked
+	//   return 0
+	countSeen := &ir.Expr{
+		Kind:    "selector",
+		Operand: identExpr("count"),
+		Field:   "seen",
+	}
+	entry := []ir.Statement{
+		{Kind: "short_var", Name: "count", Value: lookupExpr("Counts", "pid")},
+		{Kind: "expr", Expr: userCallExpr("inspect", ir.Expr{Kind: "ident", Name: "count"})},
+		{Kind: "assign", Target: countSeen, Value: &ir.Expr{Kind: "int", Value: "1"}},
+		returnZero(),
+	}
+	prog := lookupProgWithHelper(entry, inspect)
+	diags := validate.Program(prog)
+	if got := countDiag(diags, "HZN2500"); got != 1 {
+		t.Fatalf("HZN2500 count = %d, want 1 (Preserves should stop over-suppression of unguarded deref)", got)
+	}
+}
+
+// TestMapLookupConsumeHelperDocumentsConsumption documents the expected
+// current behavior when a helper "consumes" (dereferences) a lookup pointer.
+// For maps, the caller's lookup-state machine is concerned only with whether
+// the caller has proven the pointer non-nil before dereferencing; whether the
+// helper itself dereferenced is irrelevant to the caller's diagnostic
+// obligations. After the helper returns, the caller still does not know
+// liveness, so an unguarded deref by the caller should still fire HZN2500.
+//
+// This test pins that Consumes does NOT change the caller's behavior —
+// matching the plan's lattice for maps (Consumes is equivalent to Preserves
+// at the caller side, because lookup pointers aren't "owned").
+func TestMapLookupConsumeHelperDocumentsConsumption(t *testing.T) {
+	// helper: func touch(cnt *Counter) bool { _ = cnt.seen; return true }
+	// Helper dereferences cnt → summarized as Consumes.
+	touch := helperFn("touch",
+		[]ir.Param{resourceParam("cnt", "Counter")},
+		[]ir.Statement{
+			{Kind: "expr", Expr: selectorExpr("cnt", "seen")},
+			{Kind: "return", Value: &ir.Expr{Kind: "bool", Value: "true"}},
+		},
+	)
+	// entry:
+	//   count := Counts.lookup(pid)
+	//   touch(count)
+	//   count.seen = 1   // HZN2500 — caller never nil-checked
+	//   return 0
+	countSeen := &ir.Expr{
+		Kind:    "selector",
+		Operand: identExpr("count"),
+		Field:   "seen",
+	}
+	entry := []ir.Statement{
+		{Kind: "short_var", Name: "count", Value: lookupExpr("Counts", "pid")},
+		{Kind: "expr", Expr: userCallExpr("touch", ir.Expr{Kind: "ident", Name: "count"})},
+		{Kind: "assign", Target: countSeen, Value: &ir.Expr{Kind: "int", Value: "1"}},
+		returnZero(),
+	}
+	prog := lookupProgWithHelper(entry, touch)
+	diags := validate.Program(prog)
+	if got := countDiag(diags, "HZN2500"); got != 1 {
+		t.Fatalf("HZN2500 count = %d, want 1 (Consumes should not suppress caller deref check)", got)
+	}
+}
+
