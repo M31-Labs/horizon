@@ -1,0 +1,47 @@
+// Cross-package fuzz seed (Phase 2 spruce, roadmap #20 / #21).
+//
+// Exercises the parser surfaces introduced by package composition:
+//
+//   - Multiple `import <alias> "<path>"` declarations in one file.
+//   - Built-in (`bpf`) and user-package (`events`) aliases side by side.
+//   - Qualified selector type in a map element type
+//     (`ringbuf[events.ExecEvent]`).
+//   - Qualified `@capability(<alias>.<Name>)` attribute reference.
+//   - Qualified call expressions through both a built-in alias
+//     (`bpf.ktime_get_ns()`) and a user-package alias method
+//     (`events.Normalize(...)`).
+//   - Vendored URL-shaped import path strings (the parser only sees
+//     them as string literals; resolution happens in compiler/imports.go).
+//
+// The seed must remain parser-valid: the fuzzer mutates from here to
+// surface panics on adjacent inputs. Semantic correctness (type
+// checking, IR lowering, etc.) is intentionally NOT part of the parser
+// fuzz contract — see parser/fuzz_test.go for the panic-only invariant.
+
+package main
+
+import bpf "m31labs.dev/horizon/runtime/kernel"
+import events "m31labs.dev/horizon-test/events"
+import util "./internal/util"
+
+const MaxBuf u32 = 4096
+
+map Events ringbuf[events.ExecEvent]
+
+capability ExecObserve danger observe = "kernel.process.exec.observe"
+
+@capability(events.ExecObserve)
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    event := Events.reserve()
+    if event == nil {
+        return 0
+    }
+    event.ts_ns = bpf.ktime_get_ns()
+    event.pid = bpf.current_pid()
+    event.uid = bpf.current_uid()
+    bpf.current_comm(&event.comm)
+    util.Normalize(event)
+    Events.submit(event)
+    return 0
+}
