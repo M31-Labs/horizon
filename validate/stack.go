@@ -54,40 +54,6 @@ func AnalyzeStack(program ir.Program, sites Sites) []diag.Diagnostic {
 	return diags
 }
 
-func ValidateStack(program ir.Program) []diag.Diagnostic {
-	structs := map[string]ir.Struct{}
-	for _, decl := range program.Structs {
-		structs[decl.Name] = decl
-	}
-	maps := map[string]ir.Map{}
-	for _, m := range program.Maps {
-		maps[m.Name] = m
-	}
-
-	var diags []diag.Diagnostic
-	for _, fn := range program.Functions {
-		if !hasTypedStatements(fn) {
-			continue
-		}
-		usage := estimateStack(fn, structs, maps)
-		if usage.total() <= maxBPFStackBytes {
-			continue
-		}
-		primary := usage.Primary
-		if primary.IsZero() {
-			primary = fn.Span
-		}
-		diags = append(diags, diag.Diagnostic{
-			Code:     "HZN2700",
-			Severity: diag.SeverityError,
-			Message:  fmt.Sprintf("function %q may use %d bytes of eBPF stack; the verifier limit is %d bytes", fn.Name, usage.total(), maxBPFStackBytes),
-			Primary:  primary,
-			Suggest:  "move large records into maps or ringbuf reservations instead of local structs or arrays",
-		})
-	}
-	return diags
-}
-
 type stackUsage struct {
 	LocalBytes int
 	MaxTemp    int

@@ -36,17 +36,6 @@ type packetHeaderState struct {
 	State  string
 }
 
-func ValidatePacket(program ir.Program) []diag.Diagnostic {
-	var diags []diag.Diagnostic
-	for _, fn := range program.Functions {
-		if fn.Section.Kind != ir.ProgramXDP || !hasTypedStatements(fn) {
-			continue
-		}
-		diags = append(diags, validateXDPPacketHeaders(fn)...)
-	}
-	return diags
-}
-
 func validateXDPPacketHeaders(fn ir.Function) []diag.Diagnostic {
 	states := map[string]packetHeaderState{}
 	reported := map[string]bool{}

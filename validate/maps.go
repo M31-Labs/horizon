@@ -67,39 +67,6 @@ func AnalyzeMaps(program ir.Program, sites Sites) []diag.Diagnostic {
 	return diags
 }
 
-func ValidateMaps(program ir.Program) []diag.Diagnostic {
-	var diags []diag.Diagnostic
-	for _, m := range program.Maps {
-		switch m.Kind {
-		case ir.MapKindRingbuf:
-			if m.Val.Name == "" {
-				diags = append(diags, diag.Diagnostic{
-					Code:     "HZN2400",
-					Severity: diag.SeverityError,
-					Message:  fmt.Sprintf("ringbuf map %q is missing a value type", m.Name),
-				})
-			}
-		case ir.MapKindHash, ir.MapKindArray, ir.MapKindPerCPUHash, ir.MapKindPerCPUArray, ir.MapKindLRUHash, ir.MapKindLRUPerCPU:
-			if m.Key.Name == "" || m.Val.Name == "" {
-				diags = append(diags, diag.Diagnostic{
-					Code:     "HZN2401",
-					Severity: diag.SeverityError,
-					Message:  fmt.Sprintf("%s map %q requires key and value types", m.Kind, m.Name),
-				})
-			}
-		default:
-			diags = append(diags, diag.Diagnostic{
-				Code:     "HZN2402",
-				Severity: diag.SeverityError,
-				Message:  fmt.Sprintf("unsupported map kind %q", m.Kind),
-			})
-		}
-		diags = append(diags, validateMapMaxEntries(m)...)
-	}
-	diags = append(diags, validateMapLookups(program)...)
-	return diags
-}
-
 func validateMapMaxEntries(m ir.Map) []diag.Diagnostic {
 	if m.MaxEntries == "" {
 		return nil
@@ -128,26 +95,6 @@ type lookupState struct {
 	Source string
 	Label  string
 	State  string
-}
-
-func validateMapLookups(program ir.Program) []diag.Diagnostic {
-	lookupMaps := map[string]ir.Map{}
-	for _, m := range program.Maps {
-		if m.Kind.IsLookup() {
-			lookupMaps[m.Name] = m
-		}
-	}
-	if len(lookupMaps) == 0 {
-		return nil
-	}
-	var diags []diag.Diagnostic
-	for _, fn := range program.Functions {
-		if !hasTypedStatements(fn) {
-			continue
-		}
-		diags = append(diags, validateTypedMapLookups(fn, lookupMaps)...)
-	}
-	return diags
 }
 
 func validateTypedMapLookups(fn ir.Function, lookupMaps map[string]ir.Map) []diag.Diagnostic {
