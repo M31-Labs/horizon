@@ -21,6 +21,7 @@ var examples = []string{
 	"rawtpenter",
 	"sockopstrack",
 	"structopstcp",
+	"multifile-execcount",
 }
 
 // Fields stripped before comparison because they vary per-run.

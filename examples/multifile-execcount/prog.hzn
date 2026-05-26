@@ -1,0 +1,21 @@
+package execcount
+
+import bpf "m31labs.dev/horizon/runtime/kernel"
+
+map Events ringbuf[ExecEvent]
+
+capability ExecObserve danger observe = "kernel.process.exec.observe"
+
+@capability(ExecObserve)
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    event := Events.reserve()
+    if event == nil {
+        return 0
+    }
+    event.ts_ns = bpf.ktime_get_ns()
+    event.pid = bpf.current_pid()
+    bpf.current_comm(&event.comm)
+    Events.submit(event)
+    return 0
+}

@@ -1,0 +1,7 @@
+package execcount
+
+type ExecEvent struct {
+    ts_ns u64
+    pid u32
+    comm [16]u8
+}
