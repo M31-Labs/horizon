@@ -891,3 +891,120 @@ func TestValidateRejectsMissingTypeSchema(t *testing.T) {
 		t.Fatal("Validate succeeded, want missing type schema error")
 	}
 }
+
+// helperEffectsManifest returns a minimal-but-valid manifest with one
+// capability whose HelperEffects slice is supplied by the caller. Used
+// to drive the per-field rejection table below without each subtest
+// re-spelling the boilerplate programs / capabilities / sections.
+func helperEffectsManifest(effects []HelperEffect) Manifest {
+	return Manifest{
+		Schema:  SchemaV1,
+		Package: "probes",
+		Programs: []Program{{
+			Name:         "OnExec",
+			Kind:         "tracepoint",
+			Attach:       "sched:sched_process_exec",
+			Section:      "tracepoint/sched:sched_process_exec",
+			Capabilities: []string{"kernel.process.exec.observe"},
+		}},
+		Capabilities: []Capability{{
+			Name:          "kernel.process.exec.observe",
+			Kind:          "source",
+			Danger:        DangerAxes{Mode: "observe", Scope: "event", Reversibility: "none"},
+			Program:       "OnExec",
+			Section:       "tracepoint/sched:sched_process_exec",
+			HelperEffects: effects,
+		}},
+	}
+}
+
+// TestValidateRejectsHelperEffectsWithEmptyName asserts an entry whose
+// Name is empty fails validation. Names are the registry key — an empty
+// name is structurally meaningless and would defeat dedup on the
+// downstream consumer side.
+func TestValidateRejectsHelperEffectsWithEmptyName(t *testing.T) {
+	m := helperEffectsManifest([]HelperEffect{
+		{Name: "", Observes: []string{"task.tgid"}},
+	})
+	if err := Validate(m); err == nil {
+		t.Fatal("Validate succeeded, want empty helper-effect name error")
+	}
+}
+
+// TestValidateRejectsHelperEffectsWithDuplicateName asserts the same
+// helper Name appearing twice fails validation. The Phase 2 emit
+// pipeline dedupes by Name (see ComputeHelperEffectsForFunction); a
+// duplicate in a hand-authored manifest is a structural error.
+func TestValidateRejectsHelperEffectsWithDuplicateName(t *testing.T) {
+	m := helperEffectsManifest([]HelperEffect{
+		{Name: "bpf.current_pid", Observes: []string{"task.tgid"}},
+		{Name: "bpf.current_pid", Observes: []string{"task.tgid"}},
+	})
+	if err := Validate(m); err == nil {
+		t.Fatal("Validate succeeded, want duplicate helper-effect name error")
+	}
+}
+
+// TestValidateRejectsHelperEffectsWithUnknownResourceVerb asserts a
+// Resource value outside the closed set
+// {lookup, update, delete, reserve, submit, discard, ""} fails.
+func TestValidateRejectsHelperEffectsWithUnknownResourceVerb(t *testing.T) {
+	m := helperEffectsManifest([]HelperEffect{
+		{Name: "ringbuf.reserve", Mutates: []string{"ringbuf:OpenEvents"}, Resource: "bogus_verb"},
+	})
+	if err := Validate(m); err == nil {
+		t.Fatal("Validate succeeded, want unknown resource verb error")
+	}
+}
+
+// TestValidateRejectsHelperEffectsWithBogusObserveToken asserts an
+// observes / mutates token outside the closed vocabulary fails. The
+// vocabulary is the same closed set documented in
+// internal/registry/helpers.go (task.* / kernel.time.* / userspace.*)
+// plus resolved map: / ringbuf: tokens.
+func TestValidateRejectsHelperEffectsWithBogusObserveToken(t *testing.T) {
+	m := helperEffectsManifest([]HelperEffect{
+		{Name: "bpf.current_pid", Observes: []string{"task.bogus_field"}},
+	})
+	if err := Validate(m); err == nil {
+		t.Fatal("Validate succeeded, want bogus observe token error")
+	}
+}
+
+// TestValidateAcceptsHelperEffectsWithMapPlaceholderResolved asserts a
+// well-formed entry whose map: / ringbuf: tokens are already resolved
+// to concrete map names (the post-substitution shape emitted by
+// ComputeHelperEffectsForFunction) passes validation cleanly.
+func TestValidateAcceptsHelperEffectsWithMapPlaceholderResolved(t *testing.T) {
+	m := helperEffectsManifest([]HelperEffect{
+		{Name: "ringbuf.reserve", Mutates: []string{"ringbuf:OpenEvents"}, Resource: "reserve"},
+		{Name: "map.lookup", Observes: []string{"map:Counts"}, Resource: "lookup"},
+	})
+	if err := Validate(m); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+}
+
+// TestValidateRejectsHelperEffectsWithUnresolvedPlaceholder asserts
+// that a map:$ / ringbuf:$ sentinel surviving into the emitted manifest
+// is rejected. The substitution must have happened upstream in
+// ComputeHelperEffectsForFunction; a sentinel reaching the manifest
+// indicates a bug in the emit pipeline.
+func TestValidateRejectsHelperEffectsWithUnresolvedPlaceholder(t *testing.T) {
+	cases := map[string][]HelperEffect{
+		"ringbuf placeholder": {
+			{Name: "ringbuf.reserve", Mutates: []string{"ringbuf:$"}, Resource: "reserve"},
+		},
+		"map placeholder": {
+			{Name: "map.lookup", Observes: []string{"map:$"}, Resource: "lookup"},
+		},
+	}
+	for name, effects := range cases {
+		t.Run(name, func(t *testing.T) {
+			m := helperEffectsManifest(effects)
+			if err := Validate(m); err == nil {
+				t.Fatal("Validate succeeded, want unresolved-placeholder error")
+			}
+		})
+	}
+}
