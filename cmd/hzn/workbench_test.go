@@ -755,7 +755,7 @@ func TestWorkbenchReportsClangDiagnostics(t *testing.T) {
 		t.Fatalf("diagnostics = %#v, want HZN3100", report.Diagnostics)
 	}
 	// The clang_error path should not carry a verifier-derived remediation.
-	// Pre-catalog, the legacy verifierSuggestion switch's `invalid mem access`
+	// Pre-catalog, the legacy legacy suggestion switch's `invalid mem access`
 	// arm fired against this fake clang stderr line and produced a stale
 	// "nil-check" suggestion — a misclassification, not a feature. Catalog
 	// enrichment intentionally does not match clang-only messages.

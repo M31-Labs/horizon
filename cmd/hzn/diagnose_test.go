@@ -106,7 +106,7 @@ func TestDiagnoseLoadsGeneratedSourceBesideSourceMap(t *testing.T) {
 	// diagnostic), so the Task 5.4 origin gate lets VC0001 (HZN3110)
 	// match. The rendered remediation contains "nil guard"; the original
 	// pre-catalog "nil-check" string came from the legacy
-	// verifierSuggestion switch and no longer applies — catalog
+	// legacy suggestion switch and no longer applies — catalog
 	// remediation is the contract for verifier-rooted diagnostics.
 	if !strings.Contains(diagnostics[0].Suggest, "nil guard") {
 		t.Fatalf("suggest = %q, want VC0001 nil-guard remediation", diagnostics[0].Suggest)
@@ -409,7 +409,7 @@ func TestDiagnoseFailOnErrorIgnoresWarnings(t *testing.T) {
 }
 
 // TestDiagnoseAddsVerifierSpecificSuggestions was the legacy hand-coded
-// verifierSuggestion switch's table-driven coverage. The catalog now owns
+// legacy suggestion switch's table-driven coverage. The catalog now owns
 // per-entry remediation, and the synthetic fixture corpus under
 // testdata/verifier-fixtures/ exercised by verifier.TestVerifierCatalogFixtures
 // asserts the full diagnostic shape per entry (not just a substring on

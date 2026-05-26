@@ -7,6 +7,9 @@ All notable changes to Horizon are documented in this file. Format follows
 ## [Unreleased]
 
 ### Changed
+- Legacy `cmd/hzn/diagnose.go:verifierSuggestion` switch removed; remediation
+  guidance now flows exclusively from the verifier catalog. Unrecognized
+  verifier messages fall back to `HZN3100` with no `suggest`. (roadmap: #14)
 - Unknown attach surfaces and unknown namespace/leaf combinations now fail at
   parse/type-check time via the canonical registry, rather than slipping through
   to emit-time `HZN3300`. The `recognizedCapabilityLeaf` hardcoded list and
@@ -45,6 +48,14 @@ All notable changes to Horizon are documented in this file. Format follows
   the test fixtures or examples). (roadmap: #3)
 
 ### Added
+- Verifier-message catalog (`internal/registry/verifier-catalog-v1.json`)
+  maps common verifier diagnostics to stable `HZN31xx` codes with
+  remediation guidance. `hzn diagnose` now sets a per-entry code and
+  renders the catalog's remediation as the diagnostic's `suggest` text.
+  Ships with 10 seed entries (`VC0001`–`VC0010`) and a hand-crafted
+  fixture corpus under `testdata/verifier-fixtures/`; a real-kernel-captured
+  corpus follows in v0.3 once `M31-Labs/horizon-kernel-images` publishes
+  (tracked as Subtask B). (roadmap: #14)
 - `validate/helpers.go` recognizes the seven new attach surfaces (uprobe, uretprobe, fentry, fexit, raw_tp, sockops, struct_ops) as known program kinds; uprobe/uretprobe/fentry/fexit/raw_tp count as tracing programs so the existing `bpf.current_pid()`/`bpf.ktime_get_ns()` style helpers are now available to those programs. Resolves the Phase 1 cross-track coordination gap that had the new surfaces' examples hardcoding `event.pid = 0`. (Phase 1 integration, follows roadmap #9 + #4)
 - Map declarations may now carry `@steady_state_entries(N)` (positive integer ≤ `max_entries`) and `@access_freq("low"|"medium"|"high")` annotations. Both fields surface in manifest v1 for capacity planning. (roadmap: #22)
 - Seven new attach surfaces recognized end-to-end: uprobe, uretprobe, fentry, fexit, raw_tp, sockops, struct_ops. Each ships with at least one example, registry entries, manifest emission, and (where the attach path is tractable) a typed `Attach<Fn>` binding helper. struct_ops attach helpers are stubbed pending a follow-up. (roadmap: #9)
