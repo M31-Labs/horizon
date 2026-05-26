@@ -490,13 +490,8 @@ func stringArg(attr ast.Attr) string {
 	return ""
 }
 
-func capabilityArg(attr ast.Attr, aliases map[string]capabilityAlias) (string, DangerLevel) {
-	name, danger, _ := capabilityArgWithAxes(attr, aliases)
-	return name, danger
-}
-
-// capabilityArgWithAxes is the axes-aware variant of capabilityArg.
-// It returns the capability name, resolved danger level, and danger axes.
+// capabilityArgWithAxes resolves a @capability(name) attribute to its full identity:
+// name, danger level, and danger axes.
 // For string literals the axes are left as zero (caller derives them from the
 // resolved danger level). For alias references the pre-computed axes are forwarded.
 func capabilityArgWithAxes(attr ast.Attr, aliases map[string]capabilityAlias) (string, DangerLevel, DangerAxes) {

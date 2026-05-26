@@ -27,6 +27,7 @@ type DangerAxes struct {
 
 // Axes maps a legacy flat DangerLevel to its canonical DangerAxes triple
 // using the v0 → v1 migration table.
+// Mirror at ir/capability.go::DangerLevel.Axes() — keep migration table in sync.
 func (d DangerLevel) Axes() DangerAxes {
 	switch d {
 	case DangerObserve:
