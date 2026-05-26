@@ -3,6 +3,7 @@ package capability
 import (
 	"fmt"
 
+	"m31labs.dev/horizon/compiler/diag"
 	"m31labs.dev/horizon/ir"
 )
 
@@ -14,9 +15,25 @@ func FromIR(program ir.Program) Manifest {
 	// emission path unchanged so existing goldens are bit-stable.
 	// (roadmap #21 Phase 2 Subtask 5b.)
 	if programHasMixedOrigins(program) {
-		return fromIRAggregated(program)
+		m, _ := fromIRAggregated(program)
+		return m
 	}
 	return emitManifest(program, "")
+}
+
+// FromIRWithDiagnostics is FromIR's diagnostic-surfacing twin: it returns both
+// the aggregated manifest and the diagnostics produced by AggregateManifests
+// (HZN1553 advisory, HZN1560 capability conflict, HZN1564 map conflict,
+// HZN1565 type conflict). Callers that want the legacy lossy behavior keep
+// using FromIR; callers that want aggregation collisions surfaced through
+// their own diagnostic channel (compiler.AnalyzePath wires this for the
+// cross-package build path) call FromIRWithDiagnostics. Single-origin
+// programs return an empty diagnostic slice. (roadmap #21 Phase 2 Task 6c.)
+func FromIRWithDiagnostics(program ir.Program) (Manifest, []diag.Diagnostic) {
+	if programHasMixedOrigins(program) {
+		return fromIRAggregated(program)
+	}
+	return emitManifest(program, ""), nil
 }
 
 // programHasMixedOrigins reports whether any declaration in the program
@@ -53,7 +70,7 @@ func programHasMixedOrigins(program ir.Program) bool {
 // per-declaration logic identical between single- and multi-package builds;
 // AggregateManifests owns all qualified-name composition and conflict
 // detection.
-func fromIRAggregated(program ir.Program) Manifest {
+func fromIRAggregated(program ir.Program) (Manifest, []diag.Diagnostic) {
 	originSet := map[string]bool{"": true}
 	for _, fn := range program.Functions {
 		originSet[fn.Origin] = true
@@ -78,16 +95,13 @@ func fromIRAggregated(program ir.Program) Manifest {
 		}
 		manifests = append(manifests, emitManifest(filterByOrigin(program, origin), origin))
 	}
-	out, _ := AggregateManifests(manifests, program.Package)
-	// FromIR's signature predates aggregation diagnostics; surfacing them
-	// is the caller's job through the compiler.Result diagnostic channel
-	// (Subtask 5b's plan defers wiring to a future task). For now the
-	// aggregator's diagnostics are dropped here — TestAnalyzePathTwoPackageBuild
-	// already pins that the upstream cross-package collisions surface via
-	// ir.MergeWithDiagnostics's HZN156x codes, which is the source of
-	// truth for collisions; aggregator HZN1553/HZN1560/HZN1564/HZN1565
-	// codes are redundant for now and reserved for Task 6 wiring.
-	return out
+	out, diags := AggregateManifests(manifests, program.Package)
+	// Task 6c wires aggregator diagnostics through FromIRWithDiagnostics
+	// for callers that want HZN1553/HZN1560/HZN1564/HZN1565 surfaced. The
+	// legacy FromIR entrypoint still returns just the manifest so existing
+	// callers (workbench, bindgen) keep their lossy-diagnostic behavior
+	// until their own wiring upgrades.
+	return out, diags
 }
 
 // filterByOrigin returns a copy of program restricted to declarations whose

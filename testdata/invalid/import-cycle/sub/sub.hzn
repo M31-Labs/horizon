@@ -1,0 +1,7 @@
+package sub
+
+import root "../"
+
+type Inner struct {
+    back root.Wrapper
+}

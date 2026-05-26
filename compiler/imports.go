@@ -145,6 +145,22 @@ func ResolveImports(rootDir string) (root ast.Package, deps []ast.Package, graph
 					graph.BuiltinAliases[imp.Alias] = true
 					continue
 				}
+				// An import alias that shadows a hardcoded compiler namespace
+				// (`import bpf "./mything"`) extends HZN1004 — the same code
+				// types/checker.go uses for top-level declarations colliding
+				// with bpf/xdp/tc/etc. The check fires only for non-builtin
+				// imports because builtin paths intentionally accept any
+				// alias (per plan O-2: `import bee "…/kernel"` is legal).
+				// (roadmap #20 Phase 2 Subtask 6c.)
+				if isCompilerNamespaceName(imp.Alias) {
+					ds = append(ds, diag.Diagnostic{
+						Code:     "HZN1004",
+						Severity: diag.SeverityError,
+						Message:  fmt.Sprintf("import alias %q conflicts with a compiler namespace", imp.Alias),
+						Primary:  imp.Span,
+						Suggest:  "compiler namespaces such as bpf, xdp, tc, cgroup, lsm, kprobe, kretprobe, and tracepoint are reserved; rename the alias on this import",
+					})
+				}
 				if depPkg.Name == "" {
 					continue
 				}
@@ -251,6 +267,18 @@ func importNotFoundDiag(imp ast.ImportDecl, where string) diag.Diagnostic {
 		Primary:  imp.Span,
 		Suggest:  "check the import path spelling, or vendor the package under ./vendor/<path>/",
 	}
+}
+
+// isCompilerNamespaceName mirrors types.compilerNamespace's hardcoded list so
+// the resolver can detect import-alias collisions (HZN1004 extension) without
+// pulling the types package as a dependency. Keep this list in sync with
+// types/checker.go::compilerNamespaceWithAliases.
+func isCompilerNamespaceName(name string) bool {
+	switch name {
+	case "bpf", "xdp", "tc", "cgroup", "lsm", "kprobe", "kretprobe", "tracepoint":
+		return true
+	}
+	return false
 }
 
 // dirHasHznFiles reports whether dir exists, is a directory, and contains at

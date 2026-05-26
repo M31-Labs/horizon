@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -90,5 +91,52 @@ func DropTCP(ctx xdp.Context) i32 {
 	}
 	if diagnostics[0].Source == nil || !strings.Contains(diagnostics[0].Source.Text, `@capability("kernel.process.exec.observe")`) {
 		t.Fatalf("source context = %#v, want capability attribute line", diagnostics[0].Source)
+	}
+}
+
+// TestCheckPinsCrossPackageFailureModes verifies that the four conflict-case
+// fixtures landed in Phase 2 Subtask 6c each surface their expected
+// diagnostic code when fed through `hzn check`. The fixtures live under
+// testdata/invalid/import-*/ and testdata/invalid/capability-value-conflict/
+// (plus testdata/invalid/import-not-found.hzn for the single-file case).
+//
+//   - import-not-found.hzn → HZN1554 (unresolved import path)
+//   - import-cycle/         → HZN1555 (import cycle detected by the
+//     resolver's DFS visited-set)
+//   - import-alias-conflict/ → HZN1004 (extended) when an import alias
+//     shadows a hardcoded compiler namespace such as `bpf`, `xdp`, etc.
+//   - capability-value-conflict/ → HZN1553 (the aggregator-level advisory
+//     when two packages contribute capabilities with the same value
+//     string under different qualified names). HZN1560 is reserved for
+//     same-qualified-name cross-package conflicts; that path is currently
+//     defensive because upstream type-check (HZN1002) and validate
+//     (HZN2503) catch the natural triggers first. This fixture pins the
+//     aggregator code that is actually reachable through AnalyzePath
+//     today.
+func TestCheckPinsCrossPackageFailureModes(t *testing.T) {
+	cases := []struct {
+		path string
+		code string
+	}{
+		{"../../testdata/invalid/import-not-found.hzn", "HZN1554"},
+		{"../../testdata/invalid/import-cycle", "HZN1555"},
+		{"../../testdata/invalid/import-alias-conflict", "HZN1004"},
+		{"../../testdata/invalid/capability-value-conflict", "HZN1553"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.code+"/"+filepath.Base(tc.path), func(t *testing.T) {
+			stdout, _ := captureStdout(t, func() error {
+				return run([]string{"check", tc.path, "-json"})
+			})
+			var diagnostics []diag.Diagnostic
+			if err := json.Unmarshal([]byte(stdout), &diagnostics); err != nil {
+				t.Fatalf("unmarshal diagnostics: %v\n%s", err, stdout)
+			}
+			if !slices.ContainsFunc(diagnostics, func(d diag.Diagnostic) bool {
+				return d.Code == tc.code
+			}) {
+				t.Fatalf("check %s diagnostics = %#v, want code %s", tc.path, diagnostics, tc.code)
+			}
+		})
 	}
 }
