@@ -191,7 +191,12 @@ func buildFunction(decl ast.FuncDecl, aliases map[string]ast.TypeRef) Function {
 		Span:     decl.Span,
 	}
 	for _, param := range decl.Params {
-		fn.Params = append(fn.Params, Param{Name: param.Name, Type: buildType(param.Type, aliases)})
+		typ := buildType(param.Type, aliases)
+		fn.Params = append(fn.Params, Param{
+			Name:     param.Name,
+			Type:     typ,
+			Resource: isResourceParamType(typ),
+		})
 	}
 	var block Block
 	for _, stmt := range decl.Body {
@@ -399,6 +404,24 @@ func buildType(ref ast.TypeRef, aliases map[string]ast.TypeRef) Type {
 		typ.Elem = &elem
 	}
 	return typ
+}
+
+// isResourceParamType reports whether a function parameter type carries a
+// tracked nullable resource handle (e.g. *Event, *Counter, *xdp.Eth). The
+// matching predicate in types/checker.go (helperResourceParamType) runs against
+// ast.TypeRef and must classify the same set of params as resources.
+func isResourceParamType(typ Type) bool {
+	if !typ.Ptr {
+		return false
+	}
+	if typ.Len != "" {
+		return false
+	}
+	switch typ.Name {
+	case "", "u8", "u16", "u32", "u64", "i8", "i16", "i32", "i64", "bool":
+		return false
+	}
+	return true
 }
 
 func resolveAliasTypeRef(ref ast.TypeRef, aliases map[string]ast.TypeRef, visiting map[string]bool) ast.TypeRef {
