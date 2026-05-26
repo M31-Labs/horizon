@@ -33,9 +33,11 @@ func FromAST(file ast.File) (Program, []diag.Diagnostic) {
 		case ast.EnumDecl:
 			program.Constants = append(program.Constants, buildEnumConsts(d, aliases)...)
 		case ast.CapabilityDecl:
+			level := DangerLevel(d.Danger)
 			capabilityAliases[d.Name] = capabilityAlias{
 				Name:   d.Value,
-				Danger: DangerLevel(d.Danger),
+				Danger: level,
+				Axes:   dangerAxesFromString(d.Danger, level),
 			}
 		case ast.MapDecl:
 			program.Maps = append(program.Maps, buildMap(d, aliases))
@@ -329,6 +331,7 @@ func buildExprs(exprs []ast.Expr) []Expr {
 type capabilityAlias struct {
 	Name   string
 	Danger DangerLevel
+	Axes   DangerAxes // additive: axes computed from the declared danger string
 }
 
 func buildCapabilities(decl ast.FuncDecl, fn Function, maps []Map, capabilityAliases map[string]capabilityAlias) []Capability {
@@ -337,9 +340,14 @@ func buildCapabilities(decl ast.FuncDecl, fn Function, maps []Map, capabilityAli
 		if attr.Name != "capability" {
 			continue
 		}
-		name, danger := capabilityArg(attr, capabilityAliases)
+		name, danger, axes := capabilityArgWithAxes(attr, capabilityAliases)
 		floor := moreDangerous(inferDanger(fn), capabilityNameDanger(name))
 		danger = declaredDanger(danger, floor)
+		// If axes were not explicitly set via the alias or triple form, derive
+		// them from the resolved danger level.
+		if axes == (DangerAxes{}) {
+			axes = danger.Axes()
+		}
 		access := mapAccesses(fn, maps)
 		out = append(out, Capability{
 			Name:    name,
@@ -349,10 +357,30 @@ func buildCapabilities(decl ast.FuncDecl, fn Function, maps []Map, capabilityAli
 			Emits:   access.Emits,
 			Maps:    access.Maps,
 			Danger:  danger,
+			Axes:    axes,
 			Span:    attr.Span,
 		})
 	}
 	return out
+}
+
+// dangerAxesFromString computes DangerAxes from a raw danger string. If the
+// string contains a comma, it is parsed as an explicit "mode,scope,reversibility"
+// triple. Otherwise, it falls back to DangerLevel.Axes() migration table.
+// Malformed triple strings return the zero DangerAxes (validation at type-check
+// time already caught and reported the error via ParseDangerAxes in types/).
+func dangerAxesFromString(s string, level DangerLevel) DangerAxes {
+	if strings.ContainsRune(s, ',') {
+		parts := strings.SplitN(s, ",", 3)
+		if len(parts) == 3 {
+			return DangerAxes{
+				Mode:          strings.TrimSpace(parts[0]),
+				Scope:         strings.TrimSpace(parts[1]),
+				Reversibility: strings.TrimSpace(parts[2]),
+			}
+		}
+	}
+	return level.Axes()
 }
 
 func buildType(ref ast.TypeRef, aliases map[string]ast.TypeRef) Type {
@@ -463,17 +491,26 @@ func stringArg(attr ast.Attr) string {
 }
 
 func capabilityArg(attr ast.Attr, aliases map[string]capabilityAlias) (string, DangerLevel) {
+	name, danger, _ := capabilityArgWithAxes(attr, aliases)
+	return name, danger
+}
+
+// capabilityArgWithAxes is the axes-aware variant of capabilityArg.
+// It returns the capability name, resolved danger level, and danger axes.
+// For string literals the axes are left as zero (caller derives them from the
+// resolved danger level). For alias references the pre-computed axes are forwarded.
+func capabilityArgWithAxes(attr ast.Attr, aliases map[string]capabilityAlias) (string, DangerLevel, DangerAxes) {
 	if len(attr.Args) == 0 {
-		return "", ""
+		return "", "", DangerAxes{}
 	}
 	switch value := attr.Args[0].(type) {
 	case ast.StringExpr:
-		return value.Value, ""
+		return value.Value, "", DangerAxes{}
 	case ast.IdentExpr:
 		alias := aliases[value.Name]
-		return alias.Name, alias.Danger
+		return alias.Name, alias.Danger, alias.Axes
 	default:
-		return "", ""
+		return "", "", DangerAxes{}
 	}
 }
 
