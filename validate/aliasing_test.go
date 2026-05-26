@@ -1,0 +1,359 @@
+// Package validate_test exercises the intra-function alias graph that was
+// added in Phase 1 Track A Task 1 (#1 aliasing/escape).
+//
+// All tests use synthetic in-memory ir.Program fixtures. Real .hzn source
+// programs cannot exercise these paths today because HZN1447 in types/checker.go
+// rejects aliased variable references at the source level. The validate-layer
+// machinery is built now so that when Phase 2 #13 (maple) relaxes HZN1447 for
+// helper-arg passes, the state machine substrate is ready.
+//
+// Debt (per plan Q2): if cedar's Track B lands a partial HZN1447 relaxation
+// early, revisit whether end-to-end .hzn fixtures are preferable. Default: synthetic.
+package validate_test
+
+import (
+	"testing"
+
+	"m31labs.dev/horizon/compiler/diag"
+	"m31labs.dev/horizon/ir"
+	"m31labs.dev/horizon/validate"
+)
+
+// ── Fixture helpers ────────────────────────────────────────────────────────────
+
+// reserveExpr builds: Events.reserve()
+func reserveExpr(mapName string) *ir.Expr {
+	return &ir.Expr{
+		Kind: "call",
+		Func: &ir.Expr{
+			Kind:    "selector",
+			Operand: &ir.Expr{Kind: "ident", Name: mapName},
+			Field:   "reserve",
+		},
+	}
+}
+
+// submitExpr builds: Events.submit(varName)
+func submitExpr(mapName, varName string) *ir.Expr {
+	return &ir.Expr{
+		Kind: "call",
+		Func: &ir.Expr{
+			Kind:    "selector",
+			Operand: &ir.Expr{Kind: "ident", Name: mapName},
+			Field:   "submit",
+		},
+		Args: []ir.Expr{{Kind: "ident", Name: varName}},
+	}
+}
+
+// nilExpr builds the nil literal.
+func nilExpr() *ir.Expr {
+	return &ir.Expr{Kind: "nil"}
+}
+
+// identExpr builds an identifier expression.
+func identExpr(name string) *ir.Expr {
+	return &ir.Expr{Kind: "ident", Name: name}
+}
+
+// eqNilCond builds: varName == nil
+func eqNilCond(varName string) *ir.Expr {
+	return &ir.Expr{
+		Kind:  "binary",
+		Op:    "==",
+		Left:  identExpr(varName),
+		Right: nilExpr(),
+	}
+}
+
+// neqNilCond builds: varName != nil
+func neqNilCond(varName string) *ir.Expr {
+	return &ir.Expr{
+		Kind:  "binary",
+		Op:    "!=",
+		Left:  identExpr(varName),
+		Right: nilExpr(),
+	}
+}
+
+// returnZero builds: return 0
+func returnZero() ir.Statement {
+	return ir.Statement{Kind: "return", Value: &ir.Expr{Kind: "int", Value: "0"}}
+}
+
+// shortVarIdent builds: name := src  (ident copy)
+func shortVarIdent(name, src string) ir.Statement {
+	return ir.Statement{
+		Kind:  "short_var",
+		Name:  name,
+		Value: identExpr(src),
+	}
+}
+
+// exprStmt wraps an expression as a statement.
+func exprStmt(expr *ir.Expr) ir.Statement {
+	return ir.Statement{Kind: "expr", Expr: expr}
+}
+
+// ringbufProg builds a minimal ir.Program with a ringbuf map named "Events"
+// and a single tracepoint function whose body is the given statements.
+func ringbufProg(stmts []ir.Statement) ir.Program {
+	return ir.Program{
+		Maps: []ir.Map{{Name: "Events", Kind: ir.MapKindRingbuf, Val: ir.Type{Name: "Event"}}},
+		Functions: []ir.Function{{
+			Name:    "Bad",
+			Section: ir.Section{Kind: ir.ProgramTracepoint, Attach: "sched:sched_process_exec"},
+			Body:    []ir.Block{{Statements: stmts}},
+		}},
+	}
+}
+
+// lookupProg builds a minimal ir.Program with a hash map named "Counts"
+// and a single tracepoint function whose body is the given statements.
+func lookupProg(stmts []ir.Statement) ir.Program {
+	return ir.Program{
+		Maps: []ir.Map{{
+			Name: "Counts",
+			Kind: ir.MapKindHash,
+			Key:  ir.Type{Name: "u32"},
+			Val:  ir.Type{Name: "u64"},
+		}},
+		Functions: []ir.Function{{
+			Name:    "Bad",
+			Section: ir.Section{Kind: ir.ProgramTracepoint, Attach: "sched:sched_process_exec"},
+			Body:    []ir.Block{{Statements: stmts}},
+		}},
+	}
+}
+
+// xdpProg builds a minimal ir.Program with a single XDP function whose body
+// is the given statements.
+func xdpProg(stmts []ir.Statement) ir.Program {
+	return ir.Program{
+		Functions: []ir.Function{{
+			Name:    "Bad",
+			Section: ir.Section{Kind: ir.ProgramXDP, Name: "xdp"},
+			Body:    []ir.Block{{Statements: stmts}},
+		}},
+	}
+}
+
+// countDiag returns the number of diagnostics with the given code.
+func countDiag(diags []diag.Diagnostic, code string) int {
+	n := 0
+	for _, d := range diags {
+		if d.Code == code {
+			n++
+		}
+	}
+	return n
+}
+
+// ── Step 1.2: alias via short_var copy (ringbuf) ───────────────────────────────
+
+// buildAliasReserveProgram constructs the IR equivalent of:
+//
+//	event := Events.reserve()
+//	if event == nil { return 0 }
+//	alias := event
+//	// never submitted via alias OR event
+//	return 0
+func buildAliasReserveProgram() ir.Program {
+	return ringbufProg([]ir.Statement{
+		// event := Events.reserve()
+		{Kind: "short_var", Name: "event", Value: reserveExpr("Events")},
+		// if event == nil { return 0 }
+		{Kind: "if", Cond: eqNilCond("event"), Then: []ir.Statement{returnZero()}},
+		// alias := event
+		shortVarIdent("alias", "event"),
+		// return 0  (live on return — should fire HZN2104 once, not twice)
+		returnZero(),
+	})
+}
+
+// TestAliasingPropagatesRingbufStateThroughShortVarCopy verifies that when
+// `alias := event` is present and neither name is ever submitted, HZN2104
+// fires exactly once (alias collapsed to its root; not double-reported).
+func TestAliasingPropagatesRingbufStateThroughShortVarCopy(t *testing.T) {
+	prog := buildAliasReserveProgram()
+	diags := validate.Program(prog)
+	hzn2104 := countDiag(diags, "HZN2104")
+	if hzn2104 != 1 {
+		t.Fatalf("HZN2104 count = %d, want 1 (alias should not double-report)", hzn2104)
+	}
+}
+
+// ── Step 1.6: alias for map lookup deref ──────────────────────────────────────
+
+// buildAliasMapsProgram constructs the IR equivalent of:
+//
+//	count := Counts.lookup(pid)
+//	alias := count
+//	alias.seen = 1   // unguarded dereference on alias of unguarded lookup
+//	return 0
+func buildAliasMapsProgram() ir.Program {
+	// count := Counts.lookup(pid)
+	lookupCall := &ir.Expr{
+		Kind: "call",
+		Func: &ir.Expr{
+			Kind:    "selector",
+			Operand: &ir.Expr{Kind: "ident", Name: "Counts"},
+			Field:   "lookup",
+		},
+		Args: []ir.Expr{{Kind: "ident", Name: "pid"}},
+	}
+	// alias.seen  (selector expression used as assignment target)
+	aliasSeen := &ir.Expr{
+		Kind:    "selector",
+		Operand: identExpr("alias"),
+		Field:   "seen",
+	}
+	return lookupProg([]ir.Statement{
+		{Kind: "short_var", Name: "count", Value: lookupCall},
+		shortVarIdent("alias", "count"),
+		// alias.seen = 1
+		{Kind: "assign", Target: aliasSeen, Value: &ir.Expr{Kind: "int", Value: "1"}},
+		returnZero(),
+	})
+}
+
+// TestAliasingPropagatesMapLookupNilStateThroughShortVarCopy verifies that
+// when `alias := count` is present and `alias.seen` is dereferenced without a
+// nil-check, HZN2500 fires exactly once (alias resolved to root `count`).
+func TestAliasingPropagatesMapLookupNilStateThroughShortVarCopy(t *testing.T) {
+	prog := buildAliasMapsProgram()
+	diags := validate.Program(prog)
+	hzn2500 := countDiag(diags, "HZN2500")
+	if hzn2500 != 1 {
+		t.Fatalf("HZN2500 count = %d, want 1 (alias should not double-report)", hzn2500)
+	}
+}
+
+// ── Step 1.8: alias for packet header ─────────────────────────────────────────
+
+// buildAliasPacketProgram constructs the IR equivalent of:
+//
+//	eth := xdp.eth(ctx)
+//	alias := eth
+//	if alias.proto == 0 { return xdp.Drop }   // dereference before nil-check
+//	return xdp.Pass
+func buildAliasPacketProgram() ir.Program {
+	// eth := xdp.eth(ctx)
+	ethCall := &ir.Expr{
+		Kind: "call",
+		Func: &ir.Expr{
+			Kind:    "selector",
+			Operand: &ir.Expr{Kind: "ident", Name: "xdp"},
+			Field:   "eth",
+		},
+		Args: []ir.Expr{{Kind: "ident", Name: "ctx"}},
+	}
+	// alias.proto (selector that triggers the nil check)
+	aliasProto := &ir.Expr{
+		Kind:    "selector",
+		Operand: identExpr("alias"),
+		Field:   "proto",
+	}
+	// if alias.proto == 0 { return xdp.Drop }
+	ifStmt := ir.Statement{
+		Kind: "if",
+		Cond: &ir.Expr{
+			Kind:  "binary",
+			Op:    "==",
+			Left:  aliasProto,
+			Right: &ir.Expr{Kind: "int", Value: "0"},
+		},
+		Then: []ir.Statement{returnZero()},
+	}
+	return xdpProg([]ir.Statement{
+		{Kind: "short_var", Name: "eth", Value: ethCall},
+		shortVarIdent("alias", "eth"),
+		ifStmt,
+		returnZero(),
+	})
+}
+
+// TestAliasingPropagatesPacketHeaderNilStateThroughShortVarCopy verifies that
+// when `alias := eth` is present and `alias.proto` is accessed without a
+// nil-check, HZN2600 fires exactly once.
+func TestAliasingPropagatesPacketHeaderNilStateThroughShortVarCopy(t *testing.T) {
+	prog := buildAliasPacketProgram()
+	diags := validate.Program(prog)
+	hzn2600 := countDiag(diags, "HZN2600")
+	if hzn2600 != 1 {
+		t.Fatalf("HZN2600 count = %d, want 1 (alias should not double-report)", hzn2600)
+	}
+}
+
+// ── Step 1.10: nil-check on ALIAS name promotes root state ────────────────────
+
+// buildAliasNilCheckProgram constructs the IR equivalent of:
+//
+//	event := Events.reserve()
+//	alias := event
+//	if alias == nil { return 0 }
+//	Events.submit(alias)   // alias nil-checked → root event is live → submit OK
+//	return 0
+func buildAliasNilCheckProgram() ir.Program {
+	return ringbufProg([]ir.Statement{
+		{Kind: "short_var", Name: "event", Value: reserveExpr("Events")},
+		shortVarIdent("alias", "event"),
+		// if alias == nil { return 0 }  — this nil-check promotes event's root
+		{Kind: "if", Cond: eqNilCond("alias"), Then: []ir.Statement{returnZero()}},
+		// Events.submit(alias)  — alias is now live (resolved to event)
+		exprStmt(submitExpr("Events", "alias")),
+		returnZero(),
+	})
+}
+
+// TestAliasingPromotesStateWhenAliasIsNilChecked verifies that nil-checking
+// `alias` promotes the state of the root `event`, so submitting via `alias`
+// inside the guarded branch produces zero diagnostics.
+func TestAliasingPromotesStateWhenAliasIsNilChecked(t *testing.T) {
+	prog := buildAliasNilCheckProgram()
+	diags := validate.Program(prog)
+	if len(diags) != 0 {
+		codes := make([]string, len(diags))
+		for i, d := range diags {
+			codes[i] = d.Code
+		}
+		t.Fatalf("expected 0 diagnostics, got %d: %v", len(diags), codes)
+	}
+}
+
+// ── Step 1.14: escape via call argument ───────────────────────────────────────
+
+// buildEscapeProg constructs the IR equivalent of:
+//
+//	event := Events.reserve()
+//	if event == nil { return 0 }
+//	unknownHelper(event)
+//	return 0
+func buildEscapeProg() ir.Program {
+	// unknownHelper(event)
+	unknownCall := &ir.Expr{
+		Kind: "call",
+		Func: identExpr("unknownHelper"),
+		Args: []ir.Expr{{Kind: "ident", Name: "event"}},
+	}
+	return ringbufProg([]ir.Statement{
+		{Kind: "short_var", Name: "event", Value: reserveExpr("Events")},
+		{Kind: "if", Cond: eqNilCond("event"), Then: []ir.Statement{returnZero()}},
+		exprStmt(unknownCall),
+		returnZero(),
+	})
+}
+
+// TestEscapeMarksReservationAsLiveWhenPassedToUnknownFunction verifies that
+// passing a live ringbuf reservation to an unknown function transitions its
+// state to "escaped", suppressing HZN2104 on return. We cannot prove whether
+// the helper consumed the reservation; the conservative call is to not fire
+// a false positive.
+func TestEscapeMarksReservationAsLiveWhenPassedToUnknownFunction(t *testing.T) {
+	prog := buildEscapeProg()
+	diags := validate.Program(prog)
+	hzn2104 := countDiag(diags, "HZN2104")
+	if hzn2104 != 0 {
+		t.Fatalf("HZN2104 count = %d, want 0 (escaped resource should not fire live-on-return)", hzn2104)
+	}
+}

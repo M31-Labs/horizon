@@ -38,6 +38,7 @@ type packetHeaderState struct {
 
 func validateXDPPacketHeaders(fn ir.Function) []diag.Diagnostic {
 	states := map[string]packetHeaderState{}
+	aliases := newAliasGraph()
 	reported := map[string]bool{}
 	var diags []diag.Diagnostic
 	reportDeref := func(varName string, state packetHeaderState, primary span.Span) {
@@ -54,6 +55,8 @@ func validateXDPPacketHeaders(fn ir.Function) []diag.Diagnostic {
 				Message:  fmt.Sprintf("nil packet header %q cannot be dereferenced", varName),
 				Primary:  primary,
 			})
+		case "escaped":
+			// escaped: resource passed to unknown function; skip deref warning.
 		default:
 			diags = append(diags, diag.Diagnostic{
 				Code:     "HZN2600",
@@ -71,8 +74,9 @@ func validateXDPPacketHeaders(fn ir.Function) []diag.Diagnostic {
 		}
 		if expr.Kind == "selector" {
 			if varName, ok := selectorBase(expr); ok {
-				if state, ok := states[varName]; ok && state.State != "live" {
-					reportDeref(varName, state, expr.Span)
+				root := aliases.root(varName)
+				if state, ok := states[root]; ok && state.State != "live" {
+					reportDeref(root, state, expr.Span)
 				}
 			}
 		}
@@ -97,12 +101,20 @@ func validateXDPPacketHeaders(fn ir.Function) []diag.Diagnostic {
 					if helper, ok := xdpPacketHeaderCall(stmt.Value); ok {
 						states[stmt.Name] = packetHeaderState{Helper: helper, State: "maybe_nil"}
 					}
+					// Register alias if the RHS is a plain ident of an already-tracked name.
+					if src := aliasOf(stmt); src != "" {
+						if _, ok := states[aliases.root(src)]; ok {
+							aliases.register(stmt.Name, src)
+						}
+					}
 				}
 			case "assign":
 				checkExpr(stmt.Target)
 				checkExpr(stmt.Value)
 			case "expr":
 				checkExpr(stmt.Expr)
+				// Detect call-argument escapes for packet header states.
+				checkArgEscapesPacket(stmt.Expr, states, aliases)
 			case "return":
 				checkExpr(stmt.Value)
 			case "if":
@@ -115,10 +127,11 @@ func validateXDPPacketHeaders(fn ir.Function) []diag.Diagnostic {
 				func() {
 					checkExpr(stmt.Cond)
 					if varName, ok := nilComparedVar(stmt.Cond, "=="); ok {
+						root := aliases.root(varName)
 						branchStates := clonePacketHeaderStates(states)
-						if state, ok := branchStates[varName]; ok && state.State == "maybe_nil" {
+						if state, ok := branchStates[root]; ok && state.State == "maybe_nil" {
 							state.State = "nil"
-							branchStates[varName] = state
+							branchStates[root] = state
 						}
 						oldStates := states
 						states = branchStates
@@ -127,9 +140,9 @@ func validateXDPPacketHeaders(fn ir.Function) []diag.Diagnostic {
 						states = oldStates
 						if len(stmt.Else) > 0 {
 							elseStates := clonePacketHeaderStates(oldStates)
-							if state, ok := elseStates[varName]; ok && state.State == "maybe_nil" {
+							if state, ok := elseStates[root]; ok && state.State == "maybe_nil" {
 								state.State = "live"
-								elseStates[varName] = state
+								elseStates[root] = state
 							}
 							states = elseStates
 							walk(stmt.Else)
@@ -138,18 +151,19 @@ func validateXDPPacketHeaders(fn ir.Function) []diag.Diagnostic {
 							return
 						}
 						if branchAlwaysReturns(stmt.Then) {
-							if state, ok := states[varName]; ok && state.State == "maybe_nil" {
+							if state, ok := states[root]; ok && state.State == "maybe_nil" {
 								state.State = "live"
-								states[varName] = state
+								states[root] = state
 							}
 						}
 						return
 					}
 					if varName, ok := nilComparedVar(stmt.Cond, "!="); ok {
+						root := aliases.root(varName)
 						branchStates := clonePacketHeaderStates(states)
-						if state, ok := branchStates[varName]; ok && state.State == "maybe_nil" {
+						if state, ok := branchStates[root]; ok && state.State == "maybe_nil" {
 							state.State = "live"
-							branchStates[varName] = state
+							branchStates[root] = state
 						}
 						oldStates := states
 						states = branchStates
@@ -158,9 +172,9 @@ func validateXDPPacketHeaders(fn ir.Function) []diag.Diagnostic {
 						states = oldStates
 						if len(stmt.Else) > 0 {
 							elseStates := clonePacketHeaderStates(oldStates)
-							if state, ok := elseStates[varName]; ok && state.State == "maybe_nil" {
+							if state, ok := elseStates[root]; ok && state.State == "maybe_nil" {
 								state.State = "nil"
-								elseStates[varName] = state
+								elseStates[root] = state
 							}
 							states = elseStates
 							walk(stmt.Else)
@@ -231,6 +245,32 @@ func validateXDPPacketHeaders(fn ir.Function) []diag.Diagnostic {
 	}
 	walk(functionStatements(fn))
 	return diags
+}
+
+// checkArgEscapesPacket marks packet header states as "escaped" when passed as
+// call arguments. Escaped headers suppress HZN2600 deref checks post-call.
+// Cross-function tracking deferred to Phase 2 #13.
+func checkArgEscapesPacket(expr *ir.Expr, states map[string]packetHeaderState, aliases *aliasGraph) {
+	if expr == nil {
+		return
+	}
+	if expr.Kind == "call" {
+		for i := range expr.Args {
+			arg := &expr.Args[i]
+			if arg.Kind == "ident" {
+				root := aliases.root(arg.Name)
+				if state, ok := states[root]; ok && state.State != "live" && state.State != "escaped" {
+					state.State = "escaped"
+					states[root] = state
+				}
+			}
+			checkArgEscapesPacket(arg, states, aliases)
+		}
+	}
+	checkArgEscapesPacket(expr.Operand, states, aliases)
+	checkArgEscapesPacket(expr.Left, states, aliases)
+	checkArgEscapesPacket(expr.Right, states, aliases)
+	checkArgEscapesPacket(expr.Func, states, aliases)
 }
 
 func xdpPacketHeaderCall(expr *ir.Expr) (string, bool) {

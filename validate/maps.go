@@ -99,6 +99,7 @@ type lookupState struct {
 
 func validateTypedMapLookups(fn ir.Function, lookupMaps map[string]ir.Map) []diag.Diagnostic {
 	states := map[string]lookupState{}
+	aliases := newAliasGraph()
 	reported := map[string]bool{}
 	var diags []diag.Diagnostic
 	reportDeref := func(varName string, state lookupState, primary span.Span) {
@@ -115,6 +116,9 @@ func validateTypedMapLookups(fn ir.Function, lookupMaps map[string]ir.Map) []dia
 				Message:  fmt.Sprintf("nil %s %q cannot be dereferenced", state.Label, varName),
 				Primary:  primary,
 			})
+		case "escaped":
+			// escaped: resource passed to unknown function; skip deref warning
+			// since we cannot determine its nil-status post-call.
 		default:
 			diags = append(diags, diag.Diagnostic{
 				Code:     "HZN2500",
@@ -132,8 +136,9 @@ func validateTypedMapLookups(fn ir.Function, lookupMaps map[string]ir.Map) []dia
 		}
 		if expr.Kind == "selector" {
 			if varName, ok := selectorBase(expr); ok {
-				if state, ok := states[varName]; ok && state.State != "live" {
-					reportDeref(varName, state, expr.Span)
+				root := aliases.root(varName)
+				if state, ok := states[root]; ok && state.State != "live" {
+					reportDeref(root, state, expr.Span)
 				}
 			}
 		}
@@ -160,12 +165,20 @@ func validateTypedMapLookups(fn ir.Function, lookupMaps map[string]ir.Map) []dia
 							states[stmt.Name] = lookupState{Source: mapName, Label: "map lookup result", State: "maybe_nil"}
 						}
 					}
+					// Register alias if the RHS is a plain ident of an already-tracked name.
+					if src := aliasOf(stmt); src != "" {
+						if _, ok := states[aliases.root(src)]; ok {
+							aliases.register(stmt.Name, src)
+						}
+					}
 				}
 			case "assign":
 				checkExpr(stmt.Target)
 				checkExpr(stmt.Value)
 			case "expr":
 				checkExpr(stmt.Expr)
+				// Detect call-argument escapes for map lookup results.
+				checkArgEscapesLookup(stmt.Expr, states, aliases)
 			case "return":
 				checkExpr(stmt.Value)
 			case "if":
@@ -178,10 +191,11 @@ func validateTypedMapLookups(fn ir.Function, lookupMaps map[string]ir.Map) []dia
 				func() {
 					checkExpr(stmt.Cond)
 					if varName, ok := nilComparedVar(stmt.Cond, "=="); ok {
+						root := aliases.root(varName)
 						branchStates := cloneLookupStates(states)
-						if state, ok := branchStates[varName]; ok && state.State == "maybe_nil" {
+						if state, ok := branchStates[root]; ok && state.State == "maybe_nil" {
 							state.State = "nil"
-							branchStates[varName] = state
+							branchStates[root] = state
 						}
 						oldStates := states
 						states = branchStates
@@ -190,9 +204,9 @@ func validateTypedMapLookups(fn ir.Function, lookupMaps map[string]ir.Map) []dia
 						states = oldStates
 						if len(stmt.Else) > 0 {
 							elseStates := cloneLookupStates(oldStates)
-							if state, ok := elseStates[varName]; ok && state.State == "maybe_nil" {
+							if state, ok := elseStates[root]; ok && state.State == "maybe_nil" {
 								state.State = "live"
-								elseStates[varName] = state
+								elseStates[root] = state
 							}
 							states = elseStates
 							walk(stmt.Else)
@@ -201,18 +215,19 @@ func validateTypedMapLookups(fn ir.Function, lookupMaps map[string]ir.Map) []dia
 							return
 						}
 						if branchAlwaysReturns(stmt.Then) {
-							if state, ok := states[varName]; ok && state.State == "maybe_nil" {
+							if state, ok := states[root]; ok && state.State == "maybe_nil" {
 								state.State = "live"
-								states[varName] = state
+								states[root] = state
 							}
 						}
 						return
 					}
 					if varName, ok := nilComparedVar(stmt.Cond, "!="); ok {
+						root := aliases.root(varName)
 						branchStates := cloneLookupStates(states)
-						if state, ok := branchStates[varName]; ok && state.State == "maybe_nil" {
+						if state, ok := branchStates[root]; ok && state.State == "maybe_nil" {
 							state.State = "live"
-							branchStates[varName] = state
+							branchStates[root] = state
 						}
 						oldStates := states
 						states = branchStates
@@ -221,9 +236,9 @@ func validateTypedMapLookups(fn ir.Function, lookupMaps map[string]ir.Map) []dia
 						states = oldStates
 						if len(stmt.Else) > 0 {
 							elseStates := cloneLookupStates(oldStates)
-							if state, ok := elseStates[varName]; ok && state.State == "maybe_nil" {
+							if state, ok := elseStates[root]; ok && state.State == "maybe_nil" {
 								state.State = "nil"
-								elseStates[varName] = state
+								elseStates[root] = state
 							}
 							states = elseStates
 							walk(stmt.Else)
@@ -294,6 +309,32 @@ func validateTypedMapLookups(fn ir.Function, lookupMaps map[string]ir.Map) []dia
 	}
 	walk(functionStatements(fn))
 	return diags
+}
+
+// checkArgEscapesLookup marks map lookup results as "escaped" when passed as
+// call arguments. Escaped lookup results suppress HZN2500 (we cannot prove
+// their nil status after the call). Cross-function tracking deferred to Phase 2 #13.
+func checkArgEscapesLookup(expr *ir.Expr, states map[string]lookupState, aliases *aliasGraph) {
+	if expr == nil {
+		return
+	}
+	if expr.Kind == "call" {
+		for i := range expr.Args {
+			arg := &expr.Args[i]
+			if arg.Kind == "ident" {
+				root := aliases.root(arg.Name)
+				if state, ok := states[root]; ok && state.State != "live" && state.State != "escaped" {
+					state.State = "escaped"
+					states[root] = state
+				}
+			}
+			checkArgEscapesLookup(arg, states, aliases)
+		}
+	}
+	checkArgEscapesLookup(expr.Operand, states, aliases)
+	checkArgEscapesLookup(expr.Left, states, aliases)
+	checkArgEscapesLookup(expr.Right, states, aliases)
+	checkArgEscapesLookup(expr.Func, states, aliases)
 }
 
 func nilGuardSuggestion(fn ir.Function, varName string) string {
