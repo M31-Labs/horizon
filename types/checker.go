@@ -135,6 +135,18 @@ func collectConstGroupDecl(decl ast.ConstGroupDecl, env *Env, diags *[]diag.Diag
 }
 
 func declarePackageName(diags *[]diag.Diagnostic, env *Env, name string, decl DeclRef) bool {
+	return declarePackageNameWithAliases(diags, env, name, decl, nil)
+}
+
+// declarePackageNameWithAliases is the alias-aware variant used by the
+// multi-package type-check entrypoint (CheckPackages). When importAliases is
+// non-nil, top-level declarations whose name collides with a user-package
+// alias are rejected silently — the alias reserves the name without firing
+// HZN1004 (which is dedicated to hardcoded compiler namespaces such as bpf,
+// xdp, tc, cgroup, lsm, kprobe, kretprobe, and tracepoint). User-alias
+// collisions get their own diagnostic in higher-level callers; this helper
+// only enforces the reservation. (roadmap #20 — Phase 2 Subtask 3a.)
+func declarePackageNameWithAliases(diags *[]diag.Diagnostic, env *Env, name string, decl DeclRef, importAliases map[string]bool) bool {
 	if compilerNamespace(name) {
 		*diags = append(*diags, diag.Diagnostic{
 			Code:     "HZN1004",
@@ -143,6 +155,13 @@ func declarePackageName(diags *[]diag.Diagnostic, env *Env, name string, decl De
 			Primary:  decl.GetSpan(),
 			Suggest:  "compiler namespaces such as bpf, xdp, tc, cgroup, lsm, kprobe, kretprobe, and tracepoint are reserved",
 		})
+		return false
+	}
+	if importAliases[name] {
+		// User-package alias reserves the name; HZN1004 is intentionally
+		// not raised here because user aliases are not compiler namespaces.
+		// The dedicated collision diagnostic belongs to a higher-level
+		// caller (Subtask 3b's CheckPackages wires it via HZN1552).
 		return false
 	}
 	if prev, ok := env.Decl(name); ok {
@@ -2201,12 +2220,24 @@ func (c *funcBodyChecker) localNameDiagnostic(name string, primary span.Span, lo
 }
 
 func compilerNamespace(name string) bool {
+	return compilerNamespaceWithAliases(name, nil)
+}
+
+// compilerNamespaceWithAliases reports whether name names a hardcoded
+// compiler namespace OR a user-package import alias. The hardcoded set is
+// the bare compilerNamespace check; the importAliases set, if non-nil, is
+// the per-package alias registry threaded through CheckPackages. (roadmap
+// #20 — Phase 2 Subtask 3a.) Callers that operate inside a single-package
+// build pass nil and get today's behavior.
+func compilerNamespaceWithAliases(name string, importAliases map[string]bool) bool {
 	switch name {
 	case "bpf", "xdp", "tc", "cgroup", "lsm", "kprobe", "kretprobe", "tracepoint":
 		return true
-	default:
-		return false
 	}
+	if importAliases[name] {
+		return true
+	}
+	return false
 }
 
 func (c *funcBodyChecker) checkAssign(s ast.AssignStmt, locals map[string]valueType) {
