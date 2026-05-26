@@ -28,6 +28,7 @@ func runWorkbench(args []string) error {
 	compile := fs.Bool("compile", false, "also compile generated C to .bpf.o with clang")
 	preflight := fs.Bool("preflight", false, "run doctor checks against the generated capability manifest")
 	jsonOut := fs.Bool("json", false, "emit JSON report")
+	clangTimeout := fs.Duration("clang-timeout", defaultClangTimeout(), "timeout for clang compilation (override with HZN_CLANG_TIMEOUT)")
 	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
@@ -36,10 +37,11 @@ func runWorkbench(args []string) error {
 		return err
 	}
 	report, err := writeWorkbenchArtifacts(result, workbenchOptions{
-		OutDir:      *outDir,
-		PackageName: *packageName,
-		Compile:     *compile,
-		Preflight:   *preflight,
+		OutDir:       *outDir,
+		PackageName:  *packageName,
+		Compile:      *compile,
+		Preflight:    *preflight,
+		ClangTimeout: *clangTimeout,
 	})
 	if *jsonOut && report.Schema != "" {
 		if writeErr := writeJSON("", report); writeErr != nil {
@@ -73,6 +75,22 @@ type workbenchOptions struct {
 	Compile      bool
 	Preflight    bool
 	DoctorConfig *doctorConfig
+	ClangTimeout time.Duration
+}
+
+func defaultClangTimeout() time.Duration {
+	if v := os.Getenv("HZN_CLANG_TIMEOUT"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			return d
+		}
+	}
+	return 30 * time.Second
+}
+
+func defaultWorkbenchOptions() workbenchOptions {
+	return workbenchOptions{
+		ClangTimeout: 30 * time.Second,
+	}
 }
 
 type workbenchReport struct {
@@ -266,7 +284,7 @@ func writeWorkbenchArtifacts(result *compiler.Result, opts workbenchOptions) (wo
 
 	report.Artifacts = paths.artifacts(false)
 	if opts.Compile {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), opts.ClangTimeout)
 		defer cancel()
 		if err := hclang.Compile(ctx, paths.C, paths.Object, hclang.Options{}); err != nil {
 			report.Status = "clang_error"

@@ -6,6 +6,9 @@ All notable changes to Horizon are documented in this file. Format follows
 
 ## [Unreleased]
 
+### Added
+- `hzn build` and `hzn workbench -compile` now accept `-clang-timeout=<duration>` and read `HZN_CLANG_TIMEOUT` from the environment. Default remains 30s. (roadmap: #11)
+
 ## [v0.1.2] — 2026-05-25
 
 ### Added
