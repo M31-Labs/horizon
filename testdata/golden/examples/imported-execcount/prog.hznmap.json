@@ -23,7 +23,7 @@
           "line": 18
         },
         "end_byte": 469,
-        "file": "/home/draco/work/horizon-spruce/examples/imported-execcount/prog.hzn",
+        "file": "examples/imported-execcount/prog.hzn",
         "start": {
           "column": 17,
           "line": 18
@@ -51,7 +51,7 @@
           "line": 19
         },
         "end_byte": 503,
-        "file": "/home/draco/work/horizon-spruce/examples/imported-execcount/prog.hzn",
+        "file": "examples/imported-execcount/prog.hzn",
         "start": {
           "column": 17,
           "line": 19
@@ -79,7 +79,7 @@
           "line": 17
         },
         "end_byte": 435,
-        "file": "/home/draco/work/horizon-spruce/examples/imported-execcount/prog.hzn",
+        "file": "examples/imported-execcount/prog.hzn",
         "start": {
           "column": 19,
           "line": 17
@@ -107,7 +107,7 @@
           "line": 20
         },
         "end_byte": 537,
-        "file": "/home/draco/work/horizon-spruce/examples/imported-execcount/prog.hzn",
+        "file": "examples/imported-execcount/prog.hzn",
         "start": {
           "column": 5,
           "line": 20
@@ -135,7 +135,7 @@
           "line": 8
         },
         "end_byte": 95,
-        "file": "/home/draco/work/horizon-spruce/examples/imported-execcount/vendor/m31labs.dev/horizon-test/events/events.hzn",
+        "file": "examples/imported-execcount/vendor/m31labs.dev/horizon-test/events/events.hzn",
         "start": {
           "column": 6,
           "line": 3
@@ -163,7 +163,7 @@
           "line": 6
         },
         "end_byte": 147,
-        "file": "/home/draco/work/horizon-spruce/examples/imported-execcount/prog.hzn",
+        "file": "examples/imported-execcount/prog.hzn",
         "start": {
           "column": 1,
           "line": 6
@@ -191,7 +191,7 @@
           "line": 13
         },
         "end_byte": 353,
-        "file": "/home/draco/work/horizon-spruce/examples/imported-execcount/prog.hzn",
+        "file": "examples/imported-execcount/prog.hzn",
         "start": {
           "column": 14,
           "line": 13
@@ -219,7 +219,7 @@
           "line": 21
         },
         "end_byte": 562,
-        "file": "/home/draco/work/horizon-spruce/examples/imported-execcount/prog.hzn",
+        "file": "examples/imported-execcount/prog.hzn",
         "start": {
           "column": 5,
           "line": 21
@@ -247,7 +247,7 @@
           "line": 13
         },
         "end_byte": 353,
-        "file": "/home/draco/work/horizon-spruce/examples/imported-execcount/prog.hzn",
+        "file": "examples/imported-execcount/prog.hzn",
         "start": {
           "column": 5,
           "line": 13
@@ -275,7 +275,7 @@
           "line": 15
         },
         "end_byte": 392,
-        "file": "/home/draco/work/horizon-spruce/examples/imported-execcount/prog.hzn",
+        "file": "examples/imported-execcount/prog.hzn",
         "start": {
           "column": 9,
           "line": 15
@@ -303,7 +303,7 @@
           "line": 16
         },
         "end_byte": 398,
-        "file": "/home/draco/work/horizon-spruce/examples/imported-execcount/prog.hzn",
+        "file": "examples/imported-execcount/prog.hzn",
         "start": {
           "column": 5,
           "line": 14
@@ -331,7 +331,7 @@
           "line": 17
         },
         "end_byte": 435,
-        "file": "/home/draco/work/horizon-spruce/examples/imported-execcount/prog.hzn",
+        "file": "examples/imported-execcount/prog.hzn",
         "start": {
           "column": 5,
           "line": 17
@@ -359,7 +359,7 @@
           "line": 18
         },
         "end_byte": 469,
-        "file": "/home/draco/work/horizon-spruce/examples/imported-execcount/prog.hzn",
+        "file": "examples/imported-execcount/prog.hzn",
         "start": {
           "column": 5,
           "line": 18
@@ -387,7 +387,7 @@
           "line": 19
         },
         "end_byte": 503,
-        "file": "/home/draco/work/horizon-spruce/examples/imported-execcount/prog.hzn",
+        "file": "examples/imported-execcount/prog.hzn",
         "start": {
           "column": 5,
           "line": 19
@@ -415,7 +415,7 @@
           "line": 20
         },
         "end_byte": 537,
-        "file": "/home/draco/work/horizon-spruce/examples/imported-execcount/prog.hzn",
+        "file": "examples/imported-execcount/prog.hzn",
         "start": {
           "column": 5,
           "line": 20
@@ -443,7 +443,7 @@
           "line": 21
         },
         "end_byte": 562,
-        "file": "/home/draco/work/horizon-spruce/examples/imported-execcount/prog.hzn",
+        "file": "examples/imported-execcount/prog.hzn",
         "start": {
           "column": 5,
           "line": 21
@@ -471,7 +471,7 @@
           "line": 22
         },
         "end_byte": 575,
-        "file": "/home/draco/work/horizon-spruce/examples/imported-execcount/prog.hzn",
+        "file": "examples/imported-execcount/prog.hzn",
         "start": {
           "column": 5,
           "line": 22
@@ -499,7 +499,7 @@
           "line": 23
         },
         "end_byte": 577,
-        "file": "/home/draco/work/horizon-spruce/examples/imported-execcount/prog.hzn",
+        "file": "examples/imported-execcount/prog.hzn",
         "start": {
           "column": 1,
           "line": 10
@@ -512,11 +512,11 @@
   "sources": [
     {
       "id": 0,
-      "path": "/home/draco/work/horizon-spruce/examples/imported-execcount/prog.hzn"
+      "path": "examples/imported-execcount/prog.hzn"
     },
     {
       "id": 1,
-      "path": "/home/draco/work/horizon-spruce/examples/imported-execcount/vendor/m31labs.dev/horizon-test/events/events.hzn"
+      "path": "examples/imported-execcount/vendor/m31labs.dev/horizon-test/events/events.hzn"
     }
   ]
 }

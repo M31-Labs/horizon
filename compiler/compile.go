@@ -3,6 +3,8 @@ package compiler
 import (
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"m31labs.dev/horizon/ast"
 	"m31labs.dev/horizon/bindgen"
@@ -14,6 +16,26 @@ import (
 	htypes "m31labs.dev/horizon/types"
 	"m31labs.dev/horizon/validate"
 )
+
+// relativeToCwd converts an absolute path to one relative to the working
+// directory when possible. ResolveImports stamps absolute paths into each
+// imported file's Span.File; this normalization keeps report goldens
+// reproducible across checkouts (matches the single-package AnalyzePath
+// convention where the user-supplied root is already relative).
+func relativeToCwd(p string) string {
+	if p == "" || !filepath.IsAbs(p) {
+		return p
+	}
+	wd, err := os.Getwd()
+	if err != nil {
+		return p
+	}
+	rel, err := filepath.Rel(wd, p)
+	if err != nil {
+		return p
+	}
+	return rel
+}
 
 type FileResult struct {
 	Path        string
@@ -321,16 +343,19 @@ func analyzeMultiPackage(rootPkg ast.Package, deps []ast.Package, graph ImportGr
 
 	// Emit one FileResult per source file across the root and every dep,
 	// so cmd/hzn diagnostic rendering still has a per-file home for the
-	// type-checker's output.
+	// type-checker's output. ResolveImports stamps absolute paths into
+	// each file's Span.File; rewrite them relative to the working
+	// directory so report goldens are reproducible across checkouts
+	// (matches the single-package AnalyzePath convention).
 	rootFiles := append([]ast.File{}, rootPkg.Files...)
 	for _, f := range rootPkg.Files {
-		result.Files = append(result.Files, FileResult{Path: string(f.Span.File), Package: f.Package})
+		result.Files = append(result.Files, FileResult{Path: relativeToCwd(string(f.Span.File)), Package: f.Package})
 	}
 	depFileOffsets := make([]int, len(deps))
 	for di, dep := range deps {
 		depFileOffsets[di] = len(result.Files)
 		for _, f := range dep.Files {
-			result.Files = append(result.Files, FileResult{Path: string(f.Span.File), Package: f.Package})
+			result.Files = append(result.Files, FileResult{Path: relativeToCwd(string(f.Span.File)), Package: f.Package})
 		}
 	}
 
