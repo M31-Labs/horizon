@@ -101,8 +101,12 @@ func TestDiagnoseLoadsGeneratedSourceBesideSourceMap(t *testing.T) {
 	if diagnostics[0].Primary.Start.Line != 7 {
 		t.Fatalf("primary line = %d, want 7", diagnostics[0].Primary.Start.Line)
 	}
-	if !strings.Contains(diagnostics[0].Suggest, "nil-check") {
-		t.Fatalf("suggest = %q, want pointer safety nil-check guidance", diagnostics[0].Suggest)
+	// `invalid mem access 'scalar'` now matches catalog entry VC0001
+	// (HZN3110); the rendered remediation contains "nil guard". The original
+	// "nil-check" string came from the legacy verifierSuggestion switch and
+	// no longer applies — catalog remediation is the contract.
+	if !strings.Contains(diagnostics[0].Suggest, "nil guard") {
+		t.Fatalf("suggest = %q, want VC0001 nil-guard remediation", diagnostics[0].Suggest)
 	}
 	if diagnostics[0].Source == nil || diagnostics[0].Source.Line != 7 || !strings.Contains(diagnostics[0].Source.Text, "bad_access") {
 		t.Fatalf("source context = %#v, want authored source line", diagnostics[0].Source)
@@ -176,8 +180,10 @@ func TestDiagnoseGeneratedFlagTakesValue(t *testing.T) {
 	if len(diagnostics) != 1 || diagnostics[0].Primary.File != span.FileID(sourcePath) {
 		t.Fatalf("diagnostics = %#v, want remapped authored source", diagnostics)
 	}
-	if !strings.Contains(diagnostics[0].Suggest, "nil-check") {
-		t.Fatalf("suggest = %q, want pointer safety nil-check guidance", diagnostics[0].Suggest)
+	// See TestDiagnoseLoadsGeneratedSourceBesideSourceMap: VC0001 owns this
+	// pattern post-catalog; the remediation contains "nil guard".
+	if !strings.Contains(diagnostics[0].Suggest, "nil guard") {
+		t.Fatalf("suggest = %q, want VC0001 nil-guard remediation", diagnostics[0].Suggest)
 	}
 }
 
@@ -395,25 +401,14 @@ func TestDiagnoseFailOnErrorIgnoresWarnings(t *testing.T) {
 	}
 }
 
-func TestDiagnoseAddsVerifierSpecificSuggestions(t *testing.T) {
-	tests := map[string]string{
-		"unreleased reference id=3 alloc_insn=8": "ringbuf reservation",
-		"unbounded loop":                         "counted for loop",
-		"unknown func bpf_bad#999":               "compiler-known helpers",
-		"R0 !read_ok":                            "explicit i32",
-		"stack depth 520":                        "BPF stack limit",
-		"math between fp pointer and register":   "pointer arithmetic",
-	}
-	for raw, want := range tests {
-		diagnostics := diagnosticsFromVerifierLog(raw, ir.SourceMap{}, nil)
-		if len(diagnostics) != 1 {
-			t.Fatalf("diagnostics for %q = %d, want 1", raw, len(diagnostics))
-		}
-		if !strings.Contains(diagnostics[0].Suggest, want) {
-			t.Fatalf("suggest for %q = %q, want containing %q", raw, diagnostics[0].Suggest, want)
-		}
-	}
-}
+// TestDiagnoseAddsVerifierSpecificSuggestions was the legacy hand-coded
+// verifierSuggestion switch's table-driven coverage. The catalog now owns
+// per-entry remediation, and the synthetic fixture corpus under
+// testdata/verifier-fixtures/ exercised by verifier.TestVerifierCatalogFixtures
+// asserts the full diagnostic shape per entry (not just a substring on
+// .Suggest). The substring assertion this test enforced is strictly weaker
+// than the fixture-snapshot coverage, so the test was removed in favour of
+// the fixture harness. See roadmap #14 and the v0.2 phase-2 pine plan.
 
 // TestDiagnoseUsesCatalogForKnownVerifierMessage pins the diagnose path's
 // catalog enrichment: a known verifier message must produce the catalog
