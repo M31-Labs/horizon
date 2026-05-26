@@ -19,6 +19,7 @@ var examples = []string{
 	"uprobeexec", "uretprobeexec",
 	"fentryopen", "fexitopen",
 	"rawtpenter",
+	"sockopstrack",
 }
 
 // Fields stripped before comparison because they vary per-run.

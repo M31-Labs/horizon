@@ -213,6 +213,10 @@ func validateCSectionName(section string, lineNo int) error {
 	// via link.AttachRawTracepoint(RawTracepointOptions{Name: event, ...}).
 	case "raw_tp":
 		return nil
+	// sockops uses a bare section name; the cgroup path is provided at load time
+	// via link.AttachCgroup(CgroupOptions{Path: cgroupPath, Attach: ebpf.AttachCGroupSockOps}).
+	case "sockops":
+		return nil
 	}
 	switch {
 	case strings.HasPrefix(section, "tracepoint/"):

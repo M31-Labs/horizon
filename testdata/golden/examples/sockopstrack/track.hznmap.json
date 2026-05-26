@@ -1,0 +1,322 @@
+{
+  "generated": {
+    "language": "c"
+  },
+  "mappings": [
+    {
+      "function": "",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 24
+        },
+        "start": {
+          "column": 1,
+          "line": 18
+        }
+      },
+      "node": "struct",
+      "section": "",
+      "source": {
+        "end": {
+          "column": 2,
+          "line": 5
+        },
+        "end_byte": 55,
+        "file": "examples/sockopstrack/track.hzn",
+        "start": {
+          "column": 6,
+          "line": 3
+        },
+        "start_byte": 21
+      }
+    },
+    {
+      "function": "",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 29
+        },
+        "start": {
+          "column": 1,
+          "line": 24
+        }
+      },
+      "node": "map",
+      "section": "",
+      "source": {
+        "end": {
+          "column": 40,
+          "line": 7
+        },
+        "end_byte": 96,
+        "file": "examples/sockopstrack/track.hzn",
+        "start": {
+          "column": 1,
+          "line": 7
+        },
+        "start_byte": 57
+      }
+    },
+    {
+      "function": "OnSockOps",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 33
+        },
+        "start": {
+          "column": 1,
+          "line": 29
+        }
+      },
+      "node": "map_wrapper",
+      "section": "sockops",
+      "source": {
+        "end": {
+          "column": 37,
+          "line": 14
+        },
+        "end_byte": 290,
+        "file": "examples/sockopstrack/track.hzn",
+        "start": {
+          "column": 14,
+          "line": 14
+        },
+        "start_byte": 267
+      }
+    },
+    {
+      "function": "OnSockOps",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 37
+        },
+        "start": {
+          "column": 1,
+          "line": 33
+        }
+      },
+      "node": "map_wrapper",
+      "section": "sockops",
+      "source": {
+        "end": {
+          "column": 32,
+          "line": 20
+        },
+        "end_byte": 450,
+        "file": "examples/sockopstrack/track.hzn",
+        "start": {
+          "column": 5,
+          "line": 20
+        },
+        "start_byte": 423
+      }
+    },
+    {
+      "function": "OnSockOps",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 42
+        },
+        "start": {
+          "column": 1,
+          "line": 41
+        }
+      },
+      "node": "short_var",
+      "section": "sockops",
+      "source": {
+        "end": {
+          "column": 37,
+          "line": 14
+        },
+        "end_byte": 290,
+        "file": "examples/sockopstrack/track.hzn",
+        "start": {
+          "column": 5,
+          "line": 14
+        },
+        "start_byte": 258
+      }
+    },
+    {
+      "function": "OnSockOps",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 44
+        },
+        "start": {
+          "column": 1,
+          "line": 43
+        }
+      },
+      "node": "return",
+      "section": "sockops",
+      "source": {
+        "end": {
+          "column": 17,
+          "line": 16
+        },
+        "end_byte": 329,
+        "file": "examples/sockopstrack/track.hzn",
+        "start": {
+          "column": 9,
+          "line": 16
+        },
+        "start_byte": 321
+      }
+    },
+    {
+      "function": "OnSockOps",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 45
+        },
+        "start": {
+          "column": 1,
+          "line": 42
+        }
+      },
+      "node": "if",
+      "section": "sockops",
+      "source": {
+        "end": {
+          "column": 6,
+          "line": 17
+        },
+        "end_byte": 335,
+        "file": "examples/sockopstrack/track.hzn",
+        "start": {
+          "column": 5,
+          "line": 15
+        },
+        "start_byte": 295
+      }
+    },
+    {
+      "function": "OnSockOps",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 46
+        },
+        "start": {
+          "column": 1,
+          "line": 45
+        }
+      },
+      "node": "assign",
+      "section": "sockops",
+      "source": {
+        "end": {
+          "column": 17,
+          "line": 19
+        },
+        "end_byte": 418,
+        "file": "examples/sockopstrack/track.hzn",
+        "start": {
+          "column": 5,
+          "line": 19
+        },
+        "start_byte": 406
+      }
+    },
+    {
+      "function": "OnSockOps",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 47
+        },
+        "start": {
+          "column": 1,
+          "line": 46
+        }
+      },
+      "node": "expr",
+      "section": "sockops",
+      "source": {
+        "end": {
+          "column": 32,
+          "line": 20
+        },
+        "end_byte": 450,
+        "file": "examples/sockopstrack/track.hzn",
+        "start": {
+          "column": 5,
+          "line": 20
+        },
+        "start_byte": 423
+      }
+    },
+    {
+      "function": "OnSockOps",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 48
+        },
+        "start": {
+          "column": 1,
+          "line": 47
+        }
+      },
+      "node": "return",
+      "section": "sockops",
+      "source": {
+        "end": {
+          "column": 13,
+          "line": 21
+        },
+        "end_byte": 463,
+        "file": "examples/sockopstrack/track.hzn",
+        "start": {
+          "column": 5,
+          "line": 21
+        },
+        "start_byte": 455
+      }
+    },
+    {
+      "function": "OnSockOps",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 49
+        },
+        "start": {
+          "column": 1,
+          "line": 37
+        }
+      },
+      "node": "function",
+      "section": "sockops",
+      "source": {
+        "end": {
+          "column": 2,
+          "line": 22
+        },
+        "end_byte": 465,
+        "file": "examples/sockopstrack/track.hzn",
+        "start": {
+          "column": 1,
+          "line": 11
+        },
+        "start_byte": 175
+      }
+    }
+  ],
+  "schema": "m31labs.dev/horizon/sourcemap/v0",
+  "sources": [
+    {
+      "id": 0,
+      "path": "examples/sockopstrack/track.hzn"
+    }
+  ]
+}

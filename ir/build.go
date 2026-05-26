@@ -520,6 +520,14 @@ func sectionFromAttrs(attrs []ast.Attr) Section {
 				Attach: attach,
 				Name:   "raw_tp",
 			}
+		case "sockops":
+			// SEC("sockops") uses a bare section name; the cgroup is attached at
+			// load time via link.AttachCgroup(CgroupOptions{..., Attach: ebpf.AttachCGroupSockOps}).
+			return Section{
+				Kind:   ProgramSockOps,
+				Attach: "",
+				Name:   "sockops",
+			}
 		}
 	}
 	return Section{}

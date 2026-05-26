@@ -411,6 +411,7 @@ func builtinTypes() map[string]bool {
 		"fentry.Context":    true,
 		"fexit.Context":     true,
 		"raw_tp.Context":    true,
+		"sockops.Context":   true,
 	}
 }
 
@@ -957,7 +958,7 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 			Severity: diag.SeverityError,
 			Message:  fmt.Sprintf("function %q has multiple eBPF program sections", decl.Name),
 			Primary:  decl.Span,
-			Suggest:  `use exactly one section attribute such as @tracepoint(...), @xdp, @tc("ingress"), @cgroup("connect4"), @lsm("file_open"), @kprobe(...), @kretprobe(...), @uprobe("path:sym"), @uretprobe("path:sym"), @fentry("symbol"), @fexit("symbol"), or @raw_tp("event")`,
+			Suggest:  `use exactly one section attribute such as @tracepoint(...), @xdp, @tc("ingress"), @cgroup("connect4"), @lsm("file_open"), @kprobe(...), @kretprobe(...), @uprobe("path:sym"), @uretprobe("path:sym"), @fentry("symbol"), @fexit("symbol"), @raw_tp("event"), or @sockops`,
 		})
 	}
 	for _, attr := range decl.Attrs {
@@ -1199,6 +1200,15 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 					Message:  fmt.Sprintf("@raw_tp event %q is not a valid tracepoint event name", event),
 					Primary:  attr.Span,
 					Suggest:  `use a non-empty event name such as @raw_tp("sched_process_exec")`,
+				})
+			}
+		case "sockops":
+			if len(attr.Args) != 0 {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1336",
+					Severity: diag.SeverityError,
+					Message:  "@sockops does not take arguments; the cgroup path is provided at attach time",
+					Primary:  attr.Span,
 				})
 			}
 		case "capability":
@@ -1691,6 +1701,8 @@ func sectionAttrs(attrs []ast.Attr) []sectionSpec {
 			out = append(out, sectionSpec{Attr: attr, Context: "fexit.Context"})
 		case "raw_tp":
 			out = append(out, sectionSpec{Attr: attr, Context: "raw_tp.Context"})
+		case "sockops":
+			out = append(out, sectionSpec{Attr: attr, Context: "sockops.Context"})
 		}
 	}
 	return out

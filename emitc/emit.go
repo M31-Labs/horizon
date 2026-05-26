@@ -1459,6 +1459,10 @@ func cContext(fn ir.Function) string {
 		// raw_tp programs receive a bpf_raw_tracepoint_args pointer which carries
 		// the raw tracepoint arguments as an opaque u64 array.
 		return "struct bpf_raw_tracepoint_args *" + name
+	case ir.ProgramSockOps:
+		// sockops programs receive a bpf_sock_ops pointer which exposes socket
+		// state and allows rewriting socket options.
+		return "struct bpf_sock_ops *" + name
 	default:
 		return "void *" + name
 	}

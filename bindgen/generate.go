@@ -272,6 +272,8 @@ func emitsAttachMethod(fn ir.Function) bool {
 		return fn.Section.Attach != ""
 	case ir.ProgramRawTP:
 		return fn.Section.Attach != ""
+	case ir.ProgramSockOps:
+		return true
 	default:
 		return false
 	}
@@ -462,6 +464,8 @@ func emitAttach(b *bytes.Buffer, fn ir.Function) {
 		emitTracingAttach(b, fn, "AttachTraceFExit")
 	case ir.ProgramRawTP:
 		emitRawTPAttach(b, fn)
+	case ir.ProgramSockOps:
+		emitSockOpsAttach(b, fn)
 	}
 }
 
@@ -642,6 +646,21 @@ func emitRawTPAttach(b *bytes.Buffer, fn ir.Function) {
 `, field, field, fn.Name, fn.Section.Attach, field)
 }
 
+// emitSockOpsAttach emits an Attach method for a sockops program.
+// sockops programs are attached to a cgroup path at runtime; the cgroup path is
+// the only runtime argument since there is no kernel symbol to discover.
+func emitSockOpsAttach(b *bytes.Buffer, fn ir.Function) {
+	field := exported(fn.Name)
+	fmt.Fprintf(b, `func (o *Objects) Attach%s(cgroupPath string) (link.Link, error) {
+	if o == nil || o.%s == nil {
+		return nil, fmt.Errorf("%s program is not loaded")
+	}
+	return link.AttachCgroup(link.CgroupOptions{Path: cgroupPath, Attach: ebpf.AttachCGroupSockOps, Program: o.%s})
+}
+
+`, field, field, fn.Name, field)
+}
+
 func emitImports(b *bytes.Buffer, program ir.Program) {
 	needsRingbuf := hasRingbuf(program)
 	needsAttach := hasAttach(program)
@@ -711,7 +730,7 @@ func hasRingbuf(program ir.Program) bool {
 func hasAttach(program ir.Program) bool {
 	for _, fn := range program.Functions {
 		switch fn.Section.Kind {
-		case ir.ProgramTracepoint, ir.ProgramXDP, ir.ProgramTC, ir.ProgramCgroup, ir.ProgramLSM, ir.ProgramKprobe, ir.ProgramKretprobe, ir.ProgramUprobe, ir.ProgramUretprobe, ir.ProgramFentry, ir.ProgramFexit, ir.ProgramRawTP:
+		case ir.ProgramTracepoint, ir.ProgramXDP, ir.ProgramTC, ir.ProgramCgroup, ir.ProgramLSM, ir.ProgramKprobe, ir.ProgramKretprobe, ir.ProgramUprobe, ir.ProgramUretprobe, ir.ProgramFentry, ir.ProgramFexit, ir.ProgramRawTP, ir.ProgramSockOps:
 			return true
 		}
 	}

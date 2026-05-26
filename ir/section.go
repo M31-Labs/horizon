@@ -15,6 +15,7 @@ const (
 	ProgramFentry     ProgramKind = "fentry"
 	ProgramFexit      ProgramKind = "fexit"
 	ProgramRawTP      ProgramKind = "raw_tp"
+	ProgramSockOps    ProgramKind = "sockops"
 )
 
 type Section struct {

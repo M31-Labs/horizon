@@ -113,6 +113,13 @@
       "attach_strings": ["sched_process_exec"],
       "allowed_danger_leaves": ["observe"],
       "introduced": "v0.2.0"
+    },
+    {
+      "namespace": "kernel.network.sockops",
+      "attach_surface": "sockops",
+      "attach_strings": [],
+      "allowed_danger_leaves": ["observe", "mutate"],
+      "introduced": "v0.2.0"
     }
   ]
 }

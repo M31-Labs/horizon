@@ -58,6 +58,8 @@ func ExpectedKernelCapabilityPrefix(kind string, attach string, section string) 
 		case "sched_process_exec":
 			return "kernel.process.exec."
 		}
+	case "sockops":
+		return "kernel.network.sockops."
 	}
 	return ""
 }
