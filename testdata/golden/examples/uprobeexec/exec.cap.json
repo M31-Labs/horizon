@@ -7,6 +7,22 @@
         "scope": "event"
       },
       "emits": "UprobeExecEvent",
+      "helper_effects": [
+        {
+          "mutates": [
+            "ringbuf:UprobeExecEvents"
+          ],
+          "name": "ringbuf.reserve",
+          "resource": "reserve"
+        },
+        {
+          "mutates": [
+            "ringbuf:UprobeExecEvents"
+          ],
+          "name": "ringbuf.submit",
+          "resource": "submit"
+        }
+      ],
       "kind": "source",
       "maps": {
         "events": [

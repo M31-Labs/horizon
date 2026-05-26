@@ -6,6 +6,28 @@
         "reversibility": "none",
         "scope": "event"
       },
+      "helper_effects": [
+        {
+          "name": "bpf.current_pid",
+          "observes": [
+            "task.tgid"
+          ]
+        },
+        {
+          "name": "map.lookup",
+          "observes": [
+            "map:ExecCounts"
+          ],
+          "resource": "lookup"
+        },
+        {
+          "mutates": [
+            "map:ExecCounts"
+          ],
+          "name": "map.update",
+          "resource": "update"
+        }
+      ],
       "kind": "source",
       "maps": {
         "events": [],

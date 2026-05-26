@@ -1,6 +1,8 @@
 package capability
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"m31labs.dev/horizon/compiler/diag"
@@ -792,6 +794,85 @@ func TestValidateAllowsPerCPUAndLRUMapKinds(t *testing.T) {
 	}
 }
 
+// TestCapabilityHelperEffectsJSONOmitemptyWhenAbsent pins the additive
+// nature of the new HelperEffects field on Capability: a manifest whose
+// capability calls no annotated helpers must NOT serialize a
+// "helper_effects" key at all (neither "helper_effects":[] nor
+// "helper_effects":null). The `omitempty` tag is load-bearing — without
+// it every pre-Phase-2 golden snapshot would gain an empty array on the
+// next regen, defeating the additive-schema promise.
+func TestCapabilityHelperEffectsJSONOmitemptyWhenAbsent(t *testing.T) {
+	cap := Capability{
+		Name:    "kernel.process.exec.observe",
+		Kind:    "source",
+		Danger:  DangerAxes{Mode: "observe", Scope: "event", Reversibility: "none"},
+		Program: "OnExec",
+		Section: "tracepoint/sched:sched_process_exec",
+	}
+	encoded, err := json.Marshal(cap)
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+	if strings.Contains(string(encoded), "helper_effects") {
+		t.Fatalf("encoded capability contains helper_effects when empty: %s", encoded)
+	}
+}
+
+// TestCapabilityHelperEffectsJSONPresentWhenPopulated verifies the
+// emission shape: when HelperEffects is non-empty, the JSON carries
+// `"helper_effects":[...]` keyed by snake-case, with each entry's
+// observe / mutate / requires / resource fields routed through their own
+// `omitempty` tags. Order is whatever the caller hands in — the walker
+// guarantees sorted-by-Name input upstream.
+func TestCapabilityHelperEffectsJSONPresentWhenPopulated(t *testing.T) {
+	cap := Capability{
+		Name:    "kernel.file.open.observe",
+		Kind:    "source",
+		Danger:  DangerAxes{Mode: "observe", Scope: "filesystem", Reversibility: "none"},
+		Program: "OnOpen",
+		Section: "kprobe/do_sys_openat2",
+		HelperEffects: []HelperEffect{
+			{Name: "bpf.current_pid", Observes: []string{"task.tgid"}},
+			{Name: "ringbuf.reserve", Mutates: []string{"ringbuf:OpenEvents"}, Resource: "reserve"},
+		},
+	}
+	encoded, err := json.Marshal(cap)
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+	got := string(encoded)
+	if !strings.Contains(got, `"helper_effects":[`) {
+		t.Fatalf("encoded capability missing helper_effects array: %s", got)
+	}
+	if !strings.Contains(got, `"name":"bpf.current_pid"`) {
+		t.Fatalf("encoded capability missing bpf.current_pid entry: %s", got)
+	}
+	if !strings.Contains(got, `"observes":["task.tgid"]`) {
+		t.Fatalf("encoded capability missing observes for bpf.current_pid: %s", got)
+	}
+	if !strings.Contains(got, `"mutates":["ringbuf:OpenEvents"]`) {
+		t.Fatalf("encoded capability missing mutates for ringbuf.reserve: %s", got)
+	}
+	if !strings.Contains(got, `"resource":"reserve"`) {
+		t.Fatalf("encoded capability missing resource verb: %s", got)
+	}
+
+	// Round-trip — decoded shape must match the input.
+	var decoded Capability
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	if len(decoded.HelperEffects) != 2 {
+		t.Fatalf("decoded HelperEffects length = %d, want 2", len(decoded.HelperEffects))
+	}
+	if decoded.HelperEffects[0].Name != "bpf.current_pid" {
+		t.Fatalf("decoded[0].Name = %q, want bpf.current_pid", decoded.HelperEffects[0].Name)
+	}
+	if decoded.HelperEffects[1].Resource != "reserve" {
+		t.Fatalf("decoded[1].Resource = %q, want reserve", decoded.HelperEffects[1].Resource)
+	}
+}
+
 func TestValidateRejectsMissingTypeSchema(t *testing.T) {
 	m := NewManifest("probes")
 	m.Programs = append(m.Programs, Program{Name: "OnExec", Kind: "tracepoint", Section: "tracepoint/sched:sched_process_exec", Capabilities: []string{"kernel.process.exec.observe"}})
@@ -808,5 +889,122 @@ func TestValidateRejectsMissingTypeSchema(t *testing.T) {
 	})
 	if err := Validate(m); err == nil {
 		t.Fatal("Validate succeeded, want missing type schema error")
+	}
+}
+
+// helperEffectsManifest returns a minimal-but-valid manifest with one
+// capability whose HelperEffects slice is supplied by the caller. Used
+// to drive the per-field rejection table below without each subtest
+// re-spelling the boilerplate programs / capabilities / sections.
+func helperEffectsManifest(effects []HelperEffect) Manifest {
+	return Manifest{
+		Schema:  SchemaV1,
+		Package: "probes",
+		Programs: []Program{{
+			Name:         "OnExec",
+			Kind:         "tracepoint",
+			Attach:       "sched:sched_process_exec",
+			Section:      "tracepoint/sched:sched_process_exec",
+			Capabilities: []string{"kernel.process.exec.observe"},
+		}},
+		Capabilities: []Capability{{
+			Name:          "kernel.process.exec.observe",
+			Kind:          "source",
+			Danger:        DangerAxes{Mode: "observe", Scope: "event", Reversibility: "none"},
+			Program:       "OnExec",
+			Section:       "tracepoint/sched:sched_process_exec",
+			HelperEffects: effects,
+		}},
+	}
+}
+
+// TestValidateRejectsHelperEffectsWithEmptyName asserts an entry whose
+// Name is empty fails validation. Names are the registry key — an empty
+// name is structurally meaningless and would defeat dedup on the
+// downstream consumer side.
+func TestValidateRejectsHelperEffectsWithEmptyName(t *testing.T) {
+	m := helperEffectsManifest([]HelperEffect{
+		{Name: "", Observes: []string{"task.tgid"}},
+	})
+	if err := Validate(m); err == nil {
+		t.Fatal("Validate succeeded, want empty helper-effect name error")
+	}
+}
+
+// TestValidateRejectsHelperEffectsWithDuplicateName asserts the same
+// helper Name appearing twice fails validation. The Phase 2 emit
+// pipeline dedupes by Name (see ComputeHelperEffectsForFunction); a
+// duplicate in a hand-authored manifest is a structural error.
+func TestValidateRejectsHelperEffectsWithDuplicateName(t *testing.T) {
+	m := helperEffectsManifest([]HelperEffect{
+		{Name: "bpf.current_pid", Observes: []string{"task.tgid"}},
+		{Name: "bpf.current_pid", Observes: []string{"task.tgid"}},
+	})
+	if err := Validate(m); err == nil {
+		t.Fatal("Validate succeeded, want duplicate helper-effect name error")
+	}
+}
+
+// TestValidateRejectsHelperEffectsWithUnknownResourceVerb asserts a
+// Resource value outside the closed set
+// {lookup, update, delete, reserve, submit, discard, ""} fails.
+func TestValidateRejectsHelperEffectsWithUnknownResourceVerb(t *testing.T) {
+	m := helperEffectsManifest([]HelperEffect{
+		{Name: "ringbuf.reserve", Mutates: []string{"ringbuf:OpenEvents"}, Resource: "bogus_verb"},
+	})
+	if err := Validate(m); err == nil {
+		t.Fatal("Validate succeeded, want unknown resource verb error")
+	}
+}
+
+// TestValidateRejectsHelperEffectsWithBogusObserveToken asserts an
+// observes / mutates token outside the closed vocabulary fails. The
+// vocabulary is the same closed set documented in
+// internal/registry/helpers.go (task.* / kernel.time.* / userspace.*)
+// plus resolved map: / ringbuf: tokens.
+func TestValidateRejectsHelperEffectsWithBogusObserveToken(t *testing.T) {
+	m := helperEffectsManifest([]HelperEffect{
+		{Name: "bpf.current_pid", Observes: []string{"task.bogus_field"}},
+	})
+	if err := Validate(m); err == nil {
+		t.Fatal("Validate succeeded, want bogus observe token error")
+	}
+}
+
+// TestValidateAcceptsHelperEffectsWithMapPlaceholderResolved asserts a
+// well-formed entry whose map: / ringbuf: tokens are already resolved
+// to concrete map names (the post-substitution shape emitted by
+// ComputeHelperEffectsForFunction) passes validation cleanly.
+func TestValidateAcceptsHelperEffectsWithMapPlaceholderResolved(t *testing.T) {
+	m := helperEffectsManifest([]HelperEffect{
+		{Name: "ringbuf.reserve", Mutates: []string{"ringbuf:OpenEvents"}, Resource: "reserve"},
+		{Name: "map.lookup", Observes: []string{"map:Counts"}, Resource: "lookup"},
+	})
+	if err := Validate(m); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+}
+
+// TestValidateRejectsHelperEffectsWithUnresolvedPlaceholder asserts
+// that a map:$ / ringbuf:$ sentinel surviving into the emitted manifest
+// is rejected. The substitution must have happened upstream in
+// ComputeHelperEffectsForFunction; a sentinel reaching the manifest
+// indicates a bug in the emit pipeline.
+func TestValidateRejectsHelperEffectsWithUnresolvedPlaceholder(t *testing.T) {
+	cases := map[string][]HelperEffect{
+		"ringbuf placeholder": {
+			{Name: "ringbuf.reserve", Mutates: []string{"ringbuf:$"}, Resource: "reserve"},
+		},
+		"map placeholder": {
+			{Name: "map.lookup", Observes: []string{"map:$"}, Resource: "lookup"},
+		},
+	}
+	for name, effects := range cases {
+		t.Run(name, func(t *testing.T) {
+			m := helperEffectsManifest(effects)
+			if err := Validate(m); err == nil {
+				t.Fatal("Validate succeeded, want unresolved-placeholder error")
+			}
+		})
 	}
 }

@@ -7,6 +7,40 @@
         "scope": "event"
       },
       "emits": "TCPConnectEvent",
+      "helper_effects": [
+        {
+          "name": "bpf.current_comm",
+          "observes": [
+            "task.comm"
+          ]
+        },
+        {
+          "name": "bpf.current_pid",
+          "observes": [
+            "task.tgid"
+          ]
+        },
+        {
+          "name": "bpf.current_uid",
+          "observes": [
+            "task.uid"
+          ]
+        },
+        {
+          "mutates": [
+            "ringbuf:TCPConnectEvents"
+          ],
+          "name": "ringbuf.reserve",
+          "resource": "reserve"
+        },
+        {
+          "mutates": [
+            "ringbuf:TCPConnectEvents"
+          ],
+          "name": "ringbuf.submit",
+          "resource": "submit"
+        }
+      ],
       "kind": "source",
       "maps": {
         "events": [

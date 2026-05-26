@@ -39,14 +39,15 @@ type Program struct {
 }
 
 type Capability struct {
-	Name         string        `json:"name"`
-	Kind         string        `json:"kind"`
-	Danger       DangerAxes    `json:"danger"`
-	Program      string        `json:"program"`
-	Section      string        `json:"section"`
-	Emits        string        `json:"emits,omitempty"`
-	Maps         MapAccess     `json:"maps"`
-	Requirements *Requirements `json:"requirements,omitempty"`
+	Name          string         `json:"name"`
+	Kind          string         `json:"kind"`
+	Danger        DangerAxes     `json:"danger"`
+	Program       string         `json:"program"`
+	Section       string         `json:"section"`
+	Emits         string         `json:"emits,omitempty"`
+	Maps          MapAccess      `json:"maps"`
+	Requirements  *Requirements  `json:"requirements,omitempty"`
+	HelperEffects []HelperEffect `json:"helper_effects,omitempty"`
 }
 
 type MapAccess struct {

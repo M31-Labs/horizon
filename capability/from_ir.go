@@ -65,6 +65,7 @@ func FromIR(program ir.Program) Manifest {
 			if requirements.MinKernel != "" {
 				out.Requirements = &requirements
 			}
+			out.HelperEffects = ComputeHelperEffectsForFunction(program, fn)
 		}
 		manifest.Capabilities = append(manifest.Capabilities, out)
 	}

@@ -7,6 +7,22 @@
         "scope": "event"
       },
       "emits": "RawTPEnterEvent",
+      "helper_effects": [
+        {
+          "mutates": [
+            "ringbuf:RawTPEnterEvents"
+          ],
+          "name": "ringbuf.reserve",
+          "resource": "reserve"
+        },
+        {
+          "mutates": [
+            "ringbuf:RawTPEnterEvents"
+          ],
+          "name": "ringbuf.submit",
+          "resource": "submit"
+        }
+      ],
       "kind": "source",
       "maps": {
         "events": [

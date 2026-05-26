@@ -7,6 +7,55 @@
         "scope": "event"
       },
       "emits": "ExecEvent",
+      "helper_effects": [
+        {
+          "name": "bpf.current_comm",
+          "observes": [
+            "task.comm"
+          ]
+        },
+        {
+          "name": "bpf.current_pid",
+          "observes": [
+            "task.tgid"
+          ]
+        },
+        {
+          "name": "bpf.current_ppid",
+          "observes": [
+            "task.real_parent.tgid"
+          ],
+          "requires": [
+            "task_struct.real_parent"
+          ]
+        },
+        {
+          "name": "bpf.current_uid",
+          "observes": [
+            "task.uid"
+          ]
+        },
+        {
+          "name": "bpf.ktime_get_ns",
+          "observes": [
+            "kernel.time.monotonic"
+          ]
+        },
+        {
+          "mutates": [
+            "ringbuf:ExecEvents"
+          ],
+          "name": "ringbuf.reserve",
+          "resource": "reserve"
+        },
+        {
+          "mutates": [
+            "ringbuf:ExecEvents"
+          ],
+          "name": "ringbuf.submit",
+          "resource": "submit"
+        }
+      ],
       "kind": "source",
       "maps": {
         "events": [
