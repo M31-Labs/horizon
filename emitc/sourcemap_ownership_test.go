@@ -6,6 +6,7 @@ import (
 
 	"m31labs.dev/horizon/compiler"
 	"m31labs.dev/horizon/emitc"
+	"m31labs.dev/horizon/ir"
 )
 
 func TestSourceMapPopulatedByEmit(t *testing.T) {
@@ -36,6 +37,9 @@ func TestEmitProducesFreshSourceMapPerCall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AnalyzePath: %v", err)
 	}
+	if len(result.Diagnostics) != 0 {
+		t.Fatalf("unexpected diagnostics: %v", result.Diagnostics)
+	}
 
 	out1, err := emitc.Emit(result.Program)
 	if err != nil {
@@ -54,9 +58,9 @@ func TestEmitProducesFreshSourceMapPerCall(t *testing.T) {
 	}
 
 	// Mutate the first result's slice and confirm the second is unaffected.
-	original := out2.SourceMap.Mappings[0]
-	out1.SourceMap.Mappings[0] = out1.SourceMap.Mappings[len(out1.SourceMap.Mappings)-1]
-	if out2.SourceMap.Mappings[0] != original {
-		t.Fatal("SourceMap.Mappings slices share underlying array; Emit is not producing independent maps")
+	sentinel := ir.SourceMapping{Node: "TEST_SENTINEL_DO_NOT_COMMIT"}
+	out1.SourceMap.Mappings[0] = sentinel
+	if out2.SourceMap.Mappings[0] == sentinel {
+		t.Fatal("Emit returned aliased SourceMap.Mappings slices; mutation in out1 leaked to out2")
 	}
 }

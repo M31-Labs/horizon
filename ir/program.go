@@ -18,6 +18,10 @@ type Const struct {
 	Span  span.Span
 }
 
+// SourceMap describes the mapping from .hzn source spans to generated C
+// lines. Populated by emitc.Emit (which sets emitc.Output.SourceMap) and
+// consumed by verifier.Remap and cmd/hzn diagnostics. Kept in ir/ as the
+// neutral lowest-common-ancestor package shared by emitc, verifier, and cmd/hzn.
 type SourceMap struct {
 	Schema    string          `json:"schema"`
 	Sources   []Source        `json:"sources,omitempty"`
