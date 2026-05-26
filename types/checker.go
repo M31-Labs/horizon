@@ -1313,7 +1313,11 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 		diags = append(diags, validateSectionSignature(decl, sections[0])...)
 	}
 	for _, param := range decl.Params {
-		diags = append(diags, validateTypeRef(param.Type, known)...)
+		if isHelper {
+			diags = append(diags, validateHelperParamTypeRef(param.Type, known)...)
+		} else {
+			diags = append(diags, validateTypeRef(param.Type, known)...)
+		}
 	}
 	diags = append(diags, validateTypeRef(decl.Return, known)...)
 	if isHelper {
@@ -1804,6 +1808,35 @@ func validateTypeRef(ref ast.TypeRef, known map[string]bool) []diag.Diagnostic {
 		Message:  fmt.Sprintf("unknown type %q", ref.Name),
 		Primary:  ref.Span,
 	})
+}
+
+// validateHelperParamTypeRef validates a type ref appearing in helper-function
+// parameter position. It mirrors validateTypeRef everywhere except for the
+// narrow HZN1106 carve-out: a `*<NamedStruct>` shape (Ptr=true, non-scalar
+// Name, no Len, non-nil Elem) — i.e. a resource pointer that matches
+// helperResourceParamType — is admitted without emitting HZN1106. All other
+// `*T` source forms (locals, struct fields, return types, non-helper params)
+// continue to flow through validateTypeRef and emit HZN1106 unchanged. The
+// suppression is scoped to the OUTER ref: the inner elem still passes through
+// validateTypeRef so unknown-name (HZN1102) and any deeper *T (nested
+// pointer-to-pointer) keep firing.
+func validateHelperParamTypeRef(ref ast.TypeRef, known map[string]bool) []diag.Diagnostic {
+	if !helperResourceParamType(ref) {
+		return validateTypeRef(ref, known)
+	}
+	var diags []diag.Diagnostic
+	if ref.Elem != nil {
+		diags = append(diags, validateTypeRef(*ref.Elem, known)...)
+	}
+	if ref.Name != "" && !known[ref.Name] {
+		diags = append(diags, diag.Diagnostic{
+			Code:     "HZN1102",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("unknown type %q", ref.Name),
+			Primary:  ref.Span,
+		})
+	}
+	return diags
 }
 
 type sectionSpec struct {

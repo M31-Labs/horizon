@@ -164,6 +164,45 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	}
 }
 
+// TestHelperResourcePointerParamSurvivesValidateTypeRef pins the Task 8.0
+// HZN1106 narrow relaxation: a helper parameter whose type is a pointer to a
+// Horizon-declared struct (e.g. *Event) must NOT trigger HZN1106
+// ("source-authored pointer types are not supported"), even though all other
+// source-level *T forms continue to. This lets real `.hzn` examples that
+// declare helpers taking nullable resource handles compile end-to-end.
+func TestHelperResourcePointerParamSurvivesValidateTypeRef(t *testing.T) {
+	file := parseTestFile(t, `package probes
+
+type Event struct {
+    pid u32
+}
+
+map Events ringbuf[Event]
+
+func record(ev *Event) bool {
+    Events.submit(ev)
+    return true
+}
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    event := Events.reserve()
+    if event == nil {
+        return 0
+    }
+    record(event)
+    return 0
+}
+`)
+	diags := Check(file)
+	if slices.ContainsFunc(diags, func(d diag.Diagnostic) bool { return d.Code == "HZN1106" }) {
+		t.Fatalf("diagnostics = %#v, want no HZN1106 on resource-typed helper param", diags)
+	}
+	if slices.ContainsFunc(diags, func(d diag.Diagnostic) bool { return d.Code == "HZN1319" }) {
+		t.Fatalf("diagnostics = %#v, want no HZN1319 on resource-typed helper param", diags)
+	}
+}
+
 func TestHelperResourceReturnStillRejected(t *testing.T) {
 	file := parseTestFile(t, `package probes
 
