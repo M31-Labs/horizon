@@ -20,6 +20,16 @@ type LogEntry struct {
 	Column    int
 	CSource   string
 	Generated bool
+	// Kind records which producer recognised this entry. Set to
+	// "clang_diagnostic" when the line parses as the clang
+	// `path:line:col: severity: message` shape, and "verifier" when
+	// the line is recognised by looksLikeVerifierDiagnostic against a
+	// preceding C-source marker. Empty when neither applies
+	// (e.g., synthetic fallback entries built downstream). The diagnose
+	// path uses this to gate the verifier-message catalog so verifier
+	// remediation does not leak into clang-rooted diagnostics
+	// (roadmap #14, plan Task 5.4).
+	Kind string
 }
 
 var clangDiagnosticRE = regexp.MustCompile(`^(.+?):([0-9]+):([0-9]+):\s*(fatal error|error|warning|note):\s*(.+)$`)
@@ -50,6 +60,7 @@ func ParseLog(raw string) Log {
 				Severity:  "error",
 				CSource:   lastSource,
 				Generated: true,
+				Kind:      "verifier",
 			})
 			context = nil
 			lastSource = ""
@@ -77,6 +88,7 @@ func parseClangDiagnostic(line string) (LogEntry, bool) {
 		Line:      lineNo,
 		Column:    columnNo,
 		Generated: true,
+		Kind:      "clang_diagnostic",
 	}, true
 }
 

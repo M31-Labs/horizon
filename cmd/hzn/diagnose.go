@@ -173,7 +173,24 @@ func diagnosticsFromVerifier(remapped []verifier.Diagnostic, generated []byte) [
 			Message:  d.Message,
 			Primary:  d.Span,
 		}
-		entry, captures, matched := verifierCatalog.Lookup(d.Message, d.Raw)
+		// Origin gate (plan Task 5.4): the verifier-message catalog is
+		// content-indexed, so a clang error whose text happens to contain
+		// a verifier idiom (e.g., "invalid mem access 'scalar'") would
+		// otherwise leak verifier remediation into a clang-rooted
+		// diagnostic. Clang and verifier are different vocabularies; the
+		// catalog targets the verifier vocabulary only. Synthetic fallback
+		// diagnostics (Kind == "") fall through to the catalog: those
+		// originate from raw verifier-log stdin without recognisable
+		// per-line structure, and treating them as verifier-by-default
+		// preserves the pre-gate match behaviour for those callers.
+		var (
+			entry    verifier.CatalogEntry
+			captures map[string]string
+			matched  bool
+		)
+		if d.Kind != "clang_diagnostic" {
+			entry, captures, matched = verifierCatalog.Lookup(d.Message, d.Raw)
+		}
 		if matched {
 			converted.Code = entry.HZNCode
 			converted.Suggest = renderCatalogTemplate(entry.ID, "remediation", entry.Remediation, captures)

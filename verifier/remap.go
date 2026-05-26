@@ -26,6 +26,7 @@ func RemapWithGenerated(log Log, sourceMap ir.SourceMap, generated []byte) []Dia
 			Message:  entry.Message,
 			Severity: entry.Severity,
 			Raw:      entry.Raw,
+			Kind:     entry.Kind,
 		}
 		if entry.Line > 0 {
 			diag.Generated = span.Span{
