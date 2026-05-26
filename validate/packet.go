@@ -126,12 +126,14 @@ func validateXDPPacketHeaders(fn ir.Function) []diag.Diagnostic {
 				}
 				func() {
 					checkExpr(stmt.Cond)
-					if varName, ok := nilComparedVar(stmt.Cond, "=="); ok {
-						root := aliases.root(varName)
+					if eqVars := nilCheckedVars(stmt.Cond); len(eqVars) > 0 {
 						branchStates := clonePacketHeaderStates(states)
-						if state, ok := branchStates[root]; ok && state.State == "maybe_nil" {
-							state.State = "nil"
-							branchStates[root] = state
+						for _, varName := range eqVars {
+							root := aliases.root(varName)
+							if state, ok := branchStates[root]; ok && state.State == "maybe_nil" {
+								state.State = "nil"
+								branchStates[root] = state
+							}
 						}
 						oldStates := states
 						states = branchStates
@@ -140,9 +142,12 @@ func validateXDPPacketHeaders(fn ir.Function) []diag.Diagnostic {
 						states = oldStates
 						if len(stmt.Else) > 0 {
 							elseStates := clonePacketHeaderStates(oldStates)
-							if state, ok := elseStates[root]; ok && state.State == "maybe_nil" {
-								state.State = "live"
-								elseStates[root] = state
+							for _, varName := range eqVars {
+								root := aliases.root(varName)
+								if state, ok := elseStates[root]; ok && state.State == "maybe_nil" {
+									state.State = "live"
+									elseStates[root] = state
+								}
 							}
 							states = elseStates
 							walk(stmt.Else)
@@ -151,19 +156,24 @@ func validateXDPPacketHeaders(fn ir.Function) []diag.Diagnostic {
 							return
 						}
 						if branchAlwaysReturns(stmt.Then) {
-							if state, ok := states[root]; ok && state.State == "maybe_nil" {
-								state.State = "live"
-								states[root] = state
+							for _, varName := range eqVars {
+								root := aliases.root(varName)
+								if state, ok := states[root]; ok && state.State == "maybe_nil" {
+									state.State = "live"
+									states[root] = state
+								}
 							}
 						}
 						return
 					}
-					if varName, ok := nilComparedVar(stmt.Cond, "!="); ok {
-						root := aliases.root(varName)
+					if neqVars := nilComparedVars(stmt.Cond, "!="); len(neqVars) > 0 {
 						branchStates := clonePacketHeaderStates(states)
-						if state, ok := branchStates[root]; ok && state.State == "maybe_nil" {
-							state.State = "live"
-							branchStates[root] = state
+						for _, varName := range neqVars {
+							root := aliases.root(varName)
+							if state, ok := branchStates[root]; ok && state.State == "maybe_nil" {
+								state.State = "live"
+								branchStates[root] = state
+							}
 						}
 						oldStates := states
 						states = branchStates
@@ -172,9 +182,12 @@ func validateXDPPacketHeaders(fn ir.Function) []diag.Diagnostic {
 						states = oldStates
 						if len(stmt.Else) > 0 {
 							elseStates := clonePacketHeaderStates(oldStates)
-							if state, ok := elseStates[root]; ok && state.State == "maybe_nil" {
-								state.State = "nil"
-								elseStates[root] = state
+							for _, varName := range neqVars {
+								root := aliases.root(varName)
+								if state, ok := elseStates[root]; ok && state.State == "maybe_nil" {
+									state.State = "nil"
+									elseStates[root] = state
+								}
 							}
 							states = elseStates
 							walk(stmt.Else)

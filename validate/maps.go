@@ -190,12 +190,14 @@ func validateTypedMapLookups(fn ir.Function, lookupMaps map[string]ir.Map) []dia
 				}
 				func() {
 					checkExpr(stmt.Cond)
-					if varName, ok := nilComparedVar(stmt.Cond, "=="); ok {
-						root := aliases.root(varName)
+					if eqVars := nilCheckedVars(stmt.Cond); len(eqVars) > 0 {
 						branchStates := cloneLookupStates(states)
-						if state, ok := branchStates[root]; ok && state.State == "maybe_nil" {
-							state.State = "nil"
-							branchStates[root] = state
+						for _, varName := range eqVars {
+							root := aliases.root(varName)
+							if state, ok := branchStates[root]; ok && state.State == "maybe_nil" {
+								state.State = "nil"
+								branchStates[root] = state
+							}
 						}
 						oldStates := states
 						states = branchStates
@@ -204,9 +206,12 @@ func validateTypedMapLookups(fn ir.Function, lookupMaps map[string]ir.Map) []dia
 						states = oldStates
 						if len(stmt.Else) > 0 {
 							elseStates := cloneLookupStates(oldStates)
-							if state, ok := elseStates[root]; ok && state.State == "maybe_nil" {
-								state.State = "live"
-								elseStates[root] = state
+							for _, varName := range eqVars {
+								root := aliases.root(varName)
+								if state, ok := elseStates[root]; ok && state.State == "maybe_nil" {
+									state.State = "live"
+									elseStates[root] = state
+								}
 							}
 							states = elseStates
 							walk(stmt.Else)
@@ -215,19 +220,24 @@ func validateTypedMapLookups(fn ir.Function, lookupMaps map[string]ir.Map) []dia
 							return
 						}
 						if branchAlwaysReturns(stmt.Then) {
-							if state, ok := states[root]; ok && state.State == "maybe_nil" {
-								state.State = "live"
-								states[root] = state
+							for _, varName := range eqVars {
+								root := aliases.root(varName)
+								if state, ok := states[root]; ok && state.State == "maybe_nil" {
+									state.State = "live"
+									states[root] = state
+								}
 							}
 						}
 						return
 					}
-					if varName, ok := nilComparedVar(stmt.Cond, "!="); ok {
-						root := aliases.root(varName)
+					if neqVars := nilComparedVars(stmt.Cond, "!="); len(neqVars) > 0 {
 						branchStates := cloneLookupStates(states)
-						if state, ok := branchStates[root]; ok && state.State == "maybe_nil" {
-							state.State = "live"
-							branchStates[root] = state
+						for _, varName := range neqVars {
+							root := aliases.root(varName)
+							if state, ok := branchStates[root]; ok && state.State == "maybe_nil" {
+								state.State = "live"
+								branchStates[root] = state
+							}
 						}
 						oldStates := states
 						states = branchStates
@@ -236,9 +246,12 @@ func validateTypedMapLookups(fn ir.Function, lookupMaps map[string]ir.Map) []dia
 						states = oldStates
 						if len(stmt.Else) > 0 {
 							elseStates := cloneLookupStates(oldStates)
-							if state, ok := elseStates[root]; ok && state.State == "maybe_nil" {
-								state.State = "nil"
-								elseStates[root] = state
+							for _, varName := range neqVars {
+								root := aliases.root(varName)
+								if state, ok := elseStates[root]; ok && state.State == "maybe_nil" {
+									state.State = "nil"
+									elseStates[root] = state
+								}
 							}
 							states = elseStates
 							walk(stmt.Else)
@@ -367,18 +380,6 @@ func mapLookupCall(expr *ir.Expr) (string, bool) {
 	return operand.Name, true
 }
 
-func nilComparedVar(expr *ir.Expr, op string) (string, bool) {
-	if expr == nil || expr.Kind != "binary" || expr.Op != op {
-		return "", false
-	}
-	if expr.Left != nil && expr.Left.Kind == "ident" && expr.Right != nil && expr.Right.Kind == "nil" {
-		return expr.Left.Name, true
-	}
-	if expr.Right != nil && expr.Right.Kind == "ident" && expr.Left != nil && expr.Left.Kind == "nil" {
-		return expr.Right.Name, true
-	}
-	return "", false
-}
 
 func cloneLookupStates(in map[string]lookupState) map[string]lookupState {
 	out := make(map[string]lookupState, len(in))
