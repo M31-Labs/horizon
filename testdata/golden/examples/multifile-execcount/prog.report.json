@@ -1,0 +1,47 @@
+{
+  "compile": false,
+  "diagnostic_count": 0,
+  "diagnostics": [],
+  "generator": "hzn workbench",
+  "package": "execcount",
+  "schema": "m31labs.dev/horizon/report/v0",
+  "sources": [
+    {
+      "package": "execcount",
+      "path": "examples/multifile-execcount/prog.hzn",
+      "sha256": "996dae1a38fdac8b3eebf3038bd6800dcdb45e9ff5c61b1ed29f19c765be138c",
+      "size": 494
+    },
+    {
+      "package": "execcount",
+      "path": "examples/multifile-execcount/types.hzn",
+      "sha256": "e3dd605a0086eefbc18efeccaee9d2f1520a8ff5c319aa828bd1ff707ca9f782",
+      "size": 87
+    }
+  ],
+  "status": "generated",
+  "summary": {
+    "capability_count": 1,
+    "capability_dangers": [
+      "observe"
+    ],
+    "features": [
+      "tracefs"
+    ],
+    "map_count": 1,
+    "map_kinds": [
+      "ringbuf"
+    ],
+    "min_kernel": "5.8",
+    "permissions": [
+      "bpf_program_load",
+      "perf_event_open"
+    ],
+    "program_count": 1,
+    "program_kinds": [
+      "tracepoint"
+    ],
+    "source_count": 2,
+    "type_count": 1
+  }
+}

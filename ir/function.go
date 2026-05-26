@@ -10,6 +10,12 @@ type Function struct {
 	Body     []Block
 	BodyText string
 	Span     span.Span
+	// Origin records the import alias of the dependency package this
+	// function was lowered from, when the program is the result of a
+	// multi-package build (roadmap #20 Phase 2 Subtask 4a). Functions
+	// from the root package have Origin == "". Capability aggregation
+	// (Task 5) consumes Origin to emit qualified manifest names.
+	Origin string `json:",omitempty"`
 }
 
 type Param struct {
@@ -80,6 +86,10 @@ type Struct struct {
 	Name   string
 	Fields []Field
 	Span   span.Span
+	// Origin records the import alias of the dependency package this
+	// struct was lowered from (roadmap #20 Phase 2 Subtask 4a). Root-
+	// package structs have Origin == "".
+	Origin string `json:",omitempty"`
 }
 
 type Field struct {

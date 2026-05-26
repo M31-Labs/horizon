@@ -59,6 +59,12 @@ type Capability struct {
 	Danger  DangerLevel
 	Axes    DangerAxes // additive: orthogonal axes alongside the flat Danger string
 	Span    span.Span
+	// Origin records the import alias of the dependency package this
+	// capability was lowered from (roadmap #20 Phase 2 Subtask 4a). Root-
+	// package capabilities have Origin == "". Aggregation (Task 5)
+	// consumes Origin to emit qualified manifest names like
+	// "events.ExecObserve".
+	Origin string `json:",omitempty"`
 }
 
 type CapabilityMapAccess struct {

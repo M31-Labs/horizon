@@ -1,0 +1,11 @@
+package main
+
+import events "./events"
+
+capability ExecObserveRoot danger observe = "kernel.process.exec.observe"
+
+@capability(ExecObserveRoot)
+@tracepoint("sched:sched_process_exec")
+func OnExecRoot(ctx tracepoint.Exec) i32 {
+    return 0
+}
