@@ -9,6 +9,7 @@ import (
 	"m31labs.dev/horizon/ast"
 	"m31labs.dev/horizon/compiler/diag"
 	"m31labs.dev/horizon/compiler/span"
+	"m31labs.dev/horizon/internal/registry"
 )
 
 func Check(file ast.File) []diag.Diagnostic {
@@ -1246,10 +1247,11 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 			}
 		default:
 			diags = append(diags, diag.Diagnostic{
-				Code:     "HZN1303",
+				Code:     "HZN1338",
 				Severity: diag.SeverityError,
-				Message:  fmt.Sprintf("unsupported attribute @%s", attr.Name),
+				Message:  fmt.Sprintf("unknown attach surface or attribute @%s", attr.Name),
 				Primary:  attr.Span,
+				Suggest:  "use a recognized attach surface: @tracepoint, @xdp, @tc, @cgroup, @lsm, @kprobe, @kretprobe, @uprobe, @uretprobe, @fentry, @fexit, @raw_tp, @sockops, or @struct_ops",
 			})
 		}
 	}
@@ -1317,14 +1319,8 @@ func validateCapabilityDecl(decl ast.CapabilityDecl) []diag.Diagnostic {
 				})
 			}
 		}
-		if strings.HasPrefix(decl.Value, "kernel.") && !recognizedCapabilityLeaf(decl.Value) {
-			diags = append(diags, diag.Diagnostic{
-				Code:     "HZN1326",
-				Severity: diag.SeverityError,
-				Message:  fmt.Sprintf("capability %q uses an unrecognized leaf in the reserved kernel.* namespace", decl.Value),
-				Primary:  decl.Span,
-				Suggest:  "use a recognized leaf word: observe, mutate, drop, block, privileged, deny, or allow",
-			})
+		if strings.HasPrefix(decl.Value, "kernel.") {
+			diags = append(diags, validateCapabilityNamespaceLeaf(decl)...)
 		}
 		return diags
 	}
@@ -1336,6 +1332,69 @@ func validateCapabilityDecl(decl ast.CapabilityDecl) []diag.Diagnostic {
 		Suggest:  `use a stable capability string such as "kernel.process.exec.observe"`,
 	})
 	return diags
+}
+
+// validateCapabilityNamespaceLeaf checks that the namespace prefix of a
+// kernel.* capability value is registered in the canonical registry, and that
+// the leaf word is in the allowed_danger_leaves for that namespace.
+//
+//   - HZN1339: namespace prefix is not in the registry at all.
+//   - HZN1326: namespace is registered but the leaf is not allowed.
+func validateCapabilityNamespaceLeaf(decl ast.CapabilityDecl) []diag.Diagnostic {
+	// Split "kernel.process.exec.observe" into prefix "kernel.process.exec"
+	// and leaf "observe".
+	lastDot := strings.LastIndex(decl.Value, ".")
+	if lastDot < 0 {
+		// No dot at all — malformed; let HZN1322 handle it elsewhere.
+		return nil
+	}
+	prefix := decl.Value[:lastDot]
+	leaf := decl.Value[lastDot+1:]
+
+	reg := registry.MustLoad()
+
+	// Collect all allowed leaves for this namespace prefix across all entries.
+	var allowedLeaves []string
+	for _, ns := range reg.Namespaces {
+		if ns.Namespace == prefix {
+			allowedLeaves = append(allowedLeaves, ns.AllowedDangerLeaves...)
+		}
+	}
+
+	if len(allowedLeaves) == 0 {
+		// Namespace prefix not found in the registry.
+		return []diag.Diagnostic{{
+			Code:     "HZN1339",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("capability %q uses an unregistered namespace prefix %q in the reserved kernel.* namespace", decl.Value, prefix),
+			Primary:  decl.Span,
+			Suggest:  "use a canonical capability namespace registered in the Horizon capability-namespaces registry",
+		}}
+	}
+
+	// Check that the leaf is allowed for at least one registry entry for this namespace.
+	for _, allowed := range allowedLeaves {
+		if leaf == allowed {
+			return nil
+		}
+	}
+
+	// Deduplicate allowed leaves for the error message.
+	seen := map[string]bool{}
+	unique := allowedLeaves[:0]
+	for _, l := range allowedLeaves {
+		if !seen[l] {
+			seen[l] = true
+			unique = append(unique, l)
+		}
+	}
+	return []diag.Diagnostic{{
+		Code:     "HZN1326",
+		Severity: diag.SeverityError,
+		Message:  fmt.Sprintf("capability %q uses leaf %q not allowed in namespace %q (allowed: %s)", decl.Value, leaf, prefix, strings.Join(unique, ", ")),
+		Primary:  decl.Span,
+		Suggest:  fmt.Sprintf("use one of the allowed leaves for namespace %q: %s", prefix, strings.Join(unique, ", ")),
+	}}
 }
 
 func validTracepointAttach(attach string) bool {
@@ -1396,26 +1455,6 @@ func capabilityNameDanger(name string) DangerLevel {
 	}
 }
 
-// recognizedCapabilityLeaf reports whether name's final dotted segment is a
-// recognized danger or action leaf word. Used to gate kernel.* capabilities
-// against the false-acceptance hole described in
-// spec.horizon-continuum-integration.v1 §A.1.
-func recognizedCapabilityLeaf(name string) bool {
-	leaf := name
-	for {
-		_, suffix, ok := strings.Cut(leaf, ".")
-		if !ok {
-			break
-		}
-		leaf = suffix
-	}
-	switch leaf {
-	case "observe", "mutate", "drop", "block", "privileged", "deny", "allow":
-		return true
-	default:
-		return false
-	}
-}
 
 func dangerLess(left DangerLevel, right DangerLevel) bool {
 	return dangerRank(left) < dangerRank(right)

@@ -1,6 +1,10 @@
 package capability
 
-import "strings"
+import (
+	"strings"
+
+	"m31labs.dev/horizon/internal/registry"
+)
 
 func KernelCapabilityNamespaceMismatch(name string, kind string, attach string, section string) (string, bool) {
 	if name == "" || !strings.HasPrefix(name, "kernel.") {
@@ -13,57 +17,30 @@ func KernelCapabilityNamespaceMismatch(name string, kind string, attach string, 
 	return want, true
 }
 
+// ExpectedKernelCapabilityPrefix returns the required namespace prefix
+// (including trailing dot) for a kernel.* capability attached to a program
+// of the given kind and attach string. Returns "" if the combination is
+// not registered, which leaves the namespace constraint open.
+//
+// The prefix is determined by a walk of the canonical capability-namespaces
+// registry: the first entry whose attach_surface matches kind AND whose
+// attach_strings either contains attach or is empty (surface matches any
+// attach) is used.
 func ExpectedKernelCapabilityPrefix(kind string, attach string, section string) string {
 	attach = programAttach(kind, attach, section)
-	switch kind {
-	case "tracepoint":
-		if attach == "sched:sched_process_exec" {
-			return "kernel.process.exec."
+	reg := registry.MustLoad()
+	for _, ns := range reg.Namespaces {
+		if ns.AttachSurface != kind {
+			continue
 		}
-	case "xdp":
-		return "kernel.network.xdp."
-	case "tc":
-		return "kernel.network.tc."
-	case "cgroup":
-		if attach == "connect4" || attach == "connect6" {
-			return "kernel.network.connect."
+		if len(ns.AttachStrings) == 0 {
+			// Surface matches any attach string (e.g. xdp, sockops, uprobe).
+			return ns.Namespace + "."
 		}
-	case "lsm":
-		switch attach {
-		case "file_open":
-			return "kernel.file.open."
-		case "bprm_check_security":
-			return "kernel.process.exec."
-		case "task_kill":
-			return "kernel.process.kill."
-		}
-	case "kprobe", "kretprobe":
-		switch attach {
-		case "do_sys_openat2":
-			return "kernel.file.open."
-		case "tcp_v4_connect":
-			return "kernel.network.tcp.connect."
-		}
-	case "uprobe", "uretprobe":
-		return "kernel.userspace.exec."
-	case "fentry", "fexit":
-		switch attach {
-		case "do_filp_open":
-			return "kernel.file.open."
-		case "do_execve", "do_execveat":
-			return "kernel.process.exec."
-		}
-	case "raw_tp":
-		switch attach {
-		case "sched_process_exec":
-			return "kernel.process.exec."
-		}
-	case "sockops":
-		return "kernel.network.sockops."
-	case "struct_ops":
-		switch attach {
-		case "tcp_init", "tcp_recalc_ssthresh", "tcp_undo_cwnd_reduction":
-			return "kernel.network.tcp.congestion."
+		for _, s := range ns.AttachStrings {
+			if s == attach {
+				return ns.Namespace + "."
+			}
 		}
 	}
 	return ""

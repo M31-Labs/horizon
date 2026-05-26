@@ -10,7 +10,7 @@ type Count struct {
 
 map ExecCounts hash[u32, Count]
 
-capability ExecCount danger observe = "kernel.process.exec.count.observe"
+capability ExecCount danger observe = "kernel.process.exec.observe"
 
 @capability(ExecCount)
 @tracepoint("sched:sched_process_exec")
