@@ -1576,15 +1576,16 @@ func validateCapabilityAttr(attr ast.Attr, capabilities map[string]ast.Capabilit
 func validateHelperSignature(decl ast.FuncDecl) []diag.Diagnostic {
 	var diags []diag.Diagnostic
 	for _, param := range decl.Params {
-		if !helperScalarType(param.Type) {
-			diags = append(diags, diag.Diagnostic{
-				Code:     "HZN1319",
-				Severity: diag.SeverityError,
-				Message:  fmt.Sprintf("helper function %q parameter %q must be a scalar or bool value", decl.Name, param.Name),
-				Primary:  param.Type.Span,
-				Suggest:  "keep reusable helpers scalar-only in v0; pass resources through compiler-known helpers inside an eBPF entrypoint",
-			})
+		if helperScalarType(param.Type) || helperResourceParamType(param.Type) {
+			continue
 		}
+		diags = append(diags, diag.Diagnostic{
+			Code:     "HZN1319",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("helper function %q parameter %q must be a scalar, bool, or nullable resource handle", decl.Name, param.Name),
+			Primary:  param.Type.Span,
+			Suggest:  "keep reusable helpers scalar, bool, or pointer-to-named-struct in v0; fixed-size arrays and aggregate value params remain unsupported",
+		})
 	}
 	if decl.Return.IsZero() {
 		return append(diags, diag.Diagnostic{
@@ -1609,6 +1610,28 @@ func validateHelperSignature(decl ast.FuncDecl) []diag.Diagnostic {
 
 func helperScalarType(ref ast.TypeRef) bool {
 	return !ref.IsZero() && !ref.Ptr && ref.Elem == nil && len(ref.Args) == 0 && isScalar(ref.Name)
+}
+
+// helperResourceParamType reports whether a helper-function parameter type ref
+// names a tracked nullable resource handle (e.g. *Event, *Counter, *xdp.Eth).
+// This predicate is the ast.TypeRef counterpart of ir.isResourceParamType in
+// ir/build.go and must classify the same set of params as resources. Keep the
+// two predicates in lockstep when extending or constraining the resource shape.
+// The ast/build.go pointer_type builder copies the inner elem.Name onto ref.Name
+// (ast/build.go:550), so a `*Event` param presents as Ptr=true / Name="Event";
+// ref.Elem is non-nil in that case and intentionally not inspected here, mirroring
+// ir.isResourceParamType which also keys off Ptr, Len, and Name only.
+func helperResourceParamType(ref ast.TypeRef) bool {
+	if ref.IsZero() || !ref.Ptr {
+		return false
+	}
+	if ref.Len != "" {
+		return false
+	}
+	if ref.Name == "" || isScalar(ref.Name) || ref.Name == "bool" {
+		return false
+	}
+	return true
 }
 
 func validateFunctionCallGraph(funcs map[string]ast.FuncDecl) map[string][]diag.Diagnostic {

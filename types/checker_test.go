@@ -134,6 +134,65 @@ func BlockSMTP(ctx cgroup.Connect) i32 {
 	}
 }
 
+func TestHelperFunctionAcceptsResourceParam(t *testing.T) {
+	file := parseTestFile(t, `package probes
+
+type Event struct {
+    pid u32
+}
+
+map Events ringbuf[Event]
+
+func record(event *Event) bool {
+    Events.submit(event)
+    return true
+}
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    event := Events.reserve()
+    if event == nil {
+        return 0
+    }
+    record(event)
+    return 0
+}
+`)
+	diags := Check(file)
+	if slices.ContainsFunc(diags, func(d diag.Diagnostic) bool { return d.Code == "HZN1319" }) {
+		t.Fatalf("diagnostics = %#v, want no HZN1319 on resource-typed helper param", diags)
+	}
+}
+
+func TestHelperResourceReturnStillRejected(t *testing.T) {
+	file := parseTestFile(t, `package probes
+
+type Event struct {
+    pid u32
+}
+
+map Events ringbuf[Event]
+
+func badReturn(ev *Event) *Event {
+    return ev
+}
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    event := Events.reserve()
+    if event == nil {
+        return 0
+    }
+    badReturn(event)
+    return 0
+}
+`)
+	diags := Check(file)
+	if !slices.ContainsFunc(diags, func(d diag.Diagnostic) bool { return d.Code == "HZN1320" }) {
+		t.Fatalf("diagnostics = %#v, want HZN1320 on resource-typed helper return", diags)
+	}
+}
+
 func parseTestFile(t *testing.T, source string) ast.File {
 	t.Helper()
 	parsed, err := parser.ParseSource(parser.SourceFile{Path: "inline.hzn", Bytes: []byte(source)})
