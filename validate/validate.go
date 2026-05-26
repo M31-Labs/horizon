@@ -6,13 +6,14 @@ import (
 )
 
 func Program(program ir.Program) []diag.Diagnostic {
+	sites := Collect(program)
 	var diags []diag.Diagnostic
-	diags = append(diags, ValidateLoops(program)...)
-	diags = append(diags, ValidateStack(program)...)
-	diags = append(diags, ValidateRingbuf(program)...)
-	diags = append(diags, ValidateMaps(program)...)
-	diags = append(diags, ValidateHelpers(program)...)
-	diags = append(diags, ValidatePacket(program)...)
+	diags = append(diags, AnalyzeLoops(program, sites)...)
+	diags = append(diags, AnalyzeStack(program, sites)...)
+	diags = append(diags, AnalyzeRingbuf(program, sites)...)
+	diags = append(diags, AnalyzeMaps(program, sites)...)
+	diags = append(diags, AnalyzeHelpers(program, sites)...)
+	diags = append(diags, AnalyzePacket(program, sites)...)
 	diags = append(diags, ValidateCapabilities(program)...)
 	return diags
 }

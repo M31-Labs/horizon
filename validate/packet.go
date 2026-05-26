@@ -8,6 +8,13 @@ import (
 	"m31labs.dev/horizon/ir"
 )
 
+// AnalyzePacket runs the packet validator's rule logic over pre-collected sites.
+// Internally delegates to ValidatePacket for now; migrated to consume sites
+// directly in a follow-up commit within this task.
+func AnalyzePacket(program ir.Program, sites Sites) []diag.Diagnostic {
+	return ValidatePacket(program)
+}
+
 type packetHeaderState struct {
 	Helper string
 	State  string

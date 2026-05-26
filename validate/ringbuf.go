@@ -17,6 +17,13 @@ var (
 	ringWriteRE    = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\.[A-Za-z_][A-Za-z0-9_]*\s*=`)
 )
 
+// AnalyzeRingbuf runs the ringbuf validator's rule logic over pre-collected sites.
+// Internally delegates to ValidateRingbuf for now; migrated to consume sites
+// directly in a follow-up commit within this task.
+func AnalyzeRingbuf(program ir.Program, sites Sites) []diag.Diagnostic {
+	return ValidateRingbuf(program)
+}
+
 type reserveState struct {
 	Map   string
 	State string

@@ -11,6 +11,13 @@ import (
 
 var boundedForRE = regexp.MustCompile(`\bfor\b.*<\s*[0-9]+`)
 
+// AnalyzeLoops runs the loops validator's rule logic over pre-collected sites.
+// Internally delegates to ValidateLoops for now; migrated to consume sites
+// directly in a follow-up commit within this task.
+func AnalyzeLoops(program ir.Program, sites Sites) []diag.Diagnostic {
+	return ValidateLoops(program)
+}
+
 func ValidateLoops(program ir.Program) []diag.Diagnostic {
 	var diags []diag.Diagnostic
 	loopBounds := integerLoopBounds(program.Constants)

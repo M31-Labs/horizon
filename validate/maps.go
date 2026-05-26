@@ -9,6 +9,13 @@ import (
 	"m31labs.dev/horizon/ir"
 )
 
+// AnalyzeMaps runs the maps validator's rule logic over pre-collected sites.
+// Internally delegates to ValidateMaps for now; migrated to consume sites
+// directly in a follow-up commit within this task.
+func AnalyzeMaps(program ir.Program, sites Sites) []diag.Diagnostic {
+	return ValidateMaps(program)
+}
+
 func ValidateMaps(program ir.Program) []diag.Diagnostic {
 	var diags []diag.Diagnostic
 	for _, m := range program.Maps {

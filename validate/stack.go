@@ -11,6 +11,13 @@ import (
 
 const maxBPFStackBytes = 512
 
+// AnalyzeStack runs the stack validator's rule logic over pre-collected sites.
+// Internally delegates to ValidateStack for now; migrated to consume sites
+// directly in a follow-up commit within this task.
+func AnalyzeStack(program ir.Program, sites Sites) []diag.Diagnostic {
+	return ValidateStack(program)
+}
+
 func ValidateStack(program ir.Program) []diag.Diagnostic {
 	structs := map[string]ir.Struct{}
 	for _, decl := range program.Structs {

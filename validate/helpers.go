@@ -10,6 +10,13 @@ import (
 
 var helperCallRE = regexp.MustCompile(`\bbpf\.([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
 
+// AnalyzeHelpers runs the helpers validator's rule logic over pre-collected sites.
+// Internally delegates to ValidateHelpers for now; migrated to consume sites
+// directly in a follow-up commit within this task.
+func AnalyzeHelpers(program ir.Program, sites Sites) []diag.Diagnostic {
+	return ValidateHelpers(program)
+}
+
 func ValidateHelpers(program ir.Program) []diag.Diagnostic {
 	var diags []diag.Diagnostic
 	for _, fn := range program.Functions {
