@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -48,19 +49,19 @@ func TestMigrateV0PreservesPackageAndPrograms(t *testing.T) {
 			if m.Package != v0.Package {
 				t.Errorf("package = %q, want %q", m.Package, v0.Package)
 			}
-			// Program count preserved.
-			if len(m.Programs) != len(v0.Programs) {
-				t.Errorf("program count = %d, want %d", len(m.Programs), len(v0.Programs))
+			// Programs preserved verbatim.
+			if !reflect.DeepEqual(m.Programs, v0.Programs) {
+				t.Errorf("programs differ from v0")
 			}
-			// Map count preserved.
-			if len(m.Maps) != len(v0.Maps) {
-				t.Errorf("map count = %d, want %d", len(m.Maps), len(v0.Maps))
+			// Maps preserved verbatim.
+			if !reflect.DeepEqual(m.Maps, v0.Maps) {
+				t.Errorf("maps differ from v0")
 			}
-			// Type count preserved.
-			if len(m.Types) != len(v0.Types) {
-				t.Errorf("type count = %d, want %d", len(m.Types), len(v0.Types))
+			// Types preserved verbatim.
+			if !reflect.DeepEqual(m.Types, v0.Types) {
+				t.Errorf("types differ from v0")
 			}
-			// Capability count preserved.
+			// Capabilities count preserved (actual danger expansion is tested separately).
 			if len(m.Capabilities) != len(v0.Capabilities) {
 				t.Errorf("capability count = %d, want %d", len(m.Capabilities), len(v0.Capabilities))
 			}

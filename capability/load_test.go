@@ -106,11 +106,11 @@ func TestLoadManifestAcceptsV0AndV1(t *testing.T) {
 	t.Run("unknown schema produces error", func(t *testing.T) {
 		raw := []byte(`{"schema":"m31labs.dev/horizon/capability/v99","package":"x","capabilities":[]}`)
 		_, diags, err := LoadManifest(raw)
-		if err == nil {
-			t.Fatal("LoadManifest(unknown schema): got nil error, want error")
+		if err != nil {
+			t.Fatalf("LoadManifest(unknown schema): got error %v, want nil error and diagnostic", err)
 		}
-		if !strings.Contains(err.Error(), "unsupported schema") {
-			t.Errorf("error = %q, want message containing 'unsupported schema'", err.Error())
+		if !diag.HasErrors(diags) {
+			t.Errorf("LoadManifest(unknown schema) diagnostics = %v, want HZN3302 error diagnostic", diags)
 		}
 		// Must produce the HZN3302 error diagnostic.
 		var foundErr bool
@@ -126,20 +126,34 @@ func TestLoadManifestAcceptsV0AndV1(t *testing.T) {
 
 	t.Run("missing schema field produces error", func(t *testing.T) {
 		raw := []byte(`{"package":"x","capabilities":[]}`)
-		_, _, err := LoadManifest(raw)
-		if err == nil {
-			t.Fatal("LoadManifest(missing schema): got nil error, want error")
+		_, diags, err := LoadManifest(raw)
+		if err != nil {
+			t.Fatalf("LoadManifest(missing schema): got error %v, want nil error and diagnostic", err)
+		}
+		if !diag.HasErrors(diags) {
+			t.Errorf("LoadManifest(missing schema) diagnostics = %v, want HZN3301 error diagnostic", diags)
 		}
 	})
 
 	t.Run("future schema produces upgrade message", func(t *testing.T) {
 		raw := []byte(`{"schema":"m31labs.dev/horizon/capability/v2","package":"x","capabilities":[]}`)
-		_, _, err := LoadManifest(raw)
-		if err == nil {
-			t.Fatal("LoadManifest(v2 schema): got nil error, want error")
+		_, diags, err := LoadManifest(raw)
+		if err != nil {
+			t.Fatalf("LoadManifest(v2 schema): got error %v, want nil error and diagnostic", err)
 		}
-		if !strings.Contains(err.Error(), "upgrade Horizon or downgrade Continuum") {
-			t.Errorf("error = %q, want 'upgrade Horizon or downgrade Continuum'", err.Error())
+		if !diag.HasErrors(diags) {
+			t.Errorf("LoadManifest(v2 schema) diagnostics = %v, want HZN3302 error diagnostic", diags)
+		}
+		// Must produce the HZN3302 error diagnostic with the upgrade message.
+		var foundErr bool
+		for _, d := range diags {
+			if d.Code == "HZN3302" && d.Severity == diag.SeverityError &&
+				strings.Contains(d.Message, "upgrade Horizon or downgrade Continuum") {
+				foundErr = true
+			}
+		}
+		if !foundErr {
+			t.Errorf("LoadManifest(v2 schema) diagnostics = %v, want HZN3302 with upgrade message", diags)
 		}
 	})
 }

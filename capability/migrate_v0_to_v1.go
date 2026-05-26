@@ -8,6 +8,9 @@ import (
 // v0Manifest mirrors the v0 JSON shape for deserialization.
 // The only structural difference from v1 is that Capability.Danger is a
 // flat string (e.g. "observe") rather than a DangerAxes object.
+// Fields other than Capability.Danger reuse the v1 types (Program, Map,
+// TypeSchema, Requirements) because v0 and v1 are byte-compatible for them.
+// If any of those v1 types ever diverges, define a v0-specific mirror here.
 type v0Manifest struct {
 	Schema       string            `json:"schema"`
 	Package      string            `json:"package"`

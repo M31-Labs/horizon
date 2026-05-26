@@ -58,7 +58,12 @@ func LoadManifest(raw []byte) (Manifest, []diag.Diagnostic, error) {
 		return m, []diag.Diagnostic{warn}, nil
 
 	case "":
-		return Manifest{}, nil, fmt.Errorf("capability manifest: schema field is required")
+		errDiag := diag.Diagnostic{
+			Code:     "HZN3301",
+			Severity: diag.SeverityError,
+			Message:  "manifest schema field is required",
+		}
+		return Manifest{}, []diag.Diagnostic{errDiag}, nil
 
 	default:
 		errDiag := diag.Diagnostic{
@@ -66,9 +71,6 @@ func LoadManifest(raw []byte) (Manifest, []diag.Diagnostic, error) {
 			Severity: diag.SeverityError,
 			Message:  fmt.Sprintf("unsupported manifest schema %q — upgrade Horizon or downgrade Continuum", header.Schema),
 		}
-		return Manifest{}, []diag.Diagnostic{errDiag}, fmt.Errorf(
-			"capability manifest: unsupported schema %q — upgrade Horizon or downgrade Continuum",
-			header.Schema,
-		)
+		return Manifest{}, []diag.Diagnostic{errDiag}, nil
 	}
 }
