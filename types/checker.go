@@ -1146,22 +1146,36 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 func validateCapabilityDecl(decl ast.CapabilityDecl) []diag.Diagnostic {
 	var diags []diag.Diagnostic
 	if decl.Value != "" {
-		if decl.Danger != "" && !validCapabilityDanger(decl.Danger) {
-			diags = append(diags, diag.Diagnostic{
-				Code:     "HZN1323",
-				Severity: diag.SeverityError,
-				Message:  fmt.Sprintf("capability alias %q declares unsupported danger %q", decl.Name, decl.Danger),
-				Primary:  decl.Span,
-				Suggest:  "use one of observe, mutate, drop, block, or privileged",
-			})
-		} else if floor := capabilityNameDanger(decl.Value); decl.Danger != "" && floor != "" && dangerLess(DangerLevel(decl.Danger), floor) {
-			diags = append(diags, diag.Diagnostic{
-				Code:     "HZN1324",
-				Severity: diag.SeverityError,
-				Message:  fmt.Sprintf("capability alias %q declares danger %q but capability name implies %q", decl.Name, decl.Danger, floor),
-				Primary:  decl.Span,
-				Suggest:  fmt.Sprintf("declare danger %s or choose a capability name that matches the intended impact", floor),
-			})
+		if decl.Danger != "" {
+			if strings.ContainsRune(decl.Danger, ',') {
+				// Explicit triple form "mode,scope,reversibility" — validate via ParseDangerAxes.
+				if _, err := ParseDangerAxes(decl.Danger); err != nil {
+					diags = append(diags, diag.Diagnostic{
+						Code:     "HZN1323",
+						Severity: diag.SeverityError,
+						Message:  fmt.Sprintf("capability alias %q declares invalid danger axes %q: %v", decl.Name, decl.Danger, err),
+						Primary:  decl.Span,
+						Suggest:  "use mode,scope,reversibility where mode∈{observe,mutate,control}, scope∈{event,process,network,filesystem,system}, reversibility∈{none,restart,persistent}",
+					})
+				}
+			} else if !validCapabilityDanger(decl.Danger) {
+				// Legacy flat form — validate against the v0 enum.
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1323",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("capability alias %q declares unsupported danger %q", decl.Name, decl.Danger),
+					Primary:  decl.Span,
+					Suggest:  "use one of observe, mutate, drop, block, or privileged",
+				})
+			} else if floor := capabilityNameDanger(decl.Value); floor != "" && dangerLess(DangerLevel(decl.Danger), floor) {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1324",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("capability alias %q declares danger %q but capability name implies %q", decl.Name, decl.Danger, floor),
+					Primary:  decl.Span,
+					Suggest:  fmt.Sprintf("declare danger %s or choose a capability name that matches the intended impact", floor),
+				})
+			}
 		}
 		if strings.HasPrefix(decl.Value, "kernel.") && !recognizedCapabilityLeaf(decl.Value) {
 			diags = append(diags, diag.Diagnostic{
