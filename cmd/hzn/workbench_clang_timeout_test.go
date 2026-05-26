@@ -38,14 +38,23 @@ func TestClangTimeoutPrecedence(t *testing.T) {
 	}
 }
 
-func TestClangTimeoutZeroValueClamp(t *testing.T) {
-	// Document and pin: a zero-value ClangTimeout falls back to the
-	// package default rather than producing an immediately-expired context.
-	opts := workbenchOptions{ClangTimeout: 0}
-	// We can't easily invoke writeWorkbenchArtifacts here without a full
-	// pipeline. Instead, verify the clamp via the constant.
-	if defaultClangTimeoutValue <= 0 {
-		t.Fatalf("defaultClangTimeoutValue must be positive, got %v", defaultClangTimeoutValue)
+func TestResolveClangTimeoutClamp(t *testing.T) {
+	cases := []struct {
+		name string
+		in   time.Duration
+		want time.Duration
+	}{
+		{"zero clamps to default", 0, defaultClangTimeoutValue},
+		{"negative clamps to default", -5 * time.Second, defaultClangTimeoutValue},
+		{"positive passes through", 45 * time.Second, 45 * time.Second},
+		{"one nanosecond passes through", time.Nanosecond, time.Nanosecond},
 	}
-	_ = opts // future: drive writeWorkbenchArtifacts directly when extracted
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			if got := resolveClangTimeout(tc.in); got != tc.want {
+				t.Fatalf("resolveClangTimeout(%v) = %v, want %v", tc.in, got, tc.want)
+			}
+		})
+	}
 }

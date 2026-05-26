@@ -89,6 +89,16 @@ func defaultClangTimeout() time.Duration {
 	return defaultClangTimeoutValue
 }
 
+// resolveClangTimeout returns the duration to use for clang compilation.
+// Zero or negative inputs fall back to defaultClangTimeoutValue so that an
+// unset options struct does not produce an immediately-expired context.
+func resolveClangTimeout(d time.Duration) time.Duration {
+	if d <= 0 {
+		return defaultClangTimeoutValue
+	}
+	return d
+}
+
 func defaultWorkbenchOptions() workbenchOptions {
 	return workbenchOptions{
 		ClangTimeout: defaultClangTimeoutValue,
@@ -286,11 +296,7 @@ func writeWorkbenchArtifacts(result *compiler.Result, opts workbenchOptions) (wo
 
 	report.Artifacts = paths.artifacts(false)
 	if opts.Compile {
-		timeout := opts.ClangTimeout
-		if timeout <= 0 {
-			timeout = defaultClangTimeoutValue
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		ctx, cancel := context.WithTimeout(context.Background(), resolveClangTimeout(opts.ClangTimeout))
 		defer cancel()
 		if err := hclang.Compile(ctx, paths.C, paths.Object, hclang.Options{}); err != nil {
 			report.Status = "clang_error"
