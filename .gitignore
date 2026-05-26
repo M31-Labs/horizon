@@ -17,3 +17,7 @@ coverage.out
 # but must be tracked. Negate the ignores within testdata/golden/.
 !testdata/golden/
 !testdata/golden/**
+
+# Bindgen behavior-test fixtures live in bindgen/testdata/generated/ and must be tracked.
+!bindgen/testdata/
+!bindgen/testdata/**
