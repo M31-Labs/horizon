@@ -405,6 +405,8 @@ func programMinKernel(kind ir.ProgramKind) string {
 		return "5.7"
 	case ir.ProgramSockOps:
 		return "4.13"
+	case ir.ProgramStructOps:
+		return "5.6"
 	default:
 		return ""
 	}
@@ -430,6 +432,8 @@ func programPermissions(kind ir.ProgramKind) []string {
 		return []string{"bpf_program_load", "lsm_admin"}
 	case ir.ProgramSockOps:
 		return []string{"bpf_program_load", "net_admin", "cgroup_admin"}
+	case ir.ProgramStructOps:
+		return []string{"bpf_program_load"}
 	default:
 		return nil
 	}
@@ -457,6 +461,8 @@ func programFeatures(kind ir.ProgramKind) []string {
 		return []string{"bpf_lsm"}
 	case ir.ProgramSockOps:
 		return []string{"cgroup_v2"}
+	case ir.ProgramStructOps:
+		return []string{"btf", "struct_ops"}
 	default:
 		return nil
 	}

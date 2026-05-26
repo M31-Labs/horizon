@@ -274,6 +274,10 @@ func emitsAttachMethod(fn ir.Function) bool {
 		return fn.Section.Attach != ""
 	case ir.ProgramSockOps:
 		return true
+	case ir.ProgramStructOps:
+		// Struct_ops attach helper is stubbed — always emit so callers see the
+		// method and get a clear runtime error pointing to roadmap #9 follow-up.
+		return fn.Section.Attach != ""
 	default:
 		return false
 	}
@@ -466,6 +470,8 @@ func emitAttach(b *bytes.Buffer, fn ir.Function) {
 		emitRawTPAttach(b, fn)
 	case ir.ProgramSockOps:
 		emitSockOpsAttach(b, fn)
+	case ir.ProgramStructOps:
+		emitStructOpsAttach(b, fn)
 	}
 }
 
@@ -661,6 +667,26 @@ func emitSockOpsAttach(b *bytes.Buffer, fn ir.Function) {
 `, field, field, fn.Name, field)
 }
 
+// emitStructOpsAttach emits a stub Attach method for a struct_ops program.
+// struct_ops programs replace kernel function pointers (e.g., TCP congestion
+// control ops) via a struct_ops map + BTF. The full attach path requires
+// ebpf.NewMap over a struct_ops-typed map spec and link.AttachRawLink, which
+// is non-trivial and deferred to a v0.3 follow-up (roadmap #9).
+// The stub returns a clear error at runtime so callers fail fast rather than
+// silently doing nothing.
+func emitStructOpsAttach(b *bytes.Buffer, fn ir.Function) {
+	if fn.Section.Attach == "" {
+		return
+	}
+	field := exported(fn.Name)
+	fmt.Fprintf(b, `func (o *Objects) Attach%s() (link.Link, error) {
+	// struct_ops attach not yet supported by bindgen — see roadmap #9 follow-up.
+	return nil, fmt.Errorf("struct_ops attach not yet supported by bindgen — see roadmap #9 follow-up")
+}
+
+`, field)
+}
+
 func emitImports(b *bytes.Buffer, program ir.Program) {
 	needsRingbuf := hasRingbuf(program)
 	needsAttach := hasAttach(program)
@@ -730,7 +756,7 @@ func hasRingbuf(program ir.Program) bool {
 func hasAttach(program ir.Program) bool {
 	for _, fn := range program.Functions {
 		switch fn.Section.Kind {
-		case ir.ProgramTracepoint, ir.ProgramXDP, ir.ProgramTC, ir.ProgramCgroup, ir.ProgramLSM, ir.ProgramKprobe, ir.ProgramKretprobe, ir.ProgramUprobe, ir.ProgramUretprobe, ir.ProgramFentry, ir.ProgramFexit, ir.ProgramRawTP, ir.ProgramSockOps:
+		case ir.ProgramTracepoint, ir.ProgramXDP, ir.ProgramTC, ir.ProgramCgroup, ir.ProgramLSM, ir.ProgramKprobe, ir.ProgramKretprobe, ir.ProgramUprobe, ir.ProgramUretprobe, ir.ProgramFentry, ir.ProgramFexit, ir.ProgramRawTP, ir.ProgramSockOps, ir.ProgramStructOps:
 			return true
 		}
 	}

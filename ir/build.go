@@ -528,6 +528,17 @@ func sectionFromAttrs(attrs []ast.Attr) Section {
 				Attach: "",
 				Name:   "sockops",
 			}
+		case "struct_ops":
+			// SEC("struct_ops") is used with a bare section name; the op name is
+			// recorded in Attach for manifest / namespace routing. struct_ops programs
+			// replace kernel function pointers (e.g., TCP congestion control ops) and
+			// require BTF + struct_ops map support (kernel >= 5.6).
+			op := stringArg(attr)
+			return Section{
+				Kind:   ProgramStructOps,
+				Attach: op,
+				Name:   "struct_ops",
+			}
 		}
 	}
 	return Section{}

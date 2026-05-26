@@ -1463,6 +1463,14 @@ func cContext(fn ir.Function) string {
 		// sockops programs receive a bpf_sock_ops pointer which exposes socket
 		// state and allows rewriting socket options.
 		return "struct bpf_sock_ops *" + name
+	case ir.ProgramStructOps:
+		// struct_ops programs replace kernel function pointers in a struct_ops map.
+		// For TCP congestion control (tcp_congestion_ops) the representative ops
+		// typically receive a struct sock pointer. We use void * as a portable
+		// opaque handle because the exact type varies per op and is resolved at
+		// BTF-verification time; libbpf rewrites the context type based on the
+		// struct_ops map definition.
+		return "void *" + name
 	default:
 		return "void *" + name
 	}

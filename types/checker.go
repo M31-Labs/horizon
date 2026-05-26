@@ -411,7 +411,8 @@ func builtinTypes() map[string]bool {
 		"fentry.Context":    true,
 		"fexit.Context":     true,
 		"raw_tp.Context":    true,
-		"sockops.Context":   true,
+		"sockops.Context":    true,
+		"struct_ops.Context": true,
 	}
 }
 
@@ -958,7 +959,7 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 			Severity: diag.SeverityError,
 			Message:  fmt.Sprintf("function %q has multiple eBPF program sections", decl.Name),
 			Primary:  decl.Span,
-			Suggest:  `use exactly one section attribute such as @tracepoint(...), @xdp, @tc("ingress"), @cgroup("connect4"), @lsm("file_open"), @kprobe(...), @kretprobe(...), @uprobe("path:sym"), @uretprobe("path:sym"), @fentry("symbol"), @fexit("symbol"), @raw_tp("event"), or @sockops`,
+			Suggest:  `use exactly one section attribute such as @tracepoint(...), @xdp, @tc("ingress"), @cgroup("connect4"), @lsm("file_open"), @kprobe(...), @kretprobe(...), @uprobe("path:sym"), @uretprobe("path:sym"), @fentry("symbol"), @fexit("symbol"), @raw_tp("event"), @sockops, or @struct_ops("op_name")`,
 		})
 	}
 	for _, attr := range decl.Attrs {
@@ -1209,6 +1210,27 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 					Severity: diag.SeverityError,
 					Message:  "@sockops does not take arguments; the cgroup path is provided at attach time",
 					Primary:  attr.Span,
+				})
+			}
+		case "struct_ops":
+			if !attrHasStringArg(attr) {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1337",
+					Severity: diag.SeverityError,
+					Message:  `@struct_ops requires one op-name string argument`,
+					Primary:  attr.Span,
+					Suggest:  `use an op name such as @struct_ops("tcp_init")`,
+				})
+				break
+			}
+			op := attrStringArg(attr)
+			if !validAttachToken(op) {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1337",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("@struct_ops op name %q is not a valid identifier", op),
+					Primary:  attr.Span,
+					Suggest:  `use a non-empty op name such as @struct_ops("tcp_init")`,
 				})
 			}
 		case "capability":
@@ -1703,6 +1725,8 @@ func sectionAttrs(attrs []ast.Attr) []sectionSpec {
 			out = append(out, sectionSpec{Attr: attr, Context: "raw_tp.Context"})
 		case "sockops":
 			out = append(out, sectionSpec{Attr: attr, Context: "sockops.Context"})
+		case "struct_ops":
+			out = append(out, sectionSpec{Attr: attr, Context: "struct_ops.Context"})
 		}
 	}
 	return out

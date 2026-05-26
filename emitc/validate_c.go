@@ -217,6 +217,11 @@ func validateCSectionName(section string, lineNo int) error {
 	// via link.AttachCgroup(CgroupOptions{Path: cgroupPath, Attach: ebpf.AttachCGroupSockOps}).
 	case "sockops":
 		return nil
+	// struct_ops uses a bare section name; the op name is recorded in the Horizon
+	// manifest Attach field and resolved at load time via BTF-based struct_ops map
+	// pinning. Userspace auto-attach is stubbed (see roadmap #9 follow-up).
+	case "struct_ops":
+		return nil
 	}
 	switch {
 	case strings.HasPrefix(section, "tracepoint/"):

@@ -120,6 +120,13 @@
       "attach_strings": [],
       "allowed_danger_leaves": ["observe", "mutate"],
       "introduced": "v0.2.0"
+    },
+    {
+      "namespace": "kernel.network.tcp.congestion",
+      "attach_surface": "struct_ops",
+      "attach_strings": ["tcp_init", "tcp_recalc_ssthresh", "tcp_undo_cwnd_reduction"],
+      "allowed_danger_leaves": ["mutate"],
+      "introduced": "v0.2.0"
     }
   ]
 }

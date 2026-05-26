@@ -321,7 +321,7 @@ func validationErrorf(format string, args ...any) error {
 
 func validProgramKind(kind string) bool {
 	switch kind {
-	case "tracepoint", "xdp", "tc", "cgroup", "lsm", "kprobe", "kretprobe", "uprobe", "uretprobe", "fentry", "fexit", "raw_tp", "sockops":
+	case "tracepoint", "xdp", "tc", "cgroup", "lsm", "kprobe", "kretprobe", "uprobe", "uretprobe", "fentry", "fexit", "raw_tp", "sockops", "struct_ops":
 		return true
 	default:
 		return false
@@ -444,7 +444,7 @@ func validPermissionRequirement(name string) bool {
 
 func validHostFeatureRequirement(name string) bool {
 	switch name {
-	case "bpf_lsm", "btf", "cgroup_v2", "kprobes", "netdev_xdp", "tc_clsact", "tracefs", "uprobes":
+	case "bpf_lsm", "btf", "cgroup_v2", "kprobes", "netdev_xdp", "struct_ops", "tc_clsact", "tracefs", "uprobes":
 		return true
 	default:
 		return false

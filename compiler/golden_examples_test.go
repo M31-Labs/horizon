@@ -20,6 +20,7 @@ var examples = []string{
 	"fentryopen", "fexitopen",
 	"rawtpenter",
 	"sockopstrack",
+	"structopstcp",
 }
 
 // Fields stripped before comparison because they vary per-run.

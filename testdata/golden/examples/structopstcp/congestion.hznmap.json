@@ -1,0 +1,70 @@
+{
+  "generated": {
+    "language": "c"
+  },
+  "mappings": [
+    {
+      "function": "OnTCPInit",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 23
+        },
+        "start": {
+          "column": 1,
+          "line": 22
+        }
+      },
+      "node": "return",
+      "section": "struct_ops",
+      "source": {
+        "end": {
+          "column": 13,
+          "line": 22
+        },
+        "end_byte": 1137,
+        "file": "examples/structopstcp/congestion.hzn",
+        "start": {
+          "column": 5,
+          "line": 22
+        },
+        "start_byte": 1129
+      }
+    },
+    {
+      "function": "OnTCPInit",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 24
+        },
+        "start": {
+          "column": 1,
+          "line": 18
+        }
+      },
+      "node": "function",
+      "section": "struct_ops",
+      "source": {
+        "end": {
+          "column": 2,
+          "line": 23
+        },
+        "end_byte": 1139,
+        "file": "examples/structopstcp/congestion.hzn",
+        "start": {
+          "column": 1,
+          "line": 19
+        },
+        "start_byte": 1023
+      }
+    }
+  ],
+  "schema": "m31labs.dev/horizon/sourcemap/v0",
+  "sources": [
+    {
+      "id": 0,
+      "path": "examples/structopstcp/congestion.hzn"
+    }
+  ]
+}

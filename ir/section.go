@@ -16,6 +16,7 @@ const (
 	ProgramFexit      ProgramKind = "fexit"
 	ProgramRawTP      ProgramKind = "raw_tp"
 	ProgramSockOps    ProgramKind = "sockops"
+	ProgramStructOps  ProgramKind = "struct_ops"
 )
 
 type Section struct {
@@ -63,6 +64,9 @@ func (s Section) ManifestName() string {
 		return string(s.Kind) + "/" + s.Attach
 	}
 	if s.Kind == ProgramRawTP && s.Attach != "" {
+		return string(s.Kind) + "/" + s.Attach
+	}
+	if s.Kind == ProgramStructOps && s.Attach != "" {
 		return string(s.Kind) + "/" + s.Attach
 	}
 	return s.Name

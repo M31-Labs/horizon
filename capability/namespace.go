@@ -60,6 +60,11 @@ func ExpectedKernelCapabilityPrefix(kind string, attach string, section string) 
 		}
 	case "sockops":
 		return "kernel.network.sockops."
+	case "struct_ops":
+		switch attach {
+		case "tcp_init", "tcp_recalc_ssthresh", "tcp_undo_cwnd_reduction":
+			return "kernel.network.tcp.congestion."
+		}
 	}
 	return ""
 }

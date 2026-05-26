@@ -1,0 +1,38 @@
+{
+  "compile": false,
+  "diagnostic_count": 0,
+  "diagnostics": [],
+  "generator": "hzn workbench",
+  "package": "probes",
+  "schema": "m31labs.dev/horizon/report/v0",
+  "sources": [
+    {
+      "package": "probes",
+      "path": "examples/structopstcp/congestion.hzn",
+      "sha256": "2810b6063453ba544c92735457ee5938e921eaafb6b8d324a5d9a16ecab5c36b",
+      "size": 1140
+    }
+  ],
+  "status": "generated",
+  "summary": {
+    "capability_count": 1,
+    "capability_dangers": [
+      "mutate"
+    ],
+    "features": [
+      "btf",
+      "struct_ops"
+    ],
+    "map_count": 0,
+    "min_kernel": "5.6",
+    "permissions": [
+      "bpf_program_load"
+    ],
+    "program_count": 1,
+    "program_kinds": [
+      "struct_ops"
+    ],
+    "source_count": 1,
+    "type_count": 0
+  }
+}
