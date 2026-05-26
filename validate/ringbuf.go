@@ -20,11 +20,13 @@ var (
 // AnalyzeRingbuf runs the ringbuf validator's rule logic over pre-collected sites.
 // The state-machine analysis (maybe_nil → live → consumed) requires branch-
 // merging control-flow context that Sites does not expose. sites.RingbufReserve
-// is used as the index of functions that hold reserve sites; the state machine
-// re-walk (validateTypedRingbuf) is retained for those functions. Typed
-// functions without reserves are also analyzed to catch consume-without-reserve
-// errors (HZN2101), preserving legacy behavior. Legacy text-path functions are
-// handled via bodyLines.
+// is the load-bearing index of functions that hold reserve sites; the state
+// machine re-walk (validateTypedRingbuf) is run only for those functions. Typed
+// functions that contain no ringbuf reserves are skipped entirely — they cannot
+// produce ringbuf diagnostics. Legacy text-path functions (hasTypedStatements
+// == false) are still walked via bodyLines regardless of the Sites index, because
+// Collect skips non-typed functions; they remain reachable until the regex
+// fallback is removed in roadmap Task 3 (v0.3).
 func AnalyzeRingbuf(program ir.Program, sites Sites) []diag.Diagnostic {
 	ringMaps := map[string]ir.Map{}
 	for _, m := range program.Maps {
@@ -36,15 +38,28 @@ func AnalyzeRingbuf(program ir.Program, sites Sites) []diag.Diagnostic {
 		return nil
 	}
 
+	// Build the set of functions that contain at least one ringbuf reserve site.
+	// This is the index that drives the typed-path analysis.
+	interesting := make(map[*ir.Function]struct{}, len(sites.RingbufReserve))
+	for _, s := range sites.RingbufReserve {
+		interesting[s.Function] = struct{}{}
+	}
+
 	var diags []diag.Diagnostic
-	for _, fn := range program.Functions {
-		if hasTypedStatements(fn) {
-			diags = append(diags, validateTypedRingbuf(fn, ringMaps)...)
+	for i := range program.Functions {
+		fn := &program.Functions[i]
+		if hasTypedStatements(*fn) {
+			if _, ok := interesting[fn]; !ok {
+				// Typed function with no ringbuf reserves: cannot produce any
+				// ringbuf diagnostic. Skip to avoid unnecessary re-walks.
+				continue
+			}
+			diags = append(diags, validateTypedRingbuf(*fn, ringMaps)...)
 			continue
 		}
 		states := map[string]reserveState{}
 		reportedMissingNil := map[string]bool{}
-		for _, line := range bodyLines(fn) {
+		for _, line := range bodyLines(*fn) {
 			if match := ringReserveRE.FindStringSubmatch(line); len(match) == 3 {
 				varName, mapName := match[1], match[2]
 				if _, ok := ringMaps[mapName]; ok {
@@ -81,7 +96,7 @@ func AnalyzeRingbuf(program ir.Program, sites Sites) []diag.Diagnostic {
 				switch state.State {
 				case "maybe_nil":
 					if !reportedMissingNil[varName] {
-						diags = append(diags, missingNilCheck(fn, varName))
+						diags = append(diags, missingNilCheck(*fn, varName))
 						reportedMissingNil[varName] = true
 					}
 					state.State = "consumed"
@@ -107,7 +122,7 @@ func AnalyzeRingbuf(program ir.Program, sites Sites) []diag.Diagnostic {
 				switch state.State {
 				case "maybe_nil":
 					if !reportedMissingNil[varName] {
-						diags = append(diags, missingNilCheck(fn, varName))
+						diags = append(diags, missingNilCheck(*fn, varName))
 						reportedMissingNil[varName] = true
 					}
 				case "consumed":

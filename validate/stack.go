@@ -11,16 +11,19 @@ import (
 
 const maxBPFStackBytes = 512
 
-// AnalyzeStack runs the stack validator's rule logic over pre-collected sites.
-// Stack analysis requires branch-aware per-function byte accounting via
-// estimateStack, so sites is used as a filter (only functions with at least one
-// StackLocal site are estimated) while preserving the full inferred-type pass.
-// NOTE: the literal-struct accounting and the inferred-type (call-returning-
-// aggregate) accounting both live inside estimateStack — there is no double-
-// counting since estimateStack is the single source of truth. Functions that
-// have aggregate locals only through the inferred-type path (no StackLocalSite)
-// are still analyzed via the full per-function walk, matching legacy behavior.
-func AnalyzeStack(program ir.Program, sites Sites) []diag.Diagnostic {
+// AnalyzeStack runs stack-byte accounting per function.
+//
+// NOTE: this validator does NOT consume sites.StackLocals as a filter, even
+// though the AnalyzeStack signature accepts a Sites. StackLocalSite currently
+// captures only literal struct/array declarations (short_var with struct_lit RHS
+// and var_decl with an aggregate type), while stack accounting must also catch
+// short_vars whose RHS is a call/expression returning an aggregate by value.
+// Filtering by sites.StackLocals here would silently drop that broader coverage.
+//
+// When StackLocalSite is broadened to cover the call-returning-aggregate case
+// (deferred to v0.3 per walk.go's note), this function should be re-evaluated
+// to filter by sites or to consume sites directly for byte accounting.
+func AnalyzeStack(program ir.Program, _ Sites) []diag.Diagnostic {
 	structs := map[string]ir.Struct{}
 	for _, decl := range program.Structs {
 		structs[decl.Name] = decl
