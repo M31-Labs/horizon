@@ -80,14 +80,18 @@ func TestNewTemplatesCompileSmoke(t *testing.T) {
 func TestKprobeCompileSmoke(t *testing.T) {
 	requireClangSmoke(t)
 	srcDir := t.TempDir()
+	// NOTE: This smoke test exercises the kprobe compile path only. A
+	// kretprobe block was removed in Phase 3 cleanup because its
+	// `kernel.file.open.return.observe` capability targeted a namespace
+	// that doesn't exist in the canonical registry (Phase 1 #10 added
+	// strict registry validation). A separate kretprobe smoke test can
+	// be added in v0.3 alongside a `kernel.file.open.return` registry
+	// entry if return-point observation needs distinct manifest framing.
 	if err := os.WriteFile(filepath.Join(srcDir, "open.hzn"), []byte(`package probes
 
 import bpf "m31labs.dev/horizon/runtime/kernel"
 
-const Negative i32 = -1
-
 capability FileOpenObserve danger observe = "kernel.file.open.observe"
-capability FileOpenReturnObserve danger observe = "kernel.file.open.return.observe"
 
 @capability(FileOpenObserve)
 @kprobe("do_sys_openat2")
@@ -97,17 +101,6 @@ func OnOpen(ctx kprobe.Context) i32 {
         return 0
     }
     bpf.current_pid()
-    return 0
-}
-
-@capability(FileOpenReturnObserve)
-@kretprobe("do_sys_openat2")
-func OnOpenReturn(ctx kretprobe.Context) i32 {
-    rc := kretprobe.ret(ctx)
-    neg := -rc
-    if neg < -1 {
-        return Negative
-    }
     return 0
 }
 `), 0o600); err != nil {
