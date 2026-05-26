@@ -314,6 +314,9 @@ func validateTypedMapLookups(fn ir.Function, lookupMaps map[string]ir.Map) []dia
 // checkArgEscapesLookup marks map lookup results as "escaped" when passed as
 // call arguments. Escaped lookup results suppress HZN2500 (we cannot prove
 // their nil status after the call). Cross-function tracking deferred to Phase 2 #13.
+//
+// See validate/ringbuf.go::checkArgEscapesRingbuf for the rationale on the
+// "any non-live state escapes" rule (asymmetric vs ringbuf's "only live escapes").
 func checkArgEscapesLookup(expr *ir.Expr, states map[string]lookupState, aliases *aliasGraph) {
 	if expr == nil {
 		return

@@ -250,6 +250,9 @@ func validateXDPPacketHeaders(fn ir.Function) []diag.Diagnostic {
 // checkArgEscapesPacket marks packet header states as "escaped" when passed as
 // call arguments. Escaped headers suppress HZN2600 deref checks post-call.
 // Cross-function tracking deferred to Phase 2 #13.
+//
+// See validate/ringbuf.go::checkArgEscapesRingbuf for the rationale on the
+// "any non-live state escapes" rule (asymmetric vs ringbuf's "only live escapes").
 func checkArgEscapesPacket(expr *ir.Expr, states map[string]packetHeaderState, aliases *aliasGraph) {
 	if expr == nil {
 		return

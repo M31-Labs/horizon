@@ -378,6 +378,17 @@ func validateTypedRingbuf(fn ir.Function, ringMaps map[string]ir.Map) []diag.Dia
 //
 // Only direct ident arguments are inspected. Nested calls like f(g(x)) are
 // also handled because checkArgEscapesRingbuf recurses into Args.
+//
+// NOTE: ringbuf requires state.State == "live" to escape, so a `maybe_nil`
+// reservation passed to `helper(event)` still fires HZN2104 on return.
+// This is deliberate — ringbuf wants the missing-nil-check diagnostic to
+// stay loud even when the resource is also passed elsewhere. Maps/packet
+// (in validate/maps.go and validate/packet.go) make the opposite trade,
+// escaping any non-live state to silence dereference warnings; the rationale
+// is that map lookups and packet headers commonly flow through helpers
+// without strict nil-check ordering, where ringbuf submission is always
+// a deliberate consume operation. Phase 2 #13 should preserve this
+// asymmetry unless cross-function analysis exposes a sharper rule.
 func checkArgEscapesRingbuf(expr *ir.Expr, states map[string]reserveState, aliases *aliasGraph) {
 	if expr == nil {
 		return

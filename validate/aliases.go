@@ -15,6 +15,12 @@ import "m31labs.dev/horizon/ir"
 //     fixture; deferred to v0.3.
 //   - Aliasing through pointer-of-pointer (`p := &x`) — not legal in Horizon
 //     today; deferred.
+//   - Escape detection fires only from `case "expr"` statements. Calls embedded
+//     in `assign` RHS, `var_decl` RHS, `return`, or `if` conditions do NOT
+//     trigger escape. HZN1447 in types/ blocks the source-syntax that could
+//     reach these forms in real .hzn programs, so this is acceptable for Phase 1.
+//     Phase 2 #13 (maple) should extend escape detection to cover all
+//     call-expression contexts when HZN1447 is relaxed for helper-arg passes.
 type aliasGraph struct {
 	parent map[string]string // alias name -> immediate predecessor
 }

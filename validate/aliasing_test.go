@@ -432,7 +432,7 @@ func TestEscapeDominatesBranchMergeForMapLookup(t *testing.T) {
 
 // ── Iteration 2 fix: escape dominates in branch merge (packet) ────────────────────
 
-// buildEscapeDoминatesPacketProgram constructs the IR equivalent of:
+// buildEscapeDominatesPacketProgram constructs the IR equivalent of:
 //
 //	eth := xdp.eth(ctx)
 //	if ctx != 0 {
@@ -446,7 +446,7 @@ func TestEscapeDominatesBranchMergeForMapLookup(t *testing.T) {
 // If mergeNilPromotionState does not make "escaped" dominant, the merge
 // would incorrectly return "maybe_nil", causing HZN2600 to fire.
 // Correct behavior: merged state is "escaped", HZN2600 does not fire.
-func buildEscapeDoминatesPacketProgram() ir.Program {
+func buildEscapeDominatesPacketProgram() ir.Program {
 	// eth := xdp.eth(ctx)
 	ethCall := &ir.Expr{
 		Kind: "call",
@@ -503,7 +503,7 @@ func buildEscapeDoминatesPacketProgram() ir.Program {
 // state is "escaped" (not "maybe_nil"). This prevents false-positive HZN2600
 // warnings on a resource we can no longer trust.
 func TestEscapeDominatesBranchMergeForPacketHeader(t *testing.T) {
-	prog := buildEscapeDoминatesPacketProgram()
+	prog := buildEscapeDominatesPacketProgram()
 	diags := validate.Program(prog)
 	hzn2600 := countDiag(diags, "HZN2600")
 	if hzn2600 != 0 {
