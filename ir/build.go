@@ -493,6 +493,23 @@ func sectionFromAttrs(attrs []ast.Attr) Section {
 				Attach: attach,
 				Name:   "uretprobe",
 			}
+		case "fentry":
+			// SEC("fentry") is used rather than SEC("fentry/symbol") because the
+			// symbol is recorded in the BTF-based attach descriptor at load time via
+			// link.AttachTracing(TracingOptions{Program: prog, AttachType: AttachTraceFEntry}).
+			attach := stringArg(attr)
+			return Section{
+				Kind:   ProgramFentry,
+				Attach: attach,
+				Name:   "fentry",
+			}
+		case "fexit":
+			attach := stringArg(attr)
+			return Section{
+				Kind:   ProgramFexit,
+				Attach: attach,
+				Name:   "fexit",
+			}
 		}
 	}
 	return Section{}
@@ -800,6 +817,9 @@ func manifestSection(section Section) string {
 		return string(section.Kind) + "/" + section.Attach
 	}
 	if (section.Kind == ProgramUprobe || section.Kind == ProgramUretprobe) && section.Attach != "" {
+		return string(section.Kind) + "/" + section.Attach
+	}
+	if (section.Kind == ProgramFentry || section.Kind == ProgramFexit) && section.Attach != "" {
 		return string(section.Kind) + "/" + section.Attach
 	}
 	return section.Name

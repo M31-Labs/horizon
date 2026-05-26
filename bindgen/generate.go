@@ -268,6 +268,8 @@ func emitsAttachMethod(fn ir.Function) bool {
 		return fn.Section.Attach != ""
 	case ir.ProgramUprobe, ir.ProgramUretprobe:
 		return fn.Section.Attach != ""
+	case ir.ProgramFentry, ir.ProgramFexit:
+		return fn.Section.Attach != ""
 	default:
 		return false
 	}
@@ -452,6 +454,10 @@ func emitAttach(b *bytes.Buffer, fn ir.Function) {
 		emitUprobeAttach(b, fn, false)
 	case ir.ProgramUretprobe:
 		emitUprobeAttach(b, fn, true)
+	case ir.ProgramFentry:
+		emitTracingAttach(b, fn, "AttachTraceFEntry")
+	case ir.ProgramFexit:
+		emitTracingAttach(b, fn, "AttachTraceFExit")
 	}
 }
 
@@ -595,6 +601,24 @@ func emitUprobeAttach(b *bytes.Buffer, fn ir.Function, isRet bool) {
 `, field, field, fn.Name, binary, linkMethod, symbol, field)
 }
 
+// emitTracingAttach emits an Attach method for an fentry or fexit program.
+// The kernel symbol is baked into the .hzn declaration; at attach time the
+// cilium/ebpf link.AttachTracing API uses BTF to locate the traced function.
+func emitTracingAttach(b *bytes.Buffer, fn ir.Function, attachType string) {
+	if fn.Section.Attach == "" {
+		return
+	}
+	field := exported(fn.Name)
+	fmt.Fprintf(b, `func (o *Objects) Attach%s() (link.Link, error) {
+	if o == nil || o.%s == nil {
+		return nil, fmt.Errorf("%s program is not loaded")
+	}
+	return link.AttachTracing(link.TracingOptions{Program: o.%s, AttachType: ebpf.%s})
+}
+
+`, field, field, fn.Name, field, attachType)
+}
+
 func emitImports(b *bytes.Buffer, program ir.Program) {
 	needsRingbuf := hasRingbuf(program)
 	needsAttach := hasAttach(program)
@@ -664,7 +688,7 @@ func hasRingbuf(program ir.Program) bool {
 func hasAttach(program ir.Program) bool {
 	for _, fn := range program.Functions {
 		switch fn.Section.Kind {
-		case ir.ProgramTracepoint, ir.ProgramXDP, ir.ProgramTC, ir.ProgramCgroup, ir.ProgramLSM, ir.ProgramKprobe, ir.ProgramKretprobe, ir.ProgramUprobe, ir.ProgramUretprobe:
+		case ir.ProgramTracepoint, ir.ProgramXDP, ir.ProgramTC, ir.ProgramCgroup, ir.ProgramLSM, ir.ProgramKprobe, ir.ProgramKretprobe, ir.ProgramUprobe, ir.ProgramUretprobe, ir.ProgramFentry, ir.ProgramFexit:
 			return true
 		}
 	}

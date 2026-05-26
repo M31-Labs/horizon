@@ -46,6 +46,13 @@ func ExpectedKernelCapabilityPrefix(kind string, attach string, section string) 
 		}
 	case "uprobe", "uretprobe":
 		return "kernel.userspace.exec."
+	case "fentry", "fexit":
+		switch attach {
+		case "do_filp_open":
+			return "kernel.file.open."
+		case "do_execve", "do_execveat":
+			return "kernel.process.exec."
+		}
 	}
 	return ""
 }

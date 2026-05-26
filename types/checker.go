@@ -408,6 +408,8 @@ func builtinTypes() map[string]bool {
 		"kretprobe.Context": true,
 		"uprobe.Context":    true,
 		"uretprobe.Context": true,
+		"fentry.Context":    true,
+		"fexit.Context":     true,
 	}
 }
 
@@ -954,7 +956,7 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 			Severity: diag.SeverityError,
 			Message:  fmt.Sprintf("function %q has multiple eBPF program sections", decl.Name),
 			Primary:  decl.Span,
-			Suggest:  `use exactly one section attribute such as @tracepoint(...), @xdp, @tc("ingress"), @cgroup("connect4"), @lsm("file_open"), @kprobe(...), @kretprobe(...), @uprobe("path:sym"), or @uretprobe("path:sym")`,
+			Suggest:  `use exactly one section attribute such as @tracepoint(...), @xdp, @tc("ingress"), @cgroup("connect4"), @lsm("file_open"), @kprobe(...), @kretprobe(...), @uprobe("path:sym"), @uretprobe("path:sym"), @fentry("symbol"), or @fexit("symbol")`,
 		})
 	}
 	for _, attr := range decl.Attrs {
@@ -1133,6 +1135,48 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 					Message:  fmt.Sprintf("@uretprobe attach %q must use binaryPath:symbol form", attach),
 					Primary:  attr.Span,
 					Suggest:  `use a path:symbol pair such as @uretprobe("/usr/bin/ls:main")`,
+				})
+			}
+		case "fentry":
+			if !attrHasStringArg(attr) {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1331",
+					Severity: diag.SeverityError,
+					Message:  `@fentry requires one kernel symbol string argument`,
+					Primary:  attr.Span,
+					Suggest:  `use a kernel symbol such as @fentry("do_filp_open")`,
+				})
+				break
+			}
+			symbol := attrStringArg(attr)
+			if !validAttachToken(symbol) {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1332",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("@fentry symbol %q is not a valid kernel symbol", symbol),
+					Primary:  attr.Span,
+					Suggest:  `use a non-empty kernel symbol such as @fentry("do_filp_open")`,
+				})
+			}
+		case "fexit":
+			if !attrHasStringArg(attr) {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1333",
+					Severity: diag.SeverityError,
+					Message:  `@fexit requires one kernel symbol string argument`,
+					Primary:  attr.Span,
+					Suggest:  `use a kernel symbol such as @fexit("do_filp_open")`,
+				})
+				break
+			}
+			symbol := attrStringArg(attr)
+			if !validAttachToken(symbol) {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1334",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("@fexit symbol %q is not a valid kernel symbol", symbol),
+					Primary:  attr.Span,
+					Suggest:  `use a non-empty kernel symbol such as @fexit("do_filp_open")`,
 				})
 			}
 		case "capability":
@@ -1619,6 +1663,10 @@ func sectionAttrs(attrs []ast.Attr) []sectionSpec {
 			out = append(out, sectionSpec{Attr: attr, Context: "uprobe.Context"})
 		case "uretprobe":
 			out = append(out, sectionSpec{Attr: attr, Context: "uretprobe.Context"})
+		case "fentry":
+			out = append(out, sectionSpec{Attr: attr, Context: "fentry.Context"})
+		case "fexit":
+			out = append(out, sectionSpec{Attr: attr, Context: "fexit.Context"})
 		}
 	}
 	return out

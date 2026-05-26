@@ -118,6 +118,9 @@ func manifestSection(section ir.Section) string {
 	if (section.Kind == ir.ProgramUprobe || section.Kind == ir.ProgramUretprobe) && section.Attach != "" {
 		return string(section.Kind) + "/" + section.Attach
 	}
+	if (section.Kind == ir.ProgramFentry || section.Kind == ir.ProgramFexit) && section.Attach != "" {
+		return string(section.Kind) + "/" + section.Attach
+	}
 	return section.Name
 }
 

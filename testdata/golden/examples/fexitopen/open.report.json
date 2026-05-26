@@ -1,0 +1,40 @@
+{
+  "compile": false,
+  "diagnostic_count": 0,
+  "diagnostics": [],
+  "generator": "hzn workbench",
+  "package": "probes",
+  "schema": "m31labs.dev/horizon/report/v0",
+  "sources": [
+    {
+      "package": "probes",
+      "path": "examples/fexitopen/open.hzn",
+      "sha256": "f31411c289232103892a1e9525065bc65ce5894407b1fb5d077b45a1efc3fcfb",
+      "size": 527
+    }
+  ],
+  "status": "generated",
+  "summary": {
+    "capability_count": 1,
+    "capability_dangers": [
+      "observe"
+    ],
+    "features": [
+      "btf"
+    ],
+    "map_count": 1,
+    "map_kinds": [
+      "ringbuf"
+    ],
+    "min_kernel": "5.8",
+    "permissions": [
+      "bpf_program_load"
+    ],
+    "program_count": 1,
+    "program_kinds": [
+      "fexit"
+    ],
+    "source_count": 1,
+    "type_count": 1
+  }
+}

@@ -205,6 +205,10 @@ func validateCSectionName(section string, lineNo int) error {
 	// loader-time concerns expressed via link.OpenExecutable(...).Uprobe(...).
 	case "uprobe", "uretprobe":
 		return nil
+	// fentry and fexit use a bare section name; the kernel symbol is specified
+	// at load time via link.AttachTracing(TracingOptions{..., AttachType: ...}).
+	case "fentry", "fexit":
+		return nil
 	}
 	switch {
 	case strings.HasPrefix(section, "tracepoint/"):

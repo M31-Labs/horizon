@@ -1,0 +1,40 @@
+{
+  "compile": false,
+  "diagnostic_count": 0,
+  "diagnostics": [],
+  "generator": "hzn workbench",
+  "package": "probes",
+  "schema": "m31labs.dev/horizon/report/v0",
+  "sources": [
+    {
+      "package": "probes",
+      "path": "examples/fentryopen/open.hzn",
+      "sha256": "4216c9e1e50416e123dd90b70cf5a1d1fc3f1fb3915aeaf41560e8ebb1275442",
+      "size": 531
+    }
+  ],
+  "status": "generated",
+  "summary": {
+    "capability_count": 1,
+    "capability_dangers": [
+      "observe"
+    ],
+    "features": [
+      "btf"
+    ],
+    "map_count": 1,
+    "map_kinds": [
+      "ringbuf"
+    ],
+    "min_kernel": "5.8",
+    "permissions": [
+      "bpf_program_load"
+    ],
+    "program_count": 1,
+    "program_kinds": [
+      "fentry"
+    ],
+    "source_count": 1,
+    "type_count": 1
+  }
+}

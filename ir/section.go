@@ -12,6 +12,8 @@ const (
 	ProgramKretprobe  ProgramKind = "kretprobe"
 	ProgramUprobe     ProgramKind = "uprobe"
 	ProgramUretprobe  ProgramKind = "uretprobe"
+	ProgramFentry     ProgramKind = "fentry"
+	ProgramFexit      ProgramKind = "fexit"
 )
 
 type Section struct {

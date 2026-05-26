@@ -391,6 +391,8 @@ func programMinKernel(kind ir.ProgramKind) string {
 		return "4.1"
 	case ir.ProgramUprobe, ir.ProgramUretprobe:
 		return "4.3"
+	case ir.ProgramFentry, ir.ProgramFexit:
+		return "5.5"
 	case ir.ProgramTracepoint:
 		return "4.7"
 	case ir.ProgramXDP:
@@ -412,6 +414,8 @@ func programPermissions(kind ir.ProgramKind) []string {
 		return []string{"bpf_program_load", "perf_event_open"}
 	case ir.ProgramUprobe, ir.ProgramUretprobe:
 		return []string{"bpf_program_load", "perf_event_open"}
+	case ir.ProgramFentry, ir.ProgramFexit:
+		return []string{"bpf_program_load"}
 	case ir.ProgramXDP, ir.ProgramTC:
 		return []string{"bpf_program_load", "net_admin"}
 	case ir.ProgramCgroup:
@@ -431,6 +435,8 @@ func programFeatures(kind ir.ProgramKind) []string {
 		return []string{"kprobes", "tracefs"}
 	case ir.ProgramUprobe, ir.ProgramUretprobe:
 		return []string{"uprobes", "tracefs"}
+	case ir.ProgramFentry, ir.ProgramFexit:
+		return []string{"btf"}
 	case ir.ProgramXDP:
 		return []string{"netdev_xdp"}
 	case ir.ProgramTC:

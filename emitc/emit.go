@@ -1451,6 +1451,10 @@ func cContext(fn ir.Function) string {
 		return "struct pt_regs *" + name
 	case ir.ProgramUprobe, ir.ProgramUretprobe:
 		return "struct pt_regs *" + name
+	case ir.ProgramFentry, ir.ProgramFexit:
+		// fentry/fexit receive the arguments of the traced kernel function via
+		// BTF-described context; use pt_regs pointer as a portable opaque handle.
+		return "struct pt_regs *" + name
 	default:
 		return "void *" + name
 	}

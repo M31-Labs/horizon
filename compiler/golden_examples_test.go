@@ -17,6 +17,7 @@ var examples = []string{
 	"cgroupconnect", "execwatch", "execcount", "execdeny",
 	"killwatch", "lsmfile", "openwatch", "tcpconnect", "tcpass", "xdpdrop",
 	"uprobeexec", "uretprobeexec",
+	"fentryopen", "fexitopen",
 }
 
 // Fields stripped before comparison because they vary per-run.
