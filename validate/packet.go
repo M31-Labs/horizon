@@ -9,10 +9,26 @@ import (
 )
 
 // AnalyzePacket runs the packet validator's rule logic over pre-collected sites.
-// Internally delegates to ValidatePacket for now; migrated to consume sites
-// directly in a follow-up commit within this task.
+// The nil-check state machine (maybe_nil → nil/live) requires branch-merging
+// control-flow context that Sites does not expose; validateXDPPacketHeaders is
+// retained for the per-function re-walk. sites.PacketHeader is used as the
+// index to avoid iterating all program functions — only XDP functions that hold
+// at least one packet-header site are analyzed.
 func AnalyzePacket(program ir.Program, sites Sites) []diag.Diagnostic {
-	return ValidatePacket(program)
+	// Use sites.PacketHeader as the index: only functions that hold at least one
+	// packet header site need nil-check state-machine analysis. Deduplicate by
+	// function pointer; the function's section kind is already guaranteed to be
+	// XDP (xdpPacketHeaderCall only matches xdp.* calls).
+	var diags []diag.Diagnostic
+	seen := map[*ir.Function]bool{}
+	for _, site := range sites.PacketHeader {
+		if seen[site.Function] {
+			continue
+		}
+		seen[site.Function] = true
+		diags = append(diags, validateXDPPacketHeaders(*site.Function)...)
+	}
+	return diags
 }
 
 type packetHeaderState struct {
