@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"m31labs.dev/horizon/capability"
 	"m31labs.dev/horizon/compiler/diag"
 )
 
@@ -122,6 +123,103 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	if len(result.Program.Functions) == 0 {
 		t.Errorf("expected root function OnExec in merged IR; got %+v", result.Program.Functions)
 	}
+}
+
+// TestAnalyzePathTwoPackageBuildEmitsAggregatedManifest verifies the
+// Subtask 5b wiring: a multi-package build produces a single capability
+// manifest where the imported package's capability surfaces under its
+// qualified name (events.WatchExec) with Origin="events" populated, while
+// the root package's capability (ExecObserve) stays bare. The fixture is a
+// minimal version of the events / main pair from TestAnalyzePathTwoPackageBuild
+// extended so the events package contributes its own capability + entry
+// function — that is the only way to exercise the aggregator's qualified-
+// name path through the real compiler pipeline.
+func TestAnalyzePathTwoPackageBuildEmitsAggregatedManifest(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "events"), 0o755); err != nil {
+		t.Fatalf("mkdir events: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "events", "events.hzn"), []byte(`package events
+
+type KillEvent struct {
+    ts_ns u64
+    pid u32
+}
+
+capability KillObserve danger observe = "kernel.process.kill.observe"
+
+@capability(KillObserve)
+@lsm("task_kill")
+func OnKillObserve(ctx lsm.Context) i32 {
+    return lsm.Allow
+}
+`), 0o600); err != nil {
+		t.Fatalf("write events: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "main.hzn"), []byte(`package main
+
+import bpf "m31labs.dev/horizon/runtime/kernel"
+import events "./events"
+
+map Events ringbuf[events.KillEvent]
+
+capability ExecObserve danger observe = "kernel.process.exec.observe"
+
+@capability(ExecObserve)
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    event := Events.reserve()
+    if event == nil { return 0 }
+    event.ts_ns = bpf.ktime_get_ns()
+    event.pid = bpf.current_pid()
+    Events.submit(event)
+    return 0
+}
+`), 0o600); err != nil {
+		t.Fatalf("write main: %v", err)
+	}
+	result, err := AnalyzePath(dir)
+	if err != nil {
+		t.Fatalf("AnalyzePath: %v", err)
+	}
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("two-package build produced errors: %#v", result.Diagnostics)
+	}
+	manifest := capability.FromIR(result.Program)
+
+	byName := map[string]capability.Capability{}
+	for _, c := range manifest.Capabilities {
+		byName[c.Name] = c
+	}
+
+	// Root-package capability stays bare with empty Origin.
+	rootCap, ok := byName["kernel.process.exec.observe"]
+	if !ok {
+		t.Fatalf("expected root capability under bare value; got %+v", manifest.Capabilities)
+	}
+	if rootCap.Origin != "" {
+		t.Errorf("root capability Origin = %q, want empty", rootCap.Origin)
+	}
+
+	// Dep-package capability is qualified by the alias `events.` and
+	// carries Origin="events".
+	depCap, ok := byName["events.kernel.process.kill.observe"]
+	if !ok {
+		t.Fatalf("expected imported capability under qualified name events.<value>; got names: %v", capabilityNames(manifest.Capabilities))
+	}
+	if depCap.Origin != "events" {
+		t.Errorf("imported capability Origin = %q, want %q", depCap.Origin, "events")
+	}
+}
+
+// capabilityNames is a tiny test helper that lists the Name field of every
+// capability for easy debugging when one is missing.
+func capabilityNames(caps []capability.Capability) []string {
+	out := make([]string, 0, len(caps))
+	for _, c := range caps {
+		out = append(out, c.Name)
+	}
+	return out
 }
 
 // TestAnalyzePathBuiltinOnlyImportsStillSinglePackage confirms that a build
