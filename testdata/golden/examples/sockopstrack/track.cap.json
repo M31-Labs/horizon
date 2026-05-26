@@ -7,6 +7,22 @@
         "scope": "event"
       },
       "emits": "SockOpsEvent",
+      "helper_effects": [
+        {
+          "mutates": [
+            "ringbuf:SockOpsEvents"
+          ],
+          "name": "ringbuf.reserve",
+          "resource": "reserve"
+        },
+        {
+          "mutates": [
+            "ringbuf:SockOpsEvents"
+          ],
+          "name": "ringbuf.submit",
+          "resource": "submit"
+        }
+      ],
       "kind": "source",
       "maps": {
         "events": [

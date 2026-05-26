@@ -7,6 +7,22 @@
         "scope": "event"
       },
       "emits": "FexitOpenEvent",
+      "helper_effects": [
+        {
+          "mutates": [
+            "ringbuf:FexitOpenEvents"
+          ],
+          "name": "ringbuf.reserve",
+          "resource": "reserve"
+        },
+        {
+          "mutates": [
+            "ringbuf:FexitOpenEvents"
+          ],
+          "name": "ringbuf.submit",
+          "resource": "submit"
+        }
+      ],
       "kind": "source",
       "maps": {
         "events": [

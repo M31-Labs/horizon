@@ -7,6 +7,22 @@
         "scope": "event"
       },
       "emits": "FentryOpenEvent",
+      "helper_effects": [
+        {
+          "mutates": [
+            "ringbuf:FentryOpenEvents"
+          ],
+          "name": "ringbuf.reserve",
+          "resource": "reserve"
+        },
+        {
+          "mutates": [
+            "ringbuf:FentryOpenEvents"
+          ],
+          "name": "ringbuf.submit",
+          "resource": "submit"
+        }
+      ],
       "kind": "source",
       "maps": {
         "events": [
