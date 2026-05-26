@@ -1646,6 +1646,32 @@ func validateCapabilityAttr(attr ast.Attr, capabilities map[string]ast.Capabilit
 			Primary:  value.Span,
 			Suggest:  fmt.Sprintf("declare it with capability %s = \"...\" or use a string literal", value.Name),
 		}}
+	case ast.SelectorExpr:
+		// Qualified reference `<alias>.<CapabilityName>` from an imported
+		// package (roadmap #20 — Phase 2 Subtask 3c). The CheckPackages
+		// path registers imported capabilities under their qualified key,
+		// so the lookup succeeds when the alias is bound and the capability
+		// is declared.
+		alias, name, ok := selectorAliasAndField(value)
+		if !ok {
+			return []diag.Diagnostic{{
+				Code:     "HZN1302",
+				Severity: diag.SeverityError,
+				Message:  "@capability requires one string argument or capability alias",
+				Primary:  attr.Span,
+			}}
+		}
+		qualified := alias + "." + name
+		if _, ok := capabilities[qualified]; ok {
+			return nil
+		}
+		return []diag.Diagnostic{{
+			Code:     "HZN1321",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("unknown capability alias %q", qualified),
+			Primary:  value.Span,
+			Suggest:  fmt.Sprintf("declare capability %s in the imported package %q, or import the package that declares it", name, alias),
+		}}
 	default:
 		return []diag.Diagnostic{{
 			Code:     "HZN1302",
@@ -1654,6 +1680,17 @@ func validateCapabilityAttr(attr ast.Attr, capabilities map[string]ast.Capabilit
 			Primary:  attr.Span,
 		}}
 	}
+}
+
+// selectorAliasAndField unwraps a SelectorExpr of the form `ident.Field`
+// into (alias, field, true). Nested selectors (a.b.c) are out of v0.2
+// scope and return ok=false.
+func selectorAliasAndField(sel ast.SelectorExpr) (string, string, bool) {
+	ident, ok := sel.Operand.(ast.IdentExpr)
+	if !ok || ident.Name == "" || sel.Field == "" {
+		return "", "", false
+	}
+	return ident.Name, sel.Field, true
 }
 
 func validateHelperSignature(decl ast.FuncDecl) []diag.Diagnostic {
@@ -2368,10 +2405,13 @@ func buildImportedDecls(importedPkgs map[string]ast.Package) map[string]*package
 }
 
 // registerQualifiedResolvedDecls re-exposes each imported package's struct
-// declarations under their qualified `<alias>.<TypeName>` form so that
-// validators expecting a resolvedDeclIndex (validateMapDecl,
-// validateStoredTypeRef, ringbufValueNeedsStructDiagnostic) accept
-// imported types as first-class user structs.
+// and capability declarations under their qualified `<alias>.<Name>` form
+// so that validators expecting a resolvedDeclIndex (validateMapDecl,
+// validateCapabilityAttr, validateStoredTypeRef,
+// ringbufValueNeedsStructDiagnostic) accept imported decls as first-class
+// users of the current package. The qualified key is the same string that
+// IR lowering looks up when resolving a SelectorExpr in attribute_value
+// (roadmap #20 — Phase 2 Subtask 3c).
 func registerQualifiedResolvedDecls(resolved *resolvedDeclIndex, importedPkgs map[string]ast.Package) {
 	for alias, pkg := range importedPkgs {
 		for _, file := range pkg.Files {
@@ -2393,6 +2433,12 @@ func registerQualifiedResolvedDecls(resolved *resolvedDeclIndex, importedPkgs ma
 						resolved.structs[qualified] = typ
 						resolved.userStructs[qualified] = typ
 					}
+				case ast.CapabilityDecl:
+					if d.Name == "" {
+						continue
+					}
+					qualified := alias + "." + d.Name
+					resolved.capabilities[qualified] = d
 				}
 			}
 		}

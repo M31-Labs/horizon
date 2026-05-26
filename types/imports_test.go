@@ -237,3 +237,54 @@ func hasDiagCode(perFile [][]diag.Diagnostic, code string) bool {
 	}
 	return false
 }
+
+// TestCapabilityAttributeAcceptsQualifiedReference verifies the Subtask 3c
+// shape: `@capability(events.ExecObserve)` parses and resolves through
+// CheckPackages when ExecObserve is declared in the imported `events`
+// package. The test pins that HZN1321 (unknown alias) does NOT fire and
+// that no parse or type-check error mentions the attribute.
+func TestCapabilityAttributeAcceptsQualifiedReference(t *testing.T) {
+	root := parseTestPackage(t, "/root", "main", map[string]string{
+		"prog.hzn": `package main
+
+import bpf "m31labs.dev/horizon/runtime/kernel"
+import events "m31labs.dev/horizon-test/events"
+
+@capability(events.ExecObserve)
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    return 0
+}
+`,
+	})
+	dep := parseTestPackage(t, "/dep/events", "events", map[string]string{
+		"events.hzn": `package events
+
+capability ExecObserve danger observe = "kernel.process.exec.observe"
+`,
+	})
+	graph := ImportGraph{
+		Edges: map[string]map[string]string{
+			"/root": {
+				"bpf":    "m31labs.dev/horizon/runtime/kernel",
+				"events": "/dep/events",
+			},
+		},
+		Packages: map[string]ast.Package{
+			"/root":      root,
+			"/dep/events": dep,
+		},
+		BuiltinAliases: map[string]bool{"bpf": true},
+	}
+	results := CheckPackages([]ast.Package{root, dep}, graph)
+	for _, perFile := range results["/root"] {
+		for _, d := range perFile {
+			if d.Code == "HZN1321" || d.Code == "HZN1302" || d.Code == "HZN1404" {
+				t.Fatalf("qualified @capability reference rejected: %#v", d)
+			}
+			if d.Severity == diag.SeverityError {
+				t.Fatalf("unexpected error: %#v", d)
+			}
+		}
+	}
+}

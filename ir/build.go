@@ -339,6 +339,12 @@ type capabilityAlias struct {
 	Name   string
 	Danger DangerLevel
 	Axes   DangerAxes // additive: axes computed from the declared danger string
+	// Origin records the import alias of the package this capability was
+	// declared in, when the capability is referenced via a qualified
+	// `<alias>.<Name>` SelectorExpr in an attribute (roadmap #20 — Phase
+	// 2 Subtask 3c). Local capabilities have Origin == "". Task 5 (cross-
+	// package aggregation) consumes Origin when emitting the manifest.
+	Origin string
 }
 
 func buildCapabilities(decl ast.FuncDecl, fn Function, maps []Map, capabilityAliases map[string]capabilityAlias) []Capability {
@@ -582,6 +588,10 @@ func stringArg(attr ast.Attr) string {
 // name, danger level, and danger axes.
 // For string literals the axes are left as zero (caller derives them from the
 // resolved danger level). For alias references the pre-computed axes are forwarded.
+// Qualified `<alias>.<Name>` SelectorExpr references (roadmap #20 — Phase 2
+// Subtask 3c) are looked up under their qualified key; the aliases map is
+// expected to be populated with both bare local entries and qualified
+// imported entries when the IR is built from a multi-package program.
 func capabilityArgWithAxes(attr ast.Attr, aliases map[string]capabilityAlias) (string, DangerLevel, DangerAxes) {
 	if len(attr.Args) == 0 {
 		return "", "", DangerAxes{}
@@ -591,6 +601,14 @@ func capabilityArgWithAxes(attr ast.Attr, aliases map[string]capabilityAlias) (s
 		return value.Value, "", DangerAxes{}
 	case ast.IdentExpr:
 		alias := aliases[value.Name]
+		return alias.Name, alias.Danger, alias.Axes
+	case ast.SelectorExpr:
+		operand, ok := value.Operand.(ast.IdentExpr)
+		if !ok || operand.Name == "" || value.Field == "" {
+			return "", "", DangerAxes{}
+		}
+		qualified := operand.Name + "." + value.Field
+		alias := aliases[qualified]
 		return alias.Name, alias.Danger, alias.Axes
 	default:
 		return "", "", DangerAxes{}
