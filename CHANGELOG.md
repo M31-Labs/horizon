@@ -9,6 +9,13 @@ All notable changes to Horizon are documented in this file. Format follows
 ### Changed
 - `ir.Program` no longer carries a partially-populated `SourceMap` field. Source maps are owned end-to-end by `emitc.Output`. No CLI / artifact change. (roadmap: #12)
 - Validators (`validate/`) now share a single IR traversal via `validate.Collect`. Each rule consumes pre-collected sites rather than re-walking. No diagnostic-output change; contract-tested against every example. Note: `StackLocalSite` detection is currently narrower than the legacy `stack.go` inference (literal struct/array declarations only); `stack.go`'s inferred-type pass remains for the broader case. Future work may extend `StackLocalSite` with inferred type to fully unify. (roadmap: #4)
+- Validate-layer state machines (ringbuf, maps, packet) now track
+  intra-function aliasing via `y := x` copies and mark resources as
+  `escaped` when passed as a call argument. Cross-function (interprocedural)
+  alias tracking remains deferred to Phase 2 #13 (`maple`). HZN1447 in
+  `types/` still rejects user-written aliases at source level; the
+  validate-layer machinery exists so that when #13 relaxes HZN1447 for
+  helper-arg passes, the state machine is ready. (roadmap: #1)
 
 ### Added
 - `hzn build` and `hzn workbench -compile` now accept `-clang-timeout=<duration>` and read `HZN_CLANG_TIMEOUT` from the environment. Default remains 30s. (roadmap: #11)
