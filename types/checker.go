@@ -1313,7 +1313,11 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 		diags = append(diags, validateSectionSignature(decl, sections[0])...)
 	}
 	for _, param := range decl.Params {
-		diags = append(diags, validateTypeRef(param.Type, known)...)
+		if isHelper {
+			diags = append(diags, validateHelperParamTypeRef(param.Type, known)...)
+		} else {
+			diags = append(diags, validateTypeRef(param.Type, known)...)
+		}
 	}
 	diags = append(diags, validateTypeRef(decl.Return, known)...)
 	if isHelper {
@@ -1576,15 +1580,16 @@ func validateCapabilityAttr(attr ast.Attr, capabilities map[string]ast.Capabilit
 func validateHelperSignature(decl ast.FuncDecl) []diag.Diagnostic {
 	var diags []diag.Diagnostic
 	for _, param := range decl.Params {
-		if !helperScalarType(param.Type) {
-			diags = append(diags, diag.Diagnostic{
-				Code:     "HZN1319",
-				Severity: diag.SeverityError,
-				Message:  fmt.Sprintf("helper function %q parameter %q must be a scalar or bool value", decl.Name, param.Name),
-				Primary:  param.Type.Span,
-				Suggest:  "keep reusable helpers scalar-only in v0; pass resources through compiler-known helpers inside an eBPF entrypoint",
-			})
+		if helperScalarType(param.Type) || helperResourceParamType(param.Type) {
+			continue
 		}
+		diags = append(diags, diag.Diagnostic{
+			Code:     "HZN1319",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("helper function %q parameter %q must be a scalar, bool, or nullable resource handle", decl.Name, param.Name),
+			Primary:  param.Type.Span,
+			Suggest:  "keep reusable helpers scalar, bool, or pointer-to-named-struct in v0; fixed-size arrays and aggregate value params remain unsupported",
+		})
 	}
 	if decl.Return.IsZero() {
 		return append(diags, diag.Diagnostic{
@@ -1609,6 +1614,28 @@ func validateHelperSignature(decl ast.FuncDecl) []diag.Diagnostic {
 
 func helperScalarType(ref ast.TypeRef) bool {
 	return !ref.IsZero() && !ref.Ptr && ref.Elem == nil && len(ref.Args) == 0 && isScalar(ref.Name)
+}
+
+// helperResourceParamType reports whether a helper-function parameter type ref
+// names a tracked nullable resource handle (e.g. *Event, *Counter, *xdp.Eth).
+// This predicate is the ast.TypeRef counterpart of ir.isResourceParamType in
+// ir/build.go and must classify the same set of params as resources. Keep the
+// two predicates in lockstep when extending or constraining the resource shape.
+// The ast/build.go pointer_type builder copies the inner elem.Name onto ref.Name
+// (ast/build.go:550), so a `*Event` param presents as Ptr=true / Name="Event";
+// ref.Elem is non-nil in that case and intentionally not inspected here, mirroring
+// ir.isResourceParamType which also keys off Ptr, Len, and Name only.
+func helperResourceParamType(ref ast.TypeRef) bool {
+	if ref.IsZero() || !ref.Ptr {
+		return false
+	}
+	if ref.Len != "" {
+		return false
+	}
+	if ref.Name == "" || isScalar(ref.Name) || ref.Name == "bool" {
+		return false
+	}
+	return true
 }
 
 func validateFunctionCallGraph(funcs map[string]ast.FuncDecl) map[string][]diag.Diagnostic {
@@ -1783,6 +1810,35 @@ func validateTypeRef(ref ast.TypeRef, known map[string]bool) []diag.Diagnostic {
 	})
 }
 
+// validateHelperParamTypeRef validates a type ref appearing in helper-function
+// parameter position. It mirrors validateTypeRef everywhere except for the
+// narrow HZN1106 carve-out: a `*<NamedStruct>` shape (Ptr=true, non-scalar
+// Name, no Len, non-nil Elem) — i.e. a resource pointer that matches
+// helperResourceParamType — is admitted without emitting HZN1106. All other
+// `*T` source forms (locals, struct fields, return types, non-helper params)
+// continue to flow through validateTypeRef and emit HZN1106 unchanged. The
+// suppression is scoped to the OUTER ref: the inner elem still passes through
+// validateTypeRef so unknown-name (HZN1102) and any deeper *T (nested
+// pointer-to-pointer) keep firing.
+func validateHelperParamTypeRef(ref ast.TypeRef, known map[string]bool) []diag.Diagnostic {
+	if !helperResourceParamType(ref) {
+		return validateTypeRef(ref, known)
+	}
+	var diags []diag.Diagnostic
+	if ref.Elem != nil {
+		diags = append(diags, validateTypeRef(*ref.Elem, known)...)
+	}
+	if ref.Name != "" && !known[ref.Name] {
+		diags = append(diags, diag.Diagnostic{
+			Code:     "HZN1102",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("unknown type %q", ref.Name),
+			Primary:  ref.Span,
+		})
+	}
+	return diags
+}
+
 type sectionSpec struct {
 	Attr    ast.Attr
 	Context string
@@ -1913,7 +1969,22 @@ func initialFuncLocals(decl ast.FuncDecl, consts map[string]ast.ConstDecl) map[s
 		if param.Name == "" {
 			continue
 		}
-		locals[param.Name] = valueType{Name: param.Type.Name, Ref: param.Type, Ptr: param.Type.Ptr}
+		vt := valueType{Name: param.Type.Name, Ref: param.Type, Ptr: param.Type.Ptr}
+		if helperResourceParamType(param.Type) {
+			// Phase 2 #13: a helper that accepts a resource pointer (e.g.
+			// *Event, *Counter, *xdp.Eth) receives a value that the caller
+			// produced from a tracked source (ringbuf reserve, map lookup,
+			// packet helper). The validator's cross-call effect summary will
+			// later observe `submit`/`discard`/deref operations on the param;
+			// for the param to flow into `<Map>.submit(ev)` (which gates on
+			// arg.Resource at the HZN1412 emit site, line ~3594), we must
+			// stamp the resource bit at the param binding. MaybeNil is also
+			// set: the caller's nil-check pre-guards the value, but inside
+			// the helper body the value is still nullable in principle.
+			vt.Resource = true
+			vt.MaybeNil = true
+		}
+		locals[param.Name] = vt
 	}
 	return locals
 }

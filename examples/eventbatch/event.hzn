@@ -1,0 +1,34 @@
+package probes
+
+import bpf "m31labs.dev/horizon/runtime/kernel"
+
+type BatchEvent struct {
+    pid u32
+    comm [16]u8
+}
+
+map BatchEvents ringbuf[BatchEvent]
+
+capability BatchObserve danger observe = "kernel.process.exec.observe"
+
+// fillEvent demonstrates the Phase 2 #13 "helpers-take-resources" relaxation:
+// a user helper accepts a *BatchEvent reservation and submits it. The Phase 2
+// helper-effect summary classifies fillEvent as `Consumes`, so the caller
+// observes `event` transitioning from live to consumed across the call.
+func fillEvent(ev *BatchEvent, pid u32) bool {
+    ev.pid = pid
+    BatchEvents.submit(ev)
+    return true
+}
+
+@capability(BatchObserve)
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    event := BatchEvents.reserve()
+    if event == nil {
+        return 0
+    }
+    bpf.current_comm(&event.comm)
+    fillEvent(event, bpf.current_pid())
+    return 0
+}

@@ -46,6 +46,20 @@ All notable changes to Horizon are documented in this file. Format follows
   coverage gaps. Removal exposes any IR-build path that produces a
   function with no typed statements as a parser/IR bug (none remain in
   the test fixtures or examples). (roadmap: #3)
+- User-defined helper functions may now accept nullable resource handles
+  (ringbuf reservations, map lookup pointers, packet headers) as
+  parameters. HZN1319 in `types/checker.go` no longer rejects these
+  pointer-typed helper parameters; the new `ir.Param.Resource` bit
+  marks them at IR-build time. Validate-layer state machines
+  (ringbuf, maps, packet) now propagate helper effects across user
+  helper calls via `validate/helper_effects.go`: callers observe the
+  helper's verdict (`Consumes`, `Preserves`, `Mixed`, `Unknown`) and
+  transition the caller-side resource state accordingly, replacing
+  the previous unconditional `escaped` marking. Recursion is bounded
+  at depth 8 (returns `Unknown` beyond, preserving soundness). HZN1447
+  continues to fire for non-helper-call alias forms. New `eventbatch`
+  example exercises the ringbuf-through-helper pattern end-to-end.
+  (roadmap: #13)
 
 ### Added
 - Verifier-message catalog (`internal/registry/verifier-catalog-v1.json`)

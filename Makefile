@@ -1,6 +1,7 @@
 OUT ?= dist
 HZN_EXAMPLES := \
 	./examples/cgroupconnect \
+	./examples/eventbatch \
 	./examples/execwatch \
 	./examples/execcount \
 	./examples/execdeny \

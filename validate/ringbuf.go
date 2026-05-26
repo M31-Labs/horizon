@@ -15,7 +15,14 @@ import (
 // machine re-walk (validateTypedRingbuf) is run only for those functions. Typed
 // functions that contain no ringbuf reserves are skipped entirely — they cannot
 // produce ringbuf diagnostics.
-func AnalyzeRingbuf(program ir.Program, sites Sites) []diag.Diagnostic {
+//
+// effects is the program-level user-helper effect summary built once by
+// validate.Program (Phase 2 #13). When a tracked reservation is passed to a
+// user helper, applyHelperEffectRingbuf consults this summary to transition
+// the caller's state precisely instead of falling back to "escaped". For
+// programs that contain no user helpers (or for sites whose callee summary
+// is Unknown/Escapes), the behavior matches Phase 1 verbatim.
+func AnalyzeRingbuf(program ir.Program, sites Sites, effects HelperEffects) []diag.Diagnostic {
 	ringMaps := map[string]ir.Map{}
 	for _, m := range program.Maps {
 		if m.Kind == ir.MapKindRingbuf {
@@ -33,7 +40,7 @@ func AnalyzeRingbuf(program ir.Program, sites Sites) []diag.Diagnostic {
 			continue
 		}
 		seen[site.Function] = true
-		diags = append(diags, validateTypedRingbuf(*site.Function, ringMaps)...)
+		diags = append(diags, validateTypedRingbuf(*site.Function, ringMaps, effects)...)
 	}
 	return diags
 }
@@ -43,7 +50,7 @@ type reserveState struct {
 	State string
 }
 
-func validateTypedRingbuf(fn ir.Function, ringMaps map[string]ir.Map) []diag.Diagnostic {
+func validateTypedRingbuf(fn ir.Function, ringMaps map[string]ir.Map, effects HelperEffects) []diag.Diagnostic {
 	states := map[string]reserveState{}
 	aliases := newAliasGraph()
 	reportedMissingNil := map[string]bool{}
@@ -161,11 +168,12 @@ func validateTypedRingbuf(fn ir.Function, ringMaps map[string]ir.Map) []diag.Dia
 				if varName, ok := helperWriteBase(stmt.Expr); ok {
 					checkWrite(varName, stmt.Span)
 				}
-				// Detect call-argument escapes: if the expression is a call and any
-				// argument is a tracked resource, mark that resource as "escaped".
-				// Escaped resources do not trigger HZN2104 on return — we cannot
-				// prove whether the callee consumed the reservation.
-				checkArgEscapesRingbuf(stmt.Expr, states, aliases)
+				// Apply the user-helper effect summary to the call's args. For
+				// known user helpers, transitions are precise (Consumes →
+				// consumed, Preserves → unchanged, Mixed → maybe_consumed).
+				// For Unknown / Escapes / non-user-helper call sites, the
+				// fallback is Phase 1's "escaped" suppression.
+				applyHelperEffectRingbuf(stmt.Expr, states, aliases, effects)
 			case "if":
 				outerStates := states
 				scoped := stmt.Init != nil
@@ -321,53 +329,97 @@ func validateTypedRingbuf(fn ir.Function, ringMaps map[string]ir.Map) []diag.Dia
 	return diags
 }
 
-// checkArgEscapesRingbuf marks ringbuf reservations as "escaped" when they
-// are passed as arguments to a call expression. An escaped reservation is one
-// whose consumption by the callee cannot be determined from intra-function
-// analysis alone; marking it "escaped" suppresses the false-positive HZN2104
-// (live-on-return). Cross-function (interprocedural) tracking is deferred to
-// Phase 2 #13 (maple).
+// applyHelperEffectRingbuf transitions caller-side ringbuf reservation state
+// at every call site, consulting the program-level HelperEffects summary.
 //
-// Only direct ident arguments are inspected. Nested calls like f(g(x)) are
-// also handled because checkArgEscapesRingbuf recurses into Args.
+// Three classes of call site:
 //
-// NOTE: ringbuf requires state.State == "live" to escape, so a `maybe_nil`
-// reservation passed to `helper(event)` still fires HZN2104 on return.
-// This is deliberate — ringbuf wants the missing-nil-check diagnostic to
-// stay loud even when the resource is also passed elsewhere. Maps/packet
-// (in validate/maps.go and validate/packet.go) make the opposite trade,
-// escaping any non-live state to silence dereference warnings; the rationale
-// is that map lookups and packet headers commonly flow through helpers
-// without strict nil-check ordering, where ringbuf submission is always
-// a deliberate consume operation. Phase 2 #13 should preserve this
-// asymmetry unless cross-function analysis exposes a sharper rule.
-func checkArgEscapesRingbuf(expr *ir.Expr, states map[string]reserveState, aliases *aliasGraph) {
+//  1. Compiler-known ringbuf consume (Events.submit / Events.discard): NOT
+//     handled here — consumeCall above intercepts these before the dispatcher
+//     reaches applyHelperEffectRingbuf, and the consume-state transitions are
+//     applied there. We early-return so the arg-ident is not double-processed
+//     here.
+//
+//  2. User-helper call (bare-ident callee): per arg, consult
+//     effects.EffectFor(name, i):
+//     - Consumes → live | maybe_nil → consumed
+//     - Preserves → state unchanged
+//     - Mixed → live → maybe_consumed (lattice already supports this)
+//     - Escapes / Unknown → fall back to Phase 1 behavior: live → escaped
+//
+//  3. Any other call (selector-form non-consume call like a future xdp helper
+//     that doesn't exist today): fall back to Phase 1 escape, conservative.
+//
+// The function recurses into Args so nested calls (f(g(event))) are processed
+// in lexical order — g's effect on event applies before f's. It also recurses
+// into Operand/Left/Right/Func to catch calls inside binary expressions and
+// the like.
+//
+// NOTE: ringbuf preserves the Phase 1 asymmetry vs maps/packet — the escaped
+// fallback is gated on state == "live" so a `maybe_nil` reservation passed to
+// an unanalyzable helper still fires HZN2100 on the next use. Maps/packet
+// (Task 5/6) widen this gate; ringbuf does not.
+func applyHelperEffectRingbuf(expr *ir.Expr, states map[string]reserveState, aliases *aliasGraph, effects HelperEffects) {
 	if expr == nil {
 		return
 	}
 	if expr.Kind == "call" {
-		// Skip known ringbuf consume calls (submit/discard) — they are
-		// handled by consumeCall and should not be double-processed here.
+		// Compiler-known consume calls are intercepted by consumeCall in the
+		// dispatcher above; do not double-process their arg here.
 		if _, _, _, ok := consumeCall(expr); !ok {
+			helperName := userHelperName(expr.Func)
 			for i := range expr.Args {
 				arg := &expr.Args[i]
-				if arg.Kind == "ident" {
-					root := aliases.root(arg.Name)
-					if state, ok := states[root]; ok && state.State == "live" {
-						state.State = "escaped"
-						states[root] = state
-					}
+				// Recurse into the arg FIRST so nested calls like
+				// outer(inner(event)) classify inner's effect on event
+				// before outer's. This matches lexical evaluation order.
+				applyHelperEffectRingbuf(arg, states, aliases, effects)
+				if arg.Kind != "ident" {
+					continue
 				}
-				// Recurse into nested calls within this argument.
-				checkArgEscapesRingbuf(arg, states, aliases)
+				root := aliases.root(arg.Name)
+				state, ok := states[root]
+				if !ok {
+					continue
+				}
+				if helperName != "" {
+					switch effects.EffectFor(helperName, i) {
+					case HelperEffectConsumes:
+						if state.State == "live" || state.State == "maybe_nil" {
+							state.State = "consumed"
+							states[root] = state
+						}
+					case HelperEffectPreserves:
+						// State unchanged — helper provably does not consume.
+					case HelperEffectMixed:
+						if state.State == "live" {
+							state.State = "maybe_consumed"
+							states[root] = state
+						}
+					default:
+						// HelperEffectEscapes or HelperEffectUnknown: fall
+						// back to Phase 1 escape behavior.
+						if state.State == "live" {
+							state.State = "escaped"
+							states[root] = state
+						}
+					}
+					continue
+				}
+				// Non-user-helper call site (selector form that wasn't a
+				// known consume): Phase 1 fallback.
+				if state.State == "live" {
+					state.State = "escaped"
+					states[root] = state
+				}
 			}
 		}
 	}
 	// Recurse into non-arg sub-expressions (func selector, operands, etc.).
-	checkArgEscapesRingbuf(expr.Operand, states, aliases)
-	checkArgEscapesRingbuf(expr.Left, states, aliases)
-	checkArgEscapesRingbuf(expr.Right, states, aliases)
-	checkArgEscapesRingbuf(expr.Func, states, aliases)
+	applyHelperEffectRingbuf(expr.Operand, states, aliases, effects)
+	applyHelperEffectRingbuf(expr.Left, states, aliases, effects)
+	applyHelperEffectRingbuf(expr.Right, states, aliases, effects)
+	applyHelperEffectRingbuf(expr.Func, states, aliases, effects)
 }
 
 func missingNilCheck(fn ir.Function, varName string) diag.Diagnostic {

@@ -13,8 +13,9 @@ type Function struct {
 }
 
 type Param struct {
-	Name string
-	Type Type
+	Name     string
+	Type     Type
+	Resource bool
 }
 
 type Block struct {
