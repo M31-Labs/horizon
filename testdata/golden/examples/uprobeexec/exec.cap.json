@@ -65,7 +65,7 @@
       ],
       "kind": "uprobe",
       "name": "OnExecEntry",
-      "section": "uprobe"
+      "section": "uprobe//usr/bin/ls:main"
     }
   ],
   "requirements": {

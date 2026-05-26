@@ -65,7 +65,7 @@
       ],
       "kind": "uretprobe",
       "name": "OnExecReturn",
-      "section": "uretprobe"
+      "section": "uretprobe//usr/bin/ls:main"
     }
   ],
   "requirements": {

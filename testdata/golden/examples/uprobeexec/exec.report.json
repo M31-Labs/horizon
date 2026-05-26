@@ -9,8 +9,8 @@
     {
       "package": "probes",
       "path": "examples/uprobeexec/exec.hzn",
-      "sha256": "b41380e9b350577d612feec4d7533b7a37cabebde5b9c6c4e81e6c0f93aa6017",
-      "size": 442
+      "sha256": "3bf0d65e9094f81268f8d9ac807f442f1fbeba25e345729369250c4e2122d276",
+      "size": 541
     }
   ],
   "status": "generated",

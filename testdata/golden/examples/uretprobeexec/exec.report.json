@@ -9,8 +9,8 @@
     {
       "package": "probes",
       "path": "examples/uretprobeexec/exec.hzn",
-      "sha256": "12eeed31e631518fd39ccb8549e1f8e0d10824d4b5079be9f84a4590b8eeecca",
-      "size": 470
+      "sha256": "3d4a654114f10527cdc3036ad662df79212b44d64f21c9f6d428beb270ee88e9",
+      "size": 569
     }
   ],
   "status": "generated",

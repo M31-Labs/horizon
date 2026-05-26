@@ -15,6 +15,7 @@ func OnExecReturn(ctx uretprobe.Context) i32 {
     if event == nil {
         return 0
     }
+    // pid hardcoded to 0 until bpf.* helpers are wired for uprobe context (Track A coordination).
     event.pid = 0
     UretprobeExecEvents.submit(event)
     return 0

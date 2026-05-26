@@ -104,15 +104,15 @@
       "source": {
         "end": {
           "column": 35,
-          "line": 19
+          "line": 20
         },
-        "end_byte": 426,
+        "end_byte": 525,
         "file": "examples/uprobeexec/exec.hzn",
         "start": {
           "column": 5,
-          "line": 19
+          "line": 20
         },
-        "start_byte": 396
+        "start_byte": 495
       }
     },
     {
@@ -216,15 +216,15 @@
       "source": {
         "end": {
           "column": 18,
-          "line": 18
+          "line": 19
         },
-        "end_byte": 391,
+        "end_byte": 490,
         "file": "examples/uprobeexec/exec.hzn",
         "start": {
           "column": 5,
-          "line": 18
+          "line": 19
         },
-        "start_byte": 378
+        "start_byte": 477
       }
     },
     {
@@ -244,15 +244,15 @@
       "source": {
         "end": {
           "column": 35,
-          "line": 19
+          "line": 20
         },
-        "end_byte": 426,
+        "end_byte": 525,
         "file": "examples/uprobeexec/exec.hzn",
         "start": {
           "column": 5,
-          "line": 19
+          "line": 20
         },
-        "start_byte": 396
+        "start_byte": 495
       }
     },
     {
@@ -272,15 +272,15 @@
       "source": {
         "end": {
           "column": 13,
-          "line": 20
+          "line": 21
         },
-        "end_byte": 439,
+        "end_byte": 538,
         "file": "examples/uprobeexec/exec.hzn",
         "start": {
           "column": 5,
-          "line": 20
+          "line": 21
         },
-        "start_byte": 431
+        "start_byte": 530
       }
     },
     {
@@ -300,9 +300,9 @@
       "source": {
         "end": {
           "column": 2,
-          "line": 21
+          "line": 22
         },
-        "end_byte": 441,
+        "end_byte": 540,
         "file": "examples/uprobeexec/exec.hzn",
         "start": {
           "column": 1,

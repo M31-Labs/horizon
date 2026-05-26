@@ -104,15 +104,15 @@
       "source": {
         "end": {
           "column": 38,
-          "line": 19
+          "line": 20
         },
-        "end_byte": 454,
+        "end_byte": 553,
         "file": "examples/uretprobeexec/exec.hzn",
         "start": {
           "column": 5,
-          "line": 19
+          "line": 20
         },
-        "start_byte": 421
+        "start_byte": 520
       }
     },
     {
@@ -216,15 +216,15 @@
       "source": {
         "end": {
           "column": 18,
-          "line": 18
+          "line": 19
         },
-        "end_byte": 416,
+        "end_byte": 515,
         "file": "examples/uretprobeexec/exec.hzn",
         "start": {
           "column": 5,
-          "line": 18
+          "line": 19
         },
-        "start_byte": 403
+        "start_byte": 502
       }
     },
     {
@@ -244,15 +244,15 @@
       "source": {
         "end": {
           "column": 38,
-          "line": 19
+          "line": 20
         },
-        "end_byte": 454,
+        "end_byte": 553,
         "file": "examples/uretprobeexec/exec.hzn",
         "start": {
           "column": 5,
-          "line": 19
+          "line": 20
         },
-        "start_byte": 421
+        "start_byte": 520
       }
     },
     {
@@ -272,15 +272,15 @@
       "source": {
         "end": {
           "column": 13,
-          "line": 20
+          "line": 21
         },
-        "end_byte": 467,
+        "end_byte": 566,
         "file": "examples/uretprobeexec/exec.hzn",
         "start": {
           "column": 5,
-          "line": 20
+          "line": 21
         },
-        "start_byte": 459
+        "start_byte": 558
       }
     },
     {
@@ -300,9 +300,9 @@
       "source": {
         "end": {
           "column": 2,
-          "line": 21
+          "line": 22
         },
-        "end_byte": 469,
+        "end_byte": 568,
         "file": "examples/uretprobeexec/exec.hzn",
         "start": {
           "column": 1,

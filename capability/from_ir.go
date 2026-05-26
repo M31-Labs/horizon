@@ -115,6 +115,9 @@ func manifestSection(section ir.Section) string {
 	if (section.Kind == ir.ProgramKprobe || section.Kind == ir.ProgramKretprobe) && section.Attach != "" {
 		return string(section.Kind) + "/" + section.Attach
 	}
+	if (section.Kind == ir.ProgramUprobe || section.Kind == ir.ProgramUretprobe) && section.Attach != "" {
+		return string(section.Kind) + "/" + section.Attach
+	}
 	return section.Name
 }
 
