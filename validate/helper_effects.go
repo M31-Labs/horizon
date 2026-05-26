@@ -111,8 +111,41 @@ func BuildHelperEffects(program ir.Program) HelperEffects {
 		}
 		return HelperEffects{byName: effects}
 	}
+	// Compute depth-from-leaf for every helper. Leaves (helpers that call no
+	// other user helper) sit at depth 1; an interior helper sits one above the
+	// max depth of any user-helper callee it reaches. Topo order guarantees
+	// every callee's depth is known before the caller is visited. Helpers
+	// whose depth exceeds maxHelperEffectDepth are summarized as all-Unknown
+	// so callers fall back to Phase 1 "escaped" behavior. This is defense in
+	// depth: HZN1503 already prevents recursion, so an acyclic chain longer
+	// than the limit is the only way to trip this — pathological but bounded.
+	depthOf := make(map[string]int, len(order))
+	byNameLookup := make(map[string]*ir.Function, len(order))
+	for _, fn := range order {
+		byNameLookup[fn.Name] = fn
+	}
+	for _, fn := range order {
+		max := 0
+		for _, called := range calledHelperNames(fn) {
+			if _, ok := byNameLookup[called]; !ok {
+				continue
+			}
+			if d := depthOf[called]; d > max {
+				max = d
+			}
+		}
+		depthOf[fn.Name] = max + 1
+	}
 	effects := HelperEffects{byName: make(map[string][]HelperEffect, len(order))}
 	for _, fn := range order {
+		if depthOf[fn.Name] > maxHelperEffectDepth {
+			vec := make([]HelperEffect, len(fn.Params))
+			for i := range vec {
+				vec[i] = HelperEffectUnknown
+			}
+			effects.byName[fn.Name] = vec
+			continue
+		}
 		effects.byName[fn.Name] = summarizeHelper(*fn, effects, 0)
 	}
 	return effects

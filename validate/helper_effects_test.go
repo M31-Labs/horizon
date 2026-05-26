@@ -2,6 +2,7 @@ package validate_test
 
 import (
 	"testing"
+	"time"
 
 	"m31labs.dev/horizon/ir"
 	"m31labs.dev/horizon/validate"
@@ -216,26 +217,112 @@ func TestHelperEffectsChainsThroughKnownHelpers(t *testing.T) {
 	}
 }
 
-// TestHelperEffectsRespectsDepthLimitFallback exercises a placeholder
-// fallback for the depth cap. Task 7 will replace this with a real
-// 10-helper chain stress test; for now we pin that an unknown-name callee
-// produces Unknown rather than panicking.
+// TestHelperEffectsRespectsDepthLimitFallback stresses the maxHelperEffectDepth
+// boundary (=8) by constructing a 10-helper chain h0 → h1 → ... → h9, where
+// h9 is the leaf that calls Events.submit(ev). Depth-from-leaf assigns
+// depth(h9)=1, depth(h8)=2, ..., depth(h0)=10. Helpers at depth > 8 (i.e.
+// h0 and h1) must summarize to all-Unknown so callers fall back to the
+// Phase 1 "escaped" behavior. Helpers at depth ≤ 8 (h2..h9) propagate
+// Consumes through the chain via the normal topo-sort path.
+//
+// This pins that the depth cap actually fires — without it, an acyclic but
+// arbitrarily long chain would tie up summary work; with it, the cap bounds
+// total work while preserving Phase 1's conservative fallback at the boundary.
 func TestHelperEffectsRespectsDepthLimitFallback(t *testing.T) {
-	// Helper calls a name that does not exist in the program. Lookup
-	// returns Unknown so the helper itself summarizes Unknown.
-	fn := helperFn("fallback",
+	const chain = 10 // = maxHelperEffectDepth + 2
+	helpers := make([]ir.Function, chain)
+	// h(chain-1) is the leaf: submits and returns.
+	helpers[chain-1] = helperFn("h9",
 		[]ir.Param{resourceParam("ev", "Event")},
 		[]ir.Statement{
-			{Kind: "expr", Expr: userCallExpr("notInProgram", ir.Expr{Kind: "ident", Name: "ev"})},
+			{Kind: "expr", Expr: submitExpr("Events", "ev")},
 			{Kind: "return", Value: &ir.Expr{Kind: "bool", Value: "true"}},
 		},
 	)
-	prog := programWith(fn)
-	effects := validate.BuildHelperEffects(prog)
-	got := effects.EffectFor("fallback", 0)
-	if got != validate.HelperEffectUnknown {
-		t.Fatalf("EffectFor(fallback, 0) = %v, want HelperEffectUnknown", got)
+	// h(i) calls h(i+1)(ev) and returns.
+	for i := chain - 2; i >= 0; i-- {
+		helpers[i] = helperFn(
+			fmtName("h", i),
+			[]ir.Param{resourceParam("ev", "Event")},
+			[]ir.Statement{
+				{Kind: "expr", Expr: userCallExpr(fmtName("h", i+1), ir.Expr{Kind: "ident", Name: "ev"})},
+				{Kind: "return", Value: &ir.Expr{Kind: "bool", Value: "true"}},
+			},
+		)
 	}
+	prog := programWith(helpers...)
+	effects := validate.BuildHelperEffects(prog)
+
+	// h0 sits at depth 10 (10-helper chain to leaf), h1 at depth 9 — both
+	// exceed maxHelperEffectDepth=8 and must trip the all-Unknown fallback.
+	for _, name := range []string{"h0", "h1"} {
+		if got := effects.EffectFor(name, 0); got != validate.HelperEffectUnknown {
+			t.Fatalf("EffectFor(%s, 0) = %v, want HelperEffectUnknown (depth > maxHelperEffectDepth)", name, got)
+		}
+	}
+	// h2 (depth 8) and below sit at or under the cap and propagate Consumes
+	// through the chain (each calls the next, which is Consumes-classified).
+	for _, name := range []string{"h2", "h5", "h9"} {
+		if got := effects.EffectFor(name, 0); got != validate.HelperEffectConsumes {
+			t.Fatalf("EffectFor(%s, 0) = %v, want HelperEffectConsumes (depth ≤ maxHelperEffectDepth)", name, got)
+		}
+	}
+}
+
+// TestHelperEffectsCycleBridgeYieldsAllUnknown constructs a synthetic IR
+// program with a forbidden helper-call cycle a → b → a. HZN1503 prevents
+// this at the source level, so the cycle bypasses normal type-check; the
+// fixture is synthesized directly to verify BuildHelperEffects' cycle
+// defense (topoSortHelpers returns ok=false → all-Unknown branch fires).
+// The summary builder must NOT loop and must classify both helpers as
+// HelperEffectUnknown so callers fall back to the Phase 1 "escaped" behavior.
+func TestHelperEffectsCycleBridgeYieldsAllUnknown(t *testing.T) {
+	// func a(ev *Event) bool { b(ev); return true }
+	// func b(ev *Event) bool { a(ev); return true }
+	a := helperFn("a",
+		[]ir.Param{resourceParam("ev", "Event")},
+		[]ir.Statement{
+			{Kind: "expr", Expr: userCallExpr("b", ir.Expr{Kind: "ident", Name: "ev"})},
+			{Kind: "return", Value: &ir.Expr{Kind: "bool", Value: "true"}},
+		},
+	)
+	b := helperFn("b",
+		[]ir.Param{resourceParam("ev", "Event")},
+		[]ir.Statement{
+			{Kind: "expr", Expr: userCallExpr("a", ir.Expr{Kind: "ident", Name: "ev"})},
+			{Kind: "return", Value: &ir.Expr{Kind: "bool", Value: "true"}},
+		},
+	)
+	prog := programWith(a, b)
+
+	// Run with a generous wall-clock budget: if topo-sort's cycle defense
+	// fails, this loops forever — t.Deadline()/panic-on-timeout cannot help
+	// us here. The actual implementation returns immediately when state is
+	// "visiting".
+	done := make(chan validate.HelperEffects, 1)
+	go func() { done <- validate.BuildHelperEffects(prog) }()
+	var effects validate.HelperEffects
+	select {
+	case effects = <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("BuildHelperEffects did not return within 2s — cycle defense regressed")
+	}
+
+	if got := effects.EffectFor("a", 0); got != validate.HelperEffectUnknown {
+		t.Fatalf("EffectFor(a, 0) = %v, want HelperEffectUnknown (cycle bridge)", got)
+	}
+	if got := effects.EffectFor("b", 0); got != validate.HelperEffectUnknown {
+		t.Fatalf("EffectFor(b, 0) = %v, want HelperEffectUnknown (cycle bridge)", got)
+	}
+}
+
+// fmtName concatenates a prefix and a small integer without pulling in
+// fmt for the formatting cost; tests only need names like "h0".."h9".
+func fmtName(prefix string, i int) string {
+	if i < 10 {
+		return prefix + string(rune('0'+i))
+	}
+	return prefix + string(rune('0'+i/10)) + string(rune('0'+i%10))
 }
 
 // TestHelperEffectsForScalarParamsIsPreserves verifies that non-resource

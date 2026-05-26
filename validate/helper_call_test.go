@@ -368,3 +368,70 @@ func TestPacketHeaderDerefFiresAfterPreserveHelper(t *testing.T) {
 		t.Fatalf("HZN2600 count = %d, want 1 (Preserves should stop over-suppression of unguarded packet deref)", got)
 	}
 }
+
+// TestRingbufConsumesPropagatesAcrossThreeHelperChain stresses cross-call
+// propagation through a 3-helper chain: outer(ev) → middle(ev) → inner(ev),
+// where inner is the leaf that calls Events.submit. The summary builder
+// topologically classifies inner=Consumes, then middle=Consumes (because its
+// only act is calling inner with the param), then outer=Consumes (same).
+// The entrypoint reserves, nil-checks, calls outer(event), then attempts a
+// second submit — the chain-of-three must drive event from live to consumed
+// so HZN2102 fires on the trailing submit.
+//
+// This pins the Phase 2 #13 end-to-end story: deep helper chains carry the
+// consume effect to the caller, not just one-hop helpers.
+func TestRingbufConsumesPropagatesAcrossThreeHelperChain(t *testing.T) {
+	// func inner(ev *Event) bool { Events.submit(ev); return true }
+	inner := helperFn("inner",
+		[]ir.Param{resourceParam("ev", "Event")},
+		[]ir.Statement{
+			{Kind: "expr", Expr: submitExpr("Events", "ev")},
+			{Kind: "return", Value: &ir.Expr{Kind: "bool", Value: "true"}},
+		},
+	)
+	// func middle(ev *Event) bool { inner(ev); return true }
+	middle := helperFn("middle",
+		[]ir.Param{resourceParam("ev", "Event")},
+		[]ir.Statement{
+			{Kind: "expr", Expr: userCallExpr("inner", ir.Expr{Kind: "ident", Name: "ev"})},
+			{Kind: "return", Value: &ir.Expr{Kind: "bool", Value: "true"}},
+		},
+	)
+	// func outer(ev *Event) bool { middle(ev); return true }
+	outer := helperFn("outer",
+		[]ir.Param{resourceParam("ev", "Event")},
+		[]ir.Statement{
+			{Kind: "expr", Expr: userCallExpr("middle", ir.Expr{Kind: "ident", Name: "ev"})},
+			{Kind: "return", Value: &ir.Expr{Kind: "bool", Value: "true"}},
+		},
+	)
+
+	// First confirm the summary chain classifies all three as Consumes —
+	// this is the load-bearing pre-condition for the entrypoint diagnostic.
+	prog := ringbufProgWithHelper(nil, inner, middle, outer)
+	effects := validate.BuildHelperEffects(prog)
+	for _, name := range []string{"inner", "middle", "outer"} {
+		if got := effects.EffectFor(name, 0); got != validate.HelperEffectConsumes {
+			t.Fatalf("EffectFor(%s, 0) = %v, want HelperEffectConsumes (3-helper chain)", name, got)
+		}
+	}
+
+	// Now build the actual entrypoint that double-submits via the chain:
+	//   event := Events.reserve()
+	//   if event == nil { return 0 }
+	//   outer(event)             // chain drives state to consumed
+	//   Events.submit(event)     // HZN2102 — second consume
+	//   return 0
+	entry := []ir.Statement{
+		{Kind: "short_var", Name: "event", Value: reserveExpr("Events")},
+		{Kind: "if", Cond: eqNilCond("event"), Then: []ir.Statement{returnZero()}},
+		{Kind: "expr", Expr: userCallExpr("outer", ir.Expr{Kind: "ident", Name: "event"})},
+		{Kind: "expr", Expr: submitExpr("Events", "event")},
+		returnZero(),
+	}
+	prog = ringbufProgWithHelper(entry, inner, middle, outer)
+	diags := validate.Program(prog)
+	if got := countDiag(diags, "HZN2102"); got != 1 {
+		t.Fatalf("HZN2102 count = %d, want 1 (3-helper chain should consume through to caller)", got)
+	}
+}
