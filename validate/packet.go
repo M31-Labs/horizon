@@ -245,6 +245,10 @@ func validateXDPPacketHeaders(fn ir.Function) []diag.Diagnostic {
 				}
 				states = mergedStates
 			case "for":
+				// Bounded 2-iteration fixpoint for loop-carry state soundness (#5).
+				// Walking the body once misses unguarded packet-header derefs on
+				// iteration 2+ when the header state is still maybe_nil entering the loop.
+				// Range-over and for {} not modeled; HZN2200 rejects for {}.
 				if stmt.Init != nil {
 					walk([]ir.Statement{*stmt.Init})
 				}
@@ -252,7 +256,18 @@ func validateXDPPacketHeaders(fn ir.Function) []diag.Diagnostic {
 				if stmt.Post != nil {
 					walk([]ir.Statement{*stmt.Post})
 				}
+				// Iteration 1: snapshot pre-loop state, walk body.
+				savedStates := clonePacketHeaderStates(states)
 				walk(stmt.Body)
+				afterIter1 := clonePacketHeaderStates(states)
+				// Merge pre-loop + post-iter-1 → may-have-iterated state.
+				mayHaveIterated := mergePacketBranchStates(savedStates, afterIter1, false, false)
+				// Iteration 2: walk body again; diagnostics here catch cross-iteration issues.
+				states = mayHaveIterated
+				walk(stmt.Body)
+				afterIter2 := clonePacketHeaderStates(states)
+				// Post-loop state: merge iter-1 and iter-2 outcomes.
+				states = mergePacketBranchStates(afterIter1, afterIter2, false, false)
 			}
 		}
 	}

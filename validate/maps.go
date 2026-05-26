@@ -309,6 +309,10 @@ func validateTypedMapLookups(fn ir.Function, lookupMaps map[string]ir.Map) []dia
 				}
 				states = mergedStates
 			case "for":
+				// Bounded 2-iteration fixpoint for loop-carry state soundness (#5).
+				// Walking the body once misses unguarded derefs that occur on
+				// iteration 2+ when a lookup state is already maybe_nil.
+				// Range-over and for {} not modeled; HZN2200 rejects for {}.
 				if stmt.Init != nil {
 					walk([]ir.Statement{*stmt.Init})
 				}
@@ -316,7 +320,18 @@ func validateTypedMapLookups(fn ir.Function, lookupMaps map[string]ir.Map) []dia
 				if stmt.Post != nil {
 					walk([]ir.Statement{*stmt.Post})
 				}
+				// Iteration 1: snapshot pre-loop state, walk body.
+				savedStates := cloneLookupStates(states)
 				walk(stmt.Body)
+				afterIter1 := cloneLookupStates(states)
+				// Merge pre-loop + post-iter-1 → may-have-iterated state.
+				mayHaveIterated := mergeLookupBranchStates(savedStates, afterIter1, false, false)
+				// Iteration 2: walk body again; diagnostics here catch cross-iteration issues.
+				states = mayHaveIterated
+				walk(stmt.Body)
+				afterIter2 := cloneLookupStates(states)
+				// Post-loop state: merge iter-1 and iter-2 outcomes.
+				states = mergeLookupBranchStates(afterIter1, afterIter2, false, false)
 			}
 		}
 	}

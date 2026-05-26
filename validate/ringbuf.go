@@ -362,7 +362,38 @@ func validateTypedRingbuf(fn ir.Function, ringMaps map[string]ir.Map) []diag.Dia
 			case "switch":
 				walkReserveSwitch(stmt, &states, checkWrite, walk)
 			case "for":
+				// Bounded 2-iteration fixpoint for loop-carry state soundness (#5).
+				// Walking the body once misses patterns like submit(event) inside a
+				// loop where event was reserved outside — iteration 2 catches it.
+				//
+				// Walk init/post as flat statements so loop variables (e.g. i := 0)
+				// are registered in states; they are not resource-carrying so no
+				// ringbuf state changes, but skipping them is consistent with maps.go.
+				if stmt.Init != nil {
+					walk([]ir.Statement{*stmt.Init})
+				}
+				checkExprHelperWrites(stmt.Cond, checkWrite)
+				if stmt.Post != nil {
+					walk([]ir.Statement{*stmt.Post})
+				}
+				// Iteration 1: snapshot pre-loop state, walk body.
+				savedStates := cloneReserveStates(states)
 				walk(stmt.Body)
+				afterIter1 := cloneReserveStates(states)
+				// Merge pre-loop + post-iter-1 → may-have-iterated state.
+				// This models the case where the body executed 0 or 1 times already.
+				mayHaveIterated := mergeReserveBranchStates(savedStates, afterIter1, false, false)
+				// Iteration 2: walk body again with may-have-iterated state.
+				// Any diagnostics (HZN2102, HZN2103, etc.) fired here catch
+				// cross-iteration regressions — the state machine shows that a
+				// second iteration would violate resource constraints.
+				// Range-over and for {} are not modeled here; HZN2200 rejects
+				// unbounded for {} at AnalyzeLoops. (roadmap: v0.3+)
+				states = mayHaveIterated
+				walk(stmt.Body)
+				afterIter2 := cloneReserveStates(states)
+				// Post-loop state: merge iter-1 and iter-2 outcomes.
+				states = mergeReserveBranchStates(afterIter1, afterIter2, false, false)
 			case "return":
 				for varName, state := range states {
 					if state.State == "live" || state.State == "maybe_nil" || state.State == "maybe_consumed" {
