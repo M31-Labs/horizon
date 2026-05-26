@@ -1969,7 +1969,22 @@ func initialFuncLocals(decl ast.FuncDecl, consts map[string]ast.ConstDecl) map[s
 		if param.Name == "" {
 			continue
 		}
-		locals[param.Name] = valueType{Name: param.Type.Name, Ref: param.Type, Ptr: param.Type.Ptr}
+		vt := valueType{Name: param.Type.Name, Ref: param.Type, Ptr: param.Type.Ptr}
+		if helperResourceParamType(param.Type) {
+			// Phase 2 #13: a helper that accepts a resource pointer (e.g.
+			// *Event, *Counter, *xdp.Eth) receives a value that the caller
+			// produced from a tracked source (ringbuf reserve, map lookup,
+			// packet helper). The validator's cross-call effect summary will
+			// later observe `submit`/`discard`/deref operations on the param;
+			// for the param to flow into `<Map>.submit(ev)` (which gates on
+			// arg.Resource at the HZN1412 emit site, line ~3594), we must
+			// stamp the resource bit at the param binding. MaybeNil is also
+			// set: the caller's nil-check pre-guards the value, but inside
+			// the helper body the value is still nullable in principle.
+			vt.Resource = true
+			vt.MaybeNil = true
+		}
+		locals[param.Name] = vt
 	}
 	return locals
 }
