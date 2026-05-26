@@ -1,0 +1,23 @@
+[
+  {
+    "code": "HZN3120",
+    "severity": "error",
+    "message": "Unreleased reference (ringbuf reserve or sk_lookup leak)",
+    "primary": {
+      "start": {
+        "line": 0,
+        "column": 0
+      },
+      "end": {
+        "line": 0,
+        "column": 0
+      }
+    },
+    "notes": [
+      "verifier-catalog: VC0004",
+      "cause: The verifier tracks reference-counted helper returns (bpf_ringbuf_reserve, bpf_sk_lookup_tcp, bpf_skc_lookup_tcp) and rejects programs that return without calling the matching release helper on every control-flow path. The leaked reference id in the message identifies which acquisition was not paired.",
+      "2: R0_w=ringbuf_mem_or_null(id=2,ref_obj_id=2,off=0,imm=0)\n; if reservation == nil { return; }\n3: (15) if r0 == 0x0 goto pc+5\n; commit(reservation, payload);\n4: (b7) r0 = 0\n5: (95) exit\nUnreleased reference id=2 alloc_insn=1"
+    ],
+    "suggest": "Submit or discard every ringbuf reservation (`bpf.ringbuf.submit` / `bpf.ringbuf.discard`) on all return paths; release every `bpf_sk_lookup_tcp` result with `bpf_sk_release`. In .hzn, prefer the scoped-resource helpers that release automatically on scope exit."
+  }
+]

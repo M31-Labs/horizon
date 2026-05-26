@@ -1,0 +1,23 @@
+[
+  {
+    "code": "HZN3141",
+    "severity": "error",
+    "message": "Uninitialized return value (R0 not set on all paths)",
+    "primary": {
+      "start": {
+        "line": 0,
+        "column": 0
+      },
+      "end": {
+        "line": 0,
+        "column": 0
+      }
+    },
+    "notes": [
+      "verifier-catalog: VC0008",
+      "cause: The verifier reached the end of the program (or a function) on a control-flow path that did not assign R0, the BPF return-value register. Every return path must produce an explicit value — falling off the end is not allowed.",
+      "0: R1=ctx() R10=fp0\n; match action { Drop =\u003e 0, Pass =\u003e return }\n1: (15) if r2 == 0x0 goto pc+3\n2: (b7) r0 = 0\n3: (95) exit\n4: (95) exit\nR0 !read_ok"
+    ],
+    "suggest": "Return an explicit i32 action or value on every control-flow path. In .hzn, use `return` with a value (or an exhaustive `match` that yields one) at the end of every branch."
+  }
+]

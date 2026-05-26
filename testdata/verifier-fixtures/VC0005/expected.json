@@ -1,0 +1,23 @@
+[
+  {
+    "code": "HZN3130",
+    "severity": "error",
+    "message": "Unbounded loop (no upper bound the verifier can prove)",
+    "primary": {
+      "start": {
+        "line": 0,
+        "column": 0
+      },
+      "end": {
+        "line": 0,
+        "column": 0
+      }
+    },
+    "notes": [
+      "verifier-catalog: VC0005",
+      "cause: The verifier rejected a back-edge in the control-flow graph because it could not prove the loop terminates within the insn budget. Either the loop bound is a runtime scalar with no known upper bound, or the loop variable is mutated in a way that breaks the verifier's monotonicity proof.",
+      "0: R1=ctx() R10=fp0\n; for i in 0..n { sum += data[i]; }\n1: (b7) r2 = 0\n2: (b7) r3 = 0\n3: (0f) r2 += r3\n4: (05) goto pc-3\nunbounded loop detected: back-edge from insn 4 to 2"
+    ],
+    "suggest": "Use a counted `for` loop with a literal or integer-constant upper bound, or wrap iteration in `bpf_loop` with an explicit max-iterations argument. Keep the loop variable monotonic in a verifier-friendly way (`i = i + 1`, never branch-dependent mutations)."
+  }
+]

@@ -1,0 +1,4 @@
+; let reservation = bpf.ringbuf.reserve(events, 64);
+; *reservation = payload;
+invalid mem access 'scalar'
+processed 6 insns (limit 1000000) max_states_per_insn 0 total_states 0 peak_states 0 mark_read 0

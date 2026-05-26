@@ -1,0 +1,4 @@
+; let frame: [u8; 512] = ...; call inner(&frame);
+0: R1=ctx() R10=fp0
+1: (85) call pc+10
+combined stack size of 3 calls is 600. Too large (verification failed)

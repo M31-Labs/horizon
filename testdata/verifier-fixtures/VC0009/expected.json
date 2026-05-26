@@ -1,0 +1,23 @@
+[
+  {
+    "code": "HZN3150",
+    "severity": "error",
+    "message": "Stack overflow (combined frame size exceeds BPF stack limit)",
+    "primary": {
+      "start": {
+        "line": 0,
+        "column": 0
+      },
+      "end": {
+        "line": 0,
+        "column": 0
+      }
+    },
+    "notes": [
+      "verifier-catalog: VC0009",
+      "cause: BPF stack frames are limited to 512 bytes total (across all called functions in a tail-call-free call chain). The verifier rejects programs whose summed stack usage exceeds this limit. The cause is usually a large local struct or array that should live in a map or ringbuf reservation instead.",
+      "; let frame: [u8; 512] = ...; call inner(\u0026frame);\n0: R1=ctx() R10=fp0\n1: (85) call pc+10\ncombined stack size of 3 calls is 600. Too large (verification failed)"
+    ],
+    "suggest": "Move large local records into maps (`BPF_MAP_TYPE_PERCPU_ARRAY` keyed by 0 is the canonical scratch-pad) or ringbuf reservations. Avoid recursive helpers; prefer flat call graphs so the verifier's combined-stack accounting stays bounded."
+  }
+]
