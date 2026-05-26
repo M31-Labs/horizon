@@ -78,8 +78,8 @@ func validateManifestHeader(m Manifest) error {
 	if m.Schema == "" {
 		return validationErrorf("capability manifest schema is required")
 	}
-	if m.Schema != SchemaV0 {
-		return validationErrorf("unsupported capability manifest schema %q", m.Schema)
+	if m.Schema != SchemaV1 {
+		return validationErrorf("unsupported capability manifest schema %q (want %s)", m.Schema, SchemaV1)
 	}
 	if m.Package == "" {
 		return validationErrorf("capability manifest package is required")
@@ -132,6 +132,25 @@ func indexManifestMaps(mapSpecs []Map) (map[string]Map, error) {
 			}
 			if mapSpec.Kind == "ringbuf" && value&(value-1) != 0 {
 				return nil, validationErrorf("capability manifest ringbuf map %q max_entries must be a power of two", mapSpec.Name)
+			}
+		}
+		if mapSpec.SteadyStateEntries != "" {
+			sse, err := strconv.ParseUint(mapSpec.SteadyStateEntries, 0, 32)
+			if err != nil || sse == 0 {
+				return nil, validationErrorf("capability manifest map %q steady_state_entries must be a positive integer literal", mapSpec.Name)
+			}
+			if mapSpec.MaxEntries != "" {
+				maxE, err := strconv.ParseUint(mapSpec.MaxEntries, 0, 32)
+				if err == nil && sse > maxE {
+					return nil, validationErrorf("capability manifest map %q steady_state_entries (%d) must not exceed max_entries (%d)", mapSpec.Name, sse, maxE)
+				}
+			}
+		}
+		if mapSpec.AccessFreq != "" {
+			switch mapSpec.AccessFreq {
+			case "low", "medium", "high":
+			default:
+				return nil, validationErrorf(`capability manifest map %q access_freq must be "low", "medium", or "high"`, mapSpec.Name)
 			}
 		}
 		if _, exists := maps[mapSpec.Name]; exists {
@@ -233,11 +252,11 @@ func validateManifestCapabilities(caps []Capability, programs map[string]Program
 		if cap.Kind != "source" {
 			return validationErrorf("capability %q kind %q is not supported", cap.Name, cap.Kind)
 		}
-		if cap.Danger == "" {
+		if cap.Danger.IsZero() {
 			return validationErrorf("capability %q danger is required", cap.Name)
 		}
-		if !validDangerLevel(cap.Danger) {
-			return validationErrorf("capability %q danger %q is not supported", cap.Name, cap.Danger)
+		if err := validateDangerAxes(cap.Danger); err != nil {
+			return validationErrorf("capability %q danger: %v", cap.Name, err)
 		}
 		if cap.Program == "" {
 			return validationErrorf("capability %q program is required", cap.Name)
@@ -321,7 +340,7 @@ func validationErrorf(format string, args ...any) error {
 
 func validProgramKind(kind string) bool {
 	switch kind {
-	case "tracepoint", "xdp", "tc", "cgroup", "lsm", "kprobe", "kretprobe":
+	case "tracepoint", "xdp", "tc", "cgroup", "lsm", "kprobe", "kretprobe", "uprobe", "uretprobe", "fentry", "fexit", "raw_tp", "sockops", "struct_ops":
 		return true
 	default:
 		return false
@@ -337,13 +356,27 @@ func validMapKind(kind string) bool {
 	}
 }
 
-func validDangerLevel(danger string) bool {
-	switch danger {
-	case "observe", "mutate", "drop", "block", "privileged":
-		return true
+// validateDangerAxes validates that the axes triple is well-formed.
+// Valid mode values: observe, mutate, control.
+// Valid scope values: event, process, network, filesystem, system.
+// Valid reversibility values: none, restart, persistent.
+func validateDangerAxes(d DangerAxes) error {
+	switch d.Mode {
+	case "observe", "mutate", "control":
 	default:
-		return false
+		return fmt.Errorf("unsupported mode %q (want observe|mutate|control)", d.Mode)
 	}
+	switch d.Scope {
+	case "event", "process", "network", "filesystem", "system":
+	default:
+		return fmt.Errorf("unsupported scope %q (want event|process|network|filesystem|system)", d.Scope)
+	}
+	switch d.Reversibility {
+	case "none", "restart", "persistent":
+	default:
+		return fmt.Errorf("unsupported reversibility %q (want none|restart|persistent)", d.Reversibility)
+	}
+	return nil
 }
 
 func validateRequirements(reqs *Requirements) error {
@@ -444,7 +477,7 @@ func validPermissionRequirement(name string) bool {
 
 func validHostFeatureRequirement(name string) bool {
 	switch name {
-	case "bpf_lsm", "cgroup_v2", "kprobes", "netdev_xdp", "tc_clsact", "tracefs":
+	case "bpf_lsm", "btf", "cgroup_v2", "kprobes", "netdev_xdp", "struct_ops", "tc_clsact", "tracefs", "uprobes":
 		return true
 	default:
 		return false

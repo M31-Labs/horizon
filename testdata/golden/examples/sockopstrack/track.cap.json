@@ -1,0 +1,124 @@
+{
+  "capabilities": [
+    {
+      "danger": {
+        "mode": "observe",
+        "reversibility": "none",
+        "scope": "event"
+      },
+      "emits": "SockOpsEvent",
+      "kind": "source",
+      "maps": {
+        "events": [
+          "SockOpsEvents"
+        ],
+        "read": [],
+        "write": []
+      },
+      "name": "kernel.network.sockops.observe",
+      "program": "OnSockOps",
+      "requirements": {
+        "features": [
+          "cgroup_v2"
+        ],
+        "helpers": [
+          {
+            "min_kernel": "5.8",
+            "name": "bpf_ringbuf_reserve"
+          },
+          {
+            "min_kernel": "5.8",
+            "name": "bpf_ringbuf_submit"
+          }
+        ],
+        "maps": [
+          {
+            "min_kernel": "5.8",
+            "name": "ringbuf"
+          }
+        ],
+        "min_kernel": "5.8",
+        "permissions": [
+          "bpf_program_load",
+          "cgroup_admin",
+          "net_admin"
+        ],
+        "programs": [
+          {
+            "min_kernel": "4.13",
+            "name": "sockops"
+          }
+        ]
+      },
+      "section": "sockops"
+    }
+  ],
+  "maps": [
+    {
+      "kind": "ringbuf",
+      "name": "SockOpsEvents",
+      "value": "SockOpsEvent"
+    }
+  ],
+  "package": "probes",
+  "programs": [
+    {
+      "attach": "",
+      "capabilities": [
+        "kernel.network.sockops.observe"
+      ],
+      "kind": "sockops",
+      "name": "OnSockOps",
+      "section": "sockops"
+    }
+  ],
+  "requirements": {
+    "features": [
+      "cgroup_v2"
+    ],
+    "helpers": [
+      {
+        "min_kernel": "5.8",
+        "name": "bpf_ringbuf_reserve"
+      },
+      {
+        "min_kernel": "5.8",
+        "name": "bpf_ringbuf_submit"
+      }
+    ],
+    "maps": [
+      {
+        "min_kernel": "5.8",
+        "name": "ringbuf"
+      }
+    ],
+    "min_kernel": "5.8",
+    "permissions": [
+      "bpf_program_load",
+      "cgroup_admin",
+      "net_admin"
+    ],
+    "programs": [
+      {
+        "min_kernel": "4.13",
+        "name": "sockops"
+      }
+    ]
+  },
+  "schema": "m31labs.dev/horizon/capability/v1",
+  "types": [
+    {
+      "align": 4,
+      "fields": [
+        {
+          "name": "op",
+          "offset": 0,
+          "type": "u32"
+        }
+      ],
+      "kind": "struct",
+      "name": "SockOpsEvent",
+      "size": 4
+    }
+  ]
+}

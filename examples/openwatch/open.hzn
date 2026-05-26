@@ -9,6 +9,7 @@ type OpenEvent struct {
     path [256]u8
 }
 
+@access_freq("high")
 map OpenEvents ringbuf[OpenEvent]
 
 capability FileOpenObserve danger observe = "kernel.file.open.observe"

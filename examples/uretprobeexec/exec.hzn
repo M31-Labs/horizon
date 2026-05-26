@@ -1,0 +1,22 @@
+package probes
+
+type UretprobeExecEvent struct {
+    pid u32
+}
+
+map UretprobeExecEvents ringbuf[UretprobeExecEvent]
+
+capability UretprobeExecObserve danger observe = "kernel.userspace.exec.observe"
+
+@capability(UretprobeExecObserve)
+@uretprobe("/usr/bin/ls:main")
+func OnExecReturn(ctx uretprobe.Context) i32 {
+    event := UretprobeExecEvents.reserve()
+    if event == nil {
+        return 0
+    }
+    // pid hardcoded to 0 until bpf.* helpers are wired for uprobe context (Track A coordination).
+    event.pid = 0
+    UretprobeExecEvents.submit(event)
+    return 0
+}

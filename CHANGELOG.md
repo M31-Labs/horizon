@@ -7,6 +7,12 @@ All notable changes to Horizon are documented in this file. Format follows
 ## [Unreleased]
 
 ### Changed
+- Unknown attach surfaces and unknown namespace/leaf combinations now fail at
+  parse/type-check time via the canonical registry, rather than slipping through
+  to emit-time `HZN3300`. The `recognizedCapabilityLeaf` hardcoded list and
+  `ExpectedKernelCapabilityPrefix` switch are replaced by registry-driven lookups.
+  (roadmap: #10)
+- **Breaking:** Capability manifest schema bumped from `m31labs.dev/horizon/capability/v0` to `v1`. Danger is now an axis triple (`mode` × `scope` × `reversibility`) rather than a flat enum. v0 manifests remain loadable via `capability.LoadManifest()` (auto-migrated in memory) through v0.2.x; v0 loader will be removed in v0.3. New manifest emission always uses v1. See `docs/migrations/v0-to-v1-manifest.md`. (roadmap: #6, #7)
 - `ir.Program` no longer carries a partially-populated `SourceMap` field. Source maps are owned end-to-end by `emitc.Output`. No CLI / artifact change. (roadmap: #12)
 - Validators (`validate/`) now share a single IR traversal via `validate.Collect`. Each rule consumes pre-collected sites rather than re-walking. No diagnostic-output change; contract-tested against every example. Note: `StackLocalSite` detection is currently narrower than the legacy `stack.go` inference (literal struct/array declarations only); `stack.go`'s inferred-type pass remains for the broader case. Future work may extend `StackLocalSite` with inferred type to fully unify. (roadmap: #4)
 - Validate-layer state machines (ringbuf, maps, packet) now track
@@ -39,10 +45,14 @@ All notable changes to Horizon are documented in this file. Format follows
   the test fixtures or examples). (roadmap: #3)
 
 ### Added
+- Map declarations may now carry `@steady_state_entries(N)` (positive integer ≤ `max_entries`) and `@access_freq("low"|"medium"|"high")` annotations. Both fields surface in manifest v1 for capacity planning. (roadmap: #22)
+- Seven new attach surfaces recognized end-to-end: uprobe, uretprobe, fentry, fexit, raw_tp, sockops, struct_ops. Each ships with at least one example, registry entries, manifest emission, and (where the attach path is tractable) a typed `Attach<Fn>` binding helper. struct_ops attach helpers are stubbed pending a follow-up. (roadmap: #9)
+- Capability danger now carries orthogonal axes (`mode` × `scope` × `reversibility`) alongside the legacy flat string. `mode` ∈ `{observe, mutate, control}`, `scope` ∈ `{event, process, network, filesystem, system}`, `reversibility` ∈ `{none, restart, persistent}`. Legacy flat danger words map to axes via a deterministic migration table. The `.hzn` declaration site accepts both flat words (`"observe"`) and explicit triples (`"control,network,restart"`). Manifest schema v1 (roadmap: #6) will surface the axes in the emitted artifact. (roadmap: #7)
 - `hzn build` and `hzn workbench -compile` now accept `-clang-timeout=<duration>` and read `HZN_CLANG_TIMEOUT` from the environment. Default remains 30s. (roadmap: #11)
 - Golden-snapshot tests for every example's full `hzn workbench` output (C + manifest + bindings + diagnostics + report). Regenerate with `make golden-update`. (roadmap: #16)
 - `parser.FuzzParse` Go-native fuzz target, seeded from `examples/`. Runs 60s per PR in CI; longer fuzz budgets available out-of-band. Contract: parser never panics on any input. (roadmap: #17)
 - Kernel-version test matrix scaffolding (`.github/workflows/kernel-matrix.yml`, `scripts/kernel-matrix/`, `make kernel-smoke`): structural artifacts only. Trigger is `workflow_dispatch` only until canned BTF-enabled qcow2 images publish at `M31-Labs/horizon-kernel-images`. Boot/smoke scripts are stubbed with EX_CONFIG (exit 78) until images land. Once images exist, a follow-up will add auto-triggers (`pull_request`/`push`) and fill in the boot bodies. Per spec §4.2.1, 6.1 + 6.6 are required for Phase 0 exit; 5.10 / 5.15 are best-effort. (roadmap: #19)
+- Behavior tests for generated bindings: `LoadObjects` survives nil-section/empty-map cases without panic, and ringbuf readers unwind cleanly on context cancellation. (roadmap: #18)
 
 ## [v0.1.2] — 2026-05-25
 

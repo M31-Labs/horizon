@@ -1,0 +1,22 @@
+package probes
+
+type FexitOpenEvent struct {
+    pid u32
+}
+
+map FexitOpenEvents ringbuf[FexitOpenEvent]
+
+capability FexitOpenObserve danger observe = "kernel.file.open.observe"
+
+@capability(FexitOpenObserve)
+@fexit("do_filp_open")
+func OnFileOpenReturn(ctx fexit.Context) i32 {
+    event := FexitOpenEvents.reserve()
+    if event == nil {
+        return 0
+    }
+    // pid hardcoded to 0 until bpf.* helpers are wired for fexit context (Track A coordination).
+    event.pid = 0
+    FexitOpenEvents.submit(event)
+    return 0
+}

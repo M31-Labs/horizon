@@ -1,0 +1,42 @@
+{
+  "compile": false,
+  "diagnostic_count": 0,
+  "diagnostics": [],
+  "generator": "hzn workbench",
+  "package": "probes",
+  "schema": "m31labs.dev/horizon/report/v0",
+  "sources": [
+    {
+      "package": "probes",
+      "path": "examples/sockopstrack/track.hzn",
+      "sha256": "93fc609115c8ecac8c2ed65965d6f636cf28b10872ddfce7915429b0720ab59e",
+      "size": 466
+    }
+  ],
+  "status": "generated",
+  "summary": {
+    "capability_count": 1,
+    "capability_dangers": [
+      "observe"
+    ],
+    "features": [
+      "cgroup_v2"
+    ],
+    "map_count": 1,
+    "map_kinds": [
+      "ringbuf"
+    ],
+    "min_kernel": "5.8",
+    "permissions": [
+      "bpf_program_load",
+      "cgroup_admin",
+      "net_admin"
+    ],
+    "program_count": 1,
+    "program_kinds": [
+      "sockops"
+    ],
+    "source_count": 1,
+    "type_count": 1
+  }
+}

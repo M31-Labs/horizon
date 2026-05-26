@@ -1,0 +1,6 @@
+package probes
+
+@bogus_surface("foo")
+func BadAttach(ctx tracepoint.Exec) i32 {
+    return 0
+}

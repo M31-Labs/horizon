@@ -27,15 +27,30 @@ func FromIR(program ir.Program) Manifest {
 			Name:         fn.Name,
 			Kind:         string(fn.Section.Kind),
 			Attach:       fn.Section.Attach,
-			Section:      manifestSection(fn.Section),
+			Section:      fn.Section.ManifestName(),
 			Capabilities: caps,
 		})
 	}
 	for _, cap := range program.Capabilities {
+		axes := cap.Axes
+		if axes.Mode == "" && axes.Scope == "" && axes.Reversibility == "" {
+			// Fall back to deriving axes from the flat DangerLevel for
+			// callers that haven't yet set Axes explicitly.
+			irAxes := cap.Danger.Axes()
+			axes = ir.DangerAxes{
+				Mode:          irAxes.Mode,
+				Scope:         irAxes.Scope,
+				Reversibility: irAxes.Reversibility,
+			}
+		}
 		out := Capability{
-			Name:    cap.Name,
-			Kind:    string(cap.Kind),
-			Danger:  string(cap.Danger),
+			Name: cap.Name,
+			Kind: string(cap.Kind),
+			Danger: DangerAxes{
+				Mode:          axes.Mode,
+				Scope:         axes.Scope,
+				Reversibility: axes.Reversibility,
+			},
 			Program: cap.Program,
 			Section: cap.Section,
 			Emits:   cap.Emits,
@@ -55,11 +70,13 @@ func FromIR(program ir.Program) Manifest {
 	}
 	for _, m := range program.Maps {
 		manifest.Maps = append(manifest.Maps, Map{
-			Name:       m.Name,
-			Kind:       string(m.Kind),
-			Key:        manifestType(m.Key),
-			Value:      manifestType(m.Val),
-			MaxEntries: m.MaxEntries,
+			Name:               m.Name,
+			Kind:               string(m.Kind),
+			Key:                manifestType(m.Key),
+			Value:              manifestType(m.Val),
+			MaxEntries:         m.MaxEntries,
+			SteadyStateEntries: m.SteadyStateEntries,
+			AccessFreq:         m.AccessFreq,
 		})
 	}
 	structs := ir.StructsByName(program.Structs)
@@ -96,27 +113,6 @@ func functionsByName(functions []ir.Function) map[string]ir.Function {
 	return out
 }
 
-func manifestSection(section ir.Section) string {
-	if section.Kind == ir.ProgramTracepoint && section.Attach != "" {
-		return "tracepoint/" + section.Attach
-	}
-	if section.Kind == ir.ProgramXDP {
-		return "xdp"
-	}
-	if section.Kind == ir.ProgramTC {
-		return "tc/" + section.Attach
-	}
-	if section.Kind == ir.ProgramCgroup {
-		return "cgroup/" + section.Attach
-	}
-	if section.Kind == ir.ProgramLSM {
-		return "lsm/" + section.Attach
-	}
-	if (section.Kind == ir.ProgramKprobe || section.Kind == ir.ProgramKretprobe) && section.Attach != "" {
-		return string(section.Kind) + "/" + section.Attach
-	}
-	return section.Name
-}
 
 func manifestType(typ ir.Type) string {
 	if typ.Ptr {

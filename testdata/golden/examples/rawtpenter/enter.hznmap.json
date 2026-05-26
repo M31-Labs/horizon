@@ -1,0 +1,322 @@
+{
+  "generated": {
+    "language": "c"
+  },
+  "mappings": [
+    {
+      "function": "",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 24
+        },
+        "start": {
+          "column": 1,
+          "line": 18
+        }
+      },
+      "node": "struct",
+      "section": "",
+      "source": {
+        "end": {
+          "column": 2,
+          "line": 5
+        },
+        "end_byte": 59,
+        "file": "examples/rawtpenter/enter.hzn",
+        "start": {
+          "column": 6,
+          "line": 3
+        },
+        "start_byte": 21
+      }
+    },
+    {
+      "function": "",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 29
+        },
+        "start": {
+          "column": 1,
+          "line": 24
+        }
+      },
+      "node": "map",
+      "section": "",
+      "source": {
+        "end": {
+          "column": 46,
+          "line": 7
+        },
+        "end_byte": 106,
+        "file": "examples/rawtpenter/enter.hzn",
+        "start": {
+          "column": 1,
+          "line": 7
+        },
+        "start_byte": 61
+      }
+    },
+    {
+      "function": "OnExecEnter",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 33
+        },
+        "start": {
+          "column": 1,
+          "line": 29
+        }
+      },
+      "node": "map_wrapper",
+      "section": "raw_tp",
+      "source": {
+        "end": {
+          "column": 40,
+          "line": 14
+        },
+        "end_byte": 328,
+        "file": "examples/rawtpenter/enter.hzn",
+        "start": {
+          "column": 14,
+          "line": 14
+        },
+        "start_byte": 302
+      }
+    },
+    {
+      "function": "OnExecEnter",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 37
+        },
+        "start": {
+          "column": 1,
+          "line": 33
+        }
+      },
+      "node": "map_wrapper",
+      "section": "raw_tp",
+      "source": {
+        "end": {
+          "column": 35,
+          "line": 20
+        },
+        "end_byte": 525,
+        "file": "examples/rawtpenter/enter.hzn",
+        "start": {
+          "column": 5,
+          "line": 20
+        },
+        "start_byte": 495
+      }
+    },
+    {
+      "function": "OnExecEnter",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 42
+        },
+        "start": {
+          "column": 1,
+          "line": 41
+        }
+      },
+      "node": "short_var",
+      "section": "raw_tp",
+      "source": {
+        "end": {
+          "column": 40,
+          "line": 14
+        },
+        "end_byte": 328,
+        "file": "examples/rawtpenter/enter.hzn",
+        "start": {
+          "column": 5,
+          "line": 14
+        },
+        "start_byte": 293
+      }
+    },
+    {
+      "function": "OnExecEnter",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 44
+        },
+        "start": {
+          "column": 1,
+          "line": 43
+        }
+      },
+      "node": "return",
+      "section": "raw_tp",
+      "source": {
+        "end": {
+          "column": 17,
+          "line": 16
+        },
+        "end_byte": 367,
+        "file": "examples/rawtpenter/enter.hzn",
+        "start": {
+          "column": 9,
+          "line": 16
+        },
+        "start_byte": 359
+      }
+    },
+    {
+      "function": "OnExecEnter",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 45
+        },
+        "start": {
+          "column": 1,
+          "line": 42
+        }
+      },
+      "node": "if",
+      "section": "raw_tp",
+      "source": {
+        "end": {
+          "column": 6,
+          "line": 17
+        },
+        "end_byte": 373,
+        "file": "examples/rawtpenter/enter.hzn",
+        "start": {
+          "column": 5,
+          "line": 15
+        },
+        "start_byte": 333
+      }
+    },
+    {
+      "function": "OnExecEnter",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 46
+        },
+        "start": {
+          "column": 1,
+          "line": 45
+        }
+      },
+      "node": "assign",
+      "section": "raw_tp",
+      "source": {
+        "end": {
+          "column": 18,
+          "line": 19
+        },
+        "end_byte": 490,
+        "file": "examples/rawtpenter/enter.hzn",
+        "start": {
+          "column": 5,
+          "line": 19
+        },
+        "start_byte": 477
+      }
+    },
+    {
+      "function": "OnExecEnter",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 47
+        },
+        "start": {
+          "column": 1,
+          "line": 46
+        }
+      },
+      "node": "expr",
+      "section": "raw_tp",
+      "source": {
+        "end": {
+          "column": 35,
+          "line": 20
+        },
+        "end_byte": 525,
+        "file": "examples/rawtpenter/enter.hzn",
+        "start": {
+          "column": 5,
+          "line": 20
+        },
+        "start_byte": 495
+      }
+    },
+    {
+      "function": "OnExecEnter",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 48
+        },
+        "start": {
+          "column": 1,
+          "line": 47
+        }
+      },
+      "node": "return",
+      "section": "raw_tp",
+      "source": {
+        "end": {
+          "column": 13,
+          "line": 21
+        },
+        "end_byte": 538,
+        "file": "examples/rawtpenter/enter.hzn",
+        "start": {
+          "column": 5,
+          "line": 21
+        },
+        "start_byte": 530
+      }
+    },
+    {
+      "function": "OnExecEnter",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 49
+        },
+        "start": {
+          "column": 1,
+          "line": 37
+        }
+      },
+      "node": "function",
+      "section": "raw_tp",
+      "source": {
+        "end": {
+          "column": 2,
+          "line": 22
+        },
+        "end_byte": 540,
+        "file": "examples/rawtpenter/enter.hzn",
+        "start": {
+          "column": 1,
+          "line": 11
+        },
+        "start_byte": 185
+      }
+    }
+  ],
+  "schema": "m31labs.dev/horizon/sourcemap/v0",
+  "sources": [
+    {
+      "id": 0,
+      "path": "examples/rawtpenter/enter.hzn"
+    }
+  ]
+}

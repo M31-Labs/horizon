@@ -1,7 +1,11 @@
 {
   "capabilities": [
     {
-      "danger": "observe",
+      "danger": {
+        "mode": "observe",
+        "reversibility": "none",
+        "scope": "event"
+      },
       "emits": "OpenEvent",
       "kind": "source",
       "maps": {
@@ -71,6 +75,7 @@
   ],
   "maps": [
     {
+      "access_freq": "high",
       "kind": "ringbuf",
       "name": "OpenEvents",
       "value": "OpenEvent"
@@ -141,7 +146,7 @@
       }
     ]
   },
-  "schema": "m31labs.dev/horizon/capability/v0",
+  "schema": "m31labs.dev/horizon/capability/v1",
   "types": [
     {
       "align": 4,

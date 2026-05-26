@@ -1,7 +1,11 @@
 {
   "capabilities": [
     {
-      "danger": "observe",
+      "danger": {
+        "mode": "observe",
+        "reversibility": "none",
+        "scope": "event"
+      },
       "emits": "ExecEvent",
       "kind": "source",
       "maps": {
@@ -147,7 +151,7 @@
       }
     ]
   },
-  "schema": "m31labs.dev/horizon/capability/v0",
+  "schema": "m31labs.dev/horizon/capability/v1",
   "types": [
     {
       "align": 8,

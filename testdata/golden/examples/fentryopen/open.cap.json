@@ -1,0 +1,120 @@
+{
+  "capabilities": [
+    {
+      "danger": {
+        "mode": "observe",
+        "reversibility": "none",
+        "scope": "event"
+      },
+      "emits": "FentryOpenEvent",
+      "kind": "source",
+      "maps": {
+        "events": [
+          "FentryOpenEvents"
+        ],
+        "read": [],
+        "write": []
+      },
+      "name": "kernel.file.open.observe",
+      "program": "OnFileOpen",
+      "requirements": {
+        "features": [
+          "btf"
+        ],
+        "helpers": [
+          {
+            "min_kernel": "5.8",
+            "name": "bpf_ringbuf_reserve"
+          },
+          {
+            "min_kernel": "5.8",
+            "name": "bpf_ringbuf_submit"
+          }
+        ],
+        "maps": [
+          {
+            "min_kernel": "5.8",
+            "name": "ringbuf"
+          }
+        ],
+        "min_kernel": "5.8",
+        "permissions": [
+          "bpf_program_load"
+        ],
+        "programs": [
+          {
+            "min_kernel": "5.5",
+            "name": "fentry"
+          }
+        ]
+      },
+      "section": "fentry/do_filp_open"
+    }
+  ],
+  "maps": [
+    {
+      "kind": "ringbuf",
+      "name": "FentryOpenEvents",
+      "value": "FentryOpenEvent"
+    }
+  ],
+  "package": "probes",
+  "programs": [
+    {
+      "attach": "do_filp_open",
+      "capabilities": [
+        "kernel.file.open.observe"
+      ],
+      "kind": "fentry",
+      "name": "OnFileOpen",
+      "section": "fentry/do_filp_open"
+    }
+  ],
+  "requirements": {
+    "features": [
+      "btf"
+    ],
+    "helpers": [
+      {
+        "min_kernel": "5.8",
+        "name": "bpf_ringbuf_reserve"
+      },
+      {
+        "min_kernel": "5.8",
+        "name": "bpf_ringbuf_submit"
+      }
+    ],
+    "maps": [
+      {
+        "min_kernel": "5.8",
+        "name": "ringbuf"
+      }
+    ],
+    "min_kernel": "5.8",
+    "permissions": [
+      "bpf_program_load"
+    ],
+    "programs": [
+      {
+        "min_kernel": "5.5",
+        "name": "fentry"
+      }
+    ]
+  },
+  "schema": "m31labs.dev/horizon/capability/v1",
+  "types": [
+    {
+      "align": 4,
+      "fields": [
+        {
+          "name": "pid",
+          "offset": 0,
+          "type": "u32"
+        }
+      ],
+      "kind": "struct",
+      "name": "FentryOpenEvent",
+      "size": 4
+    }
+  ]
+}

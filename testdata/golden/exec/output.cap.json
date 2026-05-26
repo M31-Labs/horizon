@@ -1,5 +1,5 @@
 {
-  "schema": "m31labs.dev/horizon/capability/v0",
+  "schema": "m31labs.dev/horizon/capability/v1",
   "package": "probes",
   "programs": [
     {
@@ -16,7 +16,11 @@
     {
       "name": "kernel.process.exec.observe",
       "kind": "source",
-      "danger": "observe",
+      "danger": {
+        "mode": "observe",
+        "scope": "event",
+        "reversibility": "none"
+      },
       "program": "OnExec",
       "section": "tracepoint/sched:sched_process_exec",
       "emits": "ExecEvent",

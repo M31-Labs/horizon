@@ -1,0 +1,122 @@
+{
+  "capabilities": [
+    {
+      "danger": {
+        "mode": "observe",
+        "reversibility": "none",
+        "scope": "event"
+      },
+      "emits": "RawTPEnterEvent",
+      "kind": "source",
+      "maps": {
+        "events": [
+          "RawTPEnterEvents"
+        ],
+        "read": [],
+        "write": []
+      },
+      "name": "kernel.process.exec.observe",
+      "program": "OnExecEnter",
+      "requirements": {
+        "features": [
+          "tracefs"
+        ],
+        "helpers": [
+          {
+            "min_kernel": "5.8",
+            "name": "bpf_ringbuf_reserve"
+          },
+          {
+            "min_kernel": "5.8",
+            "name": "bpf_ringbuf_submit"
+          }
+        ],
+        "maps": [
+          {
+            "min_kernel": "5.8",
+            "name": "ringbuf"
+          }
+        ],
+        "min_kernel": "5.8",
+        "permissions": [
+          "bpf_program_load",
+          "perf_event_open"
+        ],
+        "programs": [
+          {
+            "min_kernel": "4.17",
+            "name": "raw_tp"
+          }
+        ]
+      },
+      "section": "raw_tp/sched_process_exec"
+    }
+  ],
+  "maps": [
+    {
+      "kind": "ringbuf",
+      "name": "RawTPEnterEvents",
+      "value": "RawTPEnterEvent"
+    }
+  ],
+  "package": "probes",
+  "programs": [
+    {
+      "attach": "sched_process_exec",
+      "capabilities": [
+        "kernel.process.exec.observe"
+      ],
+      "kind": "raw_tp",
+      "name": "OnExecEnter",
+      "section": "raw_tp/sched_process_exec"
+    }
+  ],
+  "requirements": {
+    "features": [
+      "tracefs"
+    ],
+    "helpers": [
+      {
+        "min_kernel": "5.8",
+        "name": "bpf_ringbuf_reserve"
+      },
+      {
+        "min_kernel": "5.8",
+        "name": "bpf_ringbuf_submit"
+      }
+    ],
+    "maps": [
+      {
+        "min_kernel": "5.8",
+        "name": "ringbuf"
+      }
+    ],
+    "min_kernel": "5.8",
+    "permissions": [
+      "bpf_program_load",
+      "perf_event_open"
+    ],
+    "programs": [
+      {
+        "min_kernel": "4.17",
+        "name": "raw_tp"
+      }
+    ]
+  },
+  "schema": "m31labs.dev/horizon/capability/v1",
+  "types": [
+    {
+      "align": 4,
+      "fields": [
+        {
+          "name": "pid",
+          "offset": 0,
+          "type": "u32"
+        }
+      ],
+      "kind": "struct",
+      "name": "RawTPEnterEvent",
+      "size": 4
+    }
+  ]
+}

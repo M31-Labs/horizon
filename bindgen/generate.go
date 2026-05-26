@@ -266,6 +266,18 @@ func emitsAttachMethod(fn ir.Function) bool {
 		return true
 	case ir.ProgramKprobe, ir.ProgramKretprobe:
 		return fn.Section.Attach != ""
+	case ir.ProgramUprobe, ir.ProgramUretprobe:
+		return fn.Section.Attach != ""
+	case ir.ProgramFentry, ir.ProgramFexit:
+		return fn.Section.Attach != ""
+	case ir.ProgramRawTP:
+		return fn.Section.Attach != ""
+	case ir.ProgramSockOps:
+		return true
+	case ir.ProgramStructOps:
+		// Struct_ops attach helper is stubbed — always emit so callers see the
+		// method and get a clear runtime error pointing to roadmap #9 follow-up.
+		return fn.Section.Attach != ""
 	default:
 		return false
 	}
@@ -446,6 +458,20 @@ func emitAttach(b *bytes.Buffer, fn ir.Function) {
 		emitKprobeAttach(b, fn, "Kprobe")
 	case ir.ProgramKretprobe:
 		emitKprobeAttach(b, fn, "Kretprobe")
+	case ir.ProgramUprobe:
+		emitUprobeAttach(b, fn, false)
+	case ir.ProgramUretprobe:
+		emitUprobeAttach(b, fn, true)
+	case ir.ProgramFentry:
+		emitTracingAttach(b, fn, "AttachTraceFEntry")
+	case ir.ProgramFexit:
+		emitTracingAttach(b, fn, "AttachTraceFExit")
+	case ir.ProgramRawTP:
+		emitRawTPAttach(b, fn)
+	case ir.ProgramSockOps:
+		emitSockOpsAttach(b, fn)
+	case ir.ProgramStructOps:
+		emitStructOpsAttach(b, fn)
 	}
 }
 
@@ -555,6 +581,112 @@ func emitKprobeAttach(b *bytes.Buffer, fn ir.Function, linkFunc string) {
 `, field, field, fn.Name, linkFunc, fn.Section.Attach, field)
 }
 
+// emitUprobeAttach emits an Attach method for a uprobe or uretprobe program.
+// The attach string has the form "binaryPath:symbol"; at attach time this is
+// split and passed to link.OpenExecutable(binaryPath).Uprobe/Uretprobe(symbol, ...).
+func emitUprobeAttach(b *bytes.Buffer, fn ir.Function, isRet bool) {
+	if fn.Section.Attach == "" {
+		return
+	}
+	binary, symbol, ok := strings.Cut(fn.Section.Attach, ":")
+	if !ok {
+		// Attach string without ":" — use it as the binary path with empty symbol.
+		binary = fn.Section.Attach
+	}
+	field := exported(fn.Name)
+	linkMethod := "Uprobe"
+	if isRet {
+		linkMethod = "Uretprobe"
+	}
+	fmt.Fprintf(b, `func (o *Objects) Attach%s(binaryPath string) (link.Link, error) {
+	if o == nil || o.%s == nil {
+		return nil, fmt.Errorf("%s program is not loaded")
+	}
+	if binaryPath == "" {
+		binaryPath = %q
+	}
+	ex, err := link.OpenExecutable(binaryPath)
+	if err != nil {
+		return nil, fmt.Errorf("open executable %%s: %%w", binaryPath, err)
+	}
+	return ex.%s(%q, o.%s, nil)
+}
+
+`, field, field, fn.Name, binary, linkMethod, symbol, field)
+}
+
+// emitTracingAttach emits an Attach method for an fentry or fexit program.
+// The kernel symbol is baked into the .hzn declaration; at attach time the
+// cilium/ebpf link.AttachTracing API uses BTF to locate the traced function.
+func emitTracingAttach(b *bytes.Buffer, fn ir.Function, attachType string) {
+	if fn.Section.Attach == "" {
+		return
+	}
+	field := exported(fn.Name)
+	fmt.Fprintf(b, `func (o *Objects) Attach%s() (link.Link, error) {
+	if o == nil || o.%s == nil {
+		return nil, fmt.Errorf("%s program is not loaded")
+	}
+	return link.AttachTracing(link.TracingOptions{Program: o.%s, AttachType: ebpf.%s})
+}
+
+`, field, field, fn.Name, field, attachType)
+}
+
+// emitRawTPAttach emits an Attach method for a raw_tp program.
+// The event name is baked into the .hzn declaration; at attach time the
+// cilium/ebpf link.AttachRawTracepoint API uses it directly with no BTF
+// overhead — no binary or symbol discovery needed at runtime.
+func emitRawTPAttach(b *bytes.Buffer, fn ir.Function) {
+	if fn.Section.Attach == "" {
+		return
+	}
+	field := exported(fn.Name)
+	fmt.Fprintf(b, `func (o *Objects) Attach%s() (link.Link, error) {
+	if o == nil || o.%s == nil {
+		return nil, fmt.Errorf("%s program is not loaded")
+	}
+	return link.AttachRawTracepoint(link.RawTracepointOptions{Name: %q, Program: o.%s})
+}
+
+`, field, field, fn.Name, fn.Section.Attach, field)
+}
+
+// emitSockOpsAttach emits an Attach method for a sockops program.
+// sockops programs are attached to a cgroup path at runtime; the cgroup path is
+// the only runtime argument since there is no kernel symbol to discover.
+func emitSockOpsAttach(b *bytes.Buffer, fn ir.Function) {
+	field := exported(fn.Name)
+	fmt.Fprintf(b, `func (o *Objects) Attach%s(cgroupPath string) (link.Link, error) {
+	if o == nil || o.%s == nil {
+		return nil, fmt.Errorf("%s program is not loaded")
+	}
+	return link.AttachCgroup(link.CgroupOptions{Path: cgroupPath, Attach: ebpf.AttachCGroupSockOps, Program: o.%s})
+}
+
+`, field, field, fn.Name, field)
+}
+
+// emitStructOpsAttach emits a stub Attach method for a struct_ops program.
+// struct_ops programs replace kernel function pointers (e.g., TCP congestion
+// control ops) via a struct_ops map + BTF. The full attach path requires
+// ebpf.NewMap over a struct_ops-typed map spec and link.AttachRawLink, which
+// is non-trivial and deferred to a v0.3 follow-up (roadmap #9).
+// The stub returns a clear error at runtime so callers fail fast rather than
+// silently doing nothing.
+func emitStructOpsAttach(b *bytes.Buffer, fn ir.Function) {
+	if fn.Section.Attach == "" {
+		return
+	}
+	field := exported(fn.Name)
+	fmt.Fprintf(b, `func (o *Objects) Attach%s() (link.Link, error) {
+	// struct_ops attach not yet supported by bindgen — see roadmap #9 follow-up.
+	return nil, fmt.Errorf("struct_ops attach not yet supported by bindgen — see roadmap #9 follow-up")
+}
+
+`, field)
+}
+
 func emitImports(b *bytes.Buffer, program ir.Program) {
 	needsRingbuf := hasRingbuf(program)
 	needsAttach := hasAttach(program)
@@ -624,7 +756,7 @@ func hasRingbuf(program ir.Program) bool {
 func hasAttach(program ir.Program) bool {
 	for _, fn := range program.Functions {
 		switch fn.Section.Kind {
-		case ir.ProgramTracepoint, ir.ProgramXDP, ir.ProgramTC, ir.ProgramCgroup, ir.ProgramLSM, ir.ProgramKprobe, ir.ProgramKretprobe:
+		case ir.ProgramTracepoint, ir.ProgramXDP, ir.ProgramTC, ir.ProgramCgroup, ir.ProgramLSM, ir.ProgramKprobe, ir.ProgramKretprobe, ir.ProgramUprobe, ir.ProgramUretprobe, ir.ProgramFentry, ir.ProgramFexit, ir.ProgramRawTP, ir.ProgramSockOps, ir.ProgramStructOps:
 			return true
 		}
 	}

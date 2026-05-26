@@ -33,9 +33,11 @@ func FromAST(file ast.File) (Program, []diag.Diagnostic) {
 		case ast.EnumDecl:
 			program.Constants = append(program.Constants, buildEnumConsts(d, aliases)...)
 		case ast.CapabilityDecl:
+			level := DangerLevel(d.Danger)
 			capabilityAliases[d.Name] = capabilityAlias{
 				Name:   d.Value,
-				Danger: DangerLevel(d.Danger),
+				Danger: level,
+				Axes:   dangerAxesFromString(d.Danger, level),
 			}
 		case ast.MapDecl:
 			program.Maps = append(program.Maps, buildMap(d, aliases))
@@ -103,7 +105,7 @@ func refreshCapabilityAccesses(program Program) []Capability {
 			cap.Maps = access.Maps
 			cap.Emits = access.Emits
 			if cap.Section == "" {
-				cap.Section = manifestSection(fn.Section)
+				cap.Section = fn.Section.ManifestName()
 			}
 			if cap.Danger == "" {
 				cap.Danger = inferDanger(fn)
@@ -169,12 +171,14 @@ func buildStructGroup(decl ast.TypeGroupDecl, aliases map[string]ast.TypeRef) []
 
 func buildMap(decl ast.MapDecl, aliases map[string]ast.TypeRef) Map {
 	return Map{
-		Name:       decl.Name,
-		Kind:       MapKind(decl.Kind),
-		Key:        buildType(decl.Key, aliases),
-		Val:        buildType(decl.Val, aliases),
-		MaxEntries: decl.MaxEntries,
-		Span:       decl.Span,
+		Name:               decl.Name,
+		Kind:               MapKind(decl.Kind),
+		Key:                buildType(decl.Key, aliases),
+		Val:                buildType(decl.Val, aliases),
+		MaxEntries:         decl.MaxEntries,
+		SteadyStateEntries: decl.SteadyStateEntries,
+		AccessFreq:         decl.AccessFreq,
+		Span:               decl.Span,
 	}
 }
 
@@ -329,6 +333,7 @@ func buildExprs(exprs []ast.Expr) []Expr {
 type capabilityAlias struct {
 	Name   string
 	Danger DangerLevel
+	Axes   DangerAxes // additive: axes computed from the declared danger string
 }
 
 func buildCapabilities(decl ast.FuncDecl, fn Function, maps []Map, capabilityAliases map[string]capabilityAlias) []Capability {
@@ -337,22 +342,46 @@ func buildCapabilities(decl ast.FuncDecl, fn Function, maps []Map, capabilityAli
 		if attr.Name != "capability" {
 			continue
 		}
-		name, danger := capabilityArg(attr, capabilityAliases)
+		name, danger, _ := capabilityArgWithAxes(attr, capabilityAliases)
 		floor := moreDangerous(inferDanger(fn), capabilityNameDanger(name))
 		danger = declaredDanger(danger, floor)
+		// Always derive axes from the final (possibly raised) danger level.
+		// Axes from the alias declaration are discarded if danger was raised,
+		// because stale axes would misrepresent the effective capability risk.
+		axes := danger.Axes()
 		access := mapAccesses(fn, maps)
 		out = append(out, Capability{
 			Name:    name,
 			Kind:    CapabilitySource,
 			Program: fn.Name,
-			Section: manifestSection(fn.Section),
+			Section: fn.Section.ManifestName(),
 			Emits:   access.Emits,
 			Maps:    access.Maps,
 			Danger:  danger,
+			Axes:    axes,
 			Span:    attr.Span,
 		})
 	}
 	return out
+}
+
+// dangerAxesFromString computes DangerAxes from a raw danger string. If the
+// string contains a comma, it is parsed as an explicit "mode,scope,reversibility"
+// triple. Otherwise, it falls back to DangerLevel.Axes() migration table.
+// Malformed triple strings return the zero DangerAxes (validation at type-check
+// time already caught and reported the error via ParseDangerAxes in types/).
+func dangerAxesFromString(s string, level DangerLevel) DangerAxes {
+	if strings.ContainsRune(s, ',') {
+		parts := strings.SplitN(s, ",", 3)
+		if len(parts) == 3 {
+			return DangerAxes{
+				Mode:          strings.TrimSpace(parts[0]),
+				Scope:         strings.TrimSpace(parts[1]),
+				Reversibility: strings.TrimSpace(parts[2]),
+			}
+		}
+	}
+	return level.Axes()
 }
 
 func buildType(ref ast.TypeRef, aliases map[string]ast.TypeRef) Type {
@@ -447,6 +476,70 @@ func sectionFromAttrs(attrs []ast.Attr) Section {
 				Attach: attach,
 				Name:   "kretprobe/" + attach,
 			}
+		case "uprobe":
+			// SEC("uprobe") is used rather than SEC("uprobe/binary:symbol") because
+			// libbpf's embedded-path form requires double-slash and clang does not
+			// validate attach targets at compile time. The binary and symbol are
+			// loader-time concerns expressed via link.OpenExecutable(...).Uprobe(...).
+			attach := stringArg(attr)
+			return Section{
+				Kind:   ProgramUprobe,
+				Attach: attach,
+				Name:   "uprobe",
+			}
+		case "uretprobe":
+			attach := stringArg(attr)
+			return Section{
+				Kind:   ProgramUretprobe,
+				Attach: attach,
+				Name:   "uretprobe",
+			}
+		case "fentry":
+			// SEC("fentry") is used rather than SEC("fentry/symbol") because the
+			// symbol is recorded in the BTF-based attach descriptor at load time via
+			// link.AttachTracing(TracingOptions{Program: prog, AttachType: AttachTraceFEntry}).
+			attach := stringArg(attr)
+			return Section{
+				Kind:   ProgramFentry,
+				Attach: attach,
+				Name:   "fentry",
+			}
+		case "fexit":
+			attach := stringArg(attr)
+			return Section{
+				Kind:   ProgramFexit,
+				Attach: attach,
+				Name:   "fexit",
+			}
+		case "raw_tp":
+			// SEC("raw_tp") is used rather than SEC("raw_tp/event") because the
+			// event name is specified at load time via
+			// link.AttachRawTracepoint(RawTracepointOptions{Name: event, Program: prog}).
+			attach := stringArg(attr)
+			return Section{
+				Kind:   ProgramRawTP,
+				Attach: attach,
+				Name:   "raw_tp",
+			}
+		case "sockops":
+			// SEC("sockops") uses a bare section name; the cgroup is attached at
+			// load time via link.AttachCgroup(CgroupOptions{..., Attach: ebpf.AttachCGroupSockOps}).
+			return Section{
+				Kind:   ProgramSockOps,
+				Attach: "",
+				Name:   "sockops",
+			}
+		case "struct_ops":
+			// SEC("struct_ops") is used with a bare section name; the op name is
+			// recorded in Attach for manifest / namespace routing. struct_ops programs
+			// replace kernel function pointers (e.g., TCP congestion control ops) and
+			// require BTF + struct_ops map support (kernel >= 5.6).
+			op := stringArg(attr)
+			return Section{
+				Kind:   ProgramStructOps,
+				Attach: op,
+				Name:   "struct_ops",
+			}
 		}
 	}
 	return Section{}
@@ -462,18 +555,22 @@ func stringArg(attr ast.Attr) string {
 	return ""
 }
 
-func capabilityArg(attr ast.Attr, aliases map[string]capabilityAlias) (string, DangerLevel) {
+// capabilityArgWithAxes resolves a @capability(name) attribute to its full identity:
+// name, danger level, and danger axes.
+// For string literals the axes are left as zero (caller derives them from the
+// resolved danger level). For alias references the pre-computed axes are forwarded.
+func capabilityArgWithAxes(attr ast.Attr, aliases map[string]capabilityAlias) (string, DangerLevel, DangerAxes) {
 	if len(attr.Args) == 0 {
-		return "", ""
+		return "", "", DangerAxes{}
 	}
 	switch value := attr.Args[0].(type) {
 	case ast.StringExpr:
-		return value.Value, ""
+		return value.Value, "", DangerAxes{}
 	case ast.IdentExpr:
 		alias := aliases[value.Name]
-		return alias.Name, alias.Danger
+		return alias.Name, alias.Danger, alias.Axes
 	default:
-		return "", ""
+		return "", "", DangerAxes{}
 	}
 }
 
@@ -730,24 +827,3 @@ func functionStatements(fn Function) []Statement {
 	return out
 }
 
-func manifestSection(section Section) string {
-	if section.Kind == ProgramTracepoint && section.Attach != "" {
-		return "tracepoint/" + section.Attach
-	}
-	if section.Kind == ProgramXDP {
-		return "xdp"
-	}
-	if section.Kind == ProgramTC {
-		return "tc/" + section.Attach
-	}
-	if section.Kind == ProgramCgroup {
-		return "cgroup/" + section.Attach
-	}
-	if section.Kind == ProgramLSM {
-		return "lsm/" + section.Attach
-	}
-	if (section.Kind == ProgramKprobe || section.Kind == ProgramKretprobe) && section.Attach != "" {
-		return string(section.Kind) + "/" + section.Attach
-	}
-	return section.Name
-}

@@ -9,6 +9,7 @@ import (
 	"m31labs.dev/horizon/ast"
 	"m31labs.dev/horizon/compiler/diag"
 	"m31labs.dev/horizon/compiler/span"
+	"m31labs.dev/horizon/internal/registry"
 )
 
 func Check(file ast.File) []diag.Diagnostic {
@@ -406,6 +407,13 @@ func builtinTypes() map[string]bool {
 		"lsm.Context":       true,
 		"kprobe.Context":    true,
 		"kretprobe.Context": true,
+		"uprobe.Context":    true,
+		"uretprobe.Context": true,
+		"fentry.Context":    true,
+		"fexit.Context":     true,
+		"raw_tp.Context":    true,
+		"sockops.Context":    true,
+		"struct_ops.Context": true,
 	}
 }
 
@@ -560,6 +568,8 @@ func ringbufValueNeedsStructDiagnostic(ref ast.TypeRef, known map[string]bool, u
 func validateMapAttrs(decl ast.MapDecl, consts map[string]ast.ConstDecl) []diag.Diagnostic {
 	var diags []diag.Diagnostic
 	seenMaxEntries := false
+	seenSteadyStateEntries := false
+	seenAccessFreq := false
 	for _, attr := range decl.Attrs {
 		switch attr.Name {
 		case "max_entries":
@@ -593,13 +603,65 @@ func validateMapAttrs(decl ast.MapDecl, consts map[string]ast.ConstDecl) []diag.
 					Suggest:  "use a power-of-two byte size such as 262144",
 				})
 			}
+		case "steady_state_entries":
+			if seenSteadyStateEntries {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1209",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("map %q declares @steady_state_entries more than once", decl.Name),
+					Primary:  attr.Span,
+				})
+				continue
+			}
+			seenSteadyStateEntries = true
+			_, ok := mapMaxEntriesValue(attr, consts)
+			if !ok {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1210",
+					Severity: diag.SeverityError,
+					Message:  "@steady_state_entries requires one positive integer literal or integer const",
+					Primary:  attr.Span,
+					Suggest:  "write `@steady_state_entries(512)` above the map declaration",
+				})
+			}
+		case "access_freq":
+			if seenAccessFreq {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1211",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("map %q declares @access_freq more than once", decl.Name),
+					Primary:  attr.Span,
+				})
+				continue
+			}
+			seenAccessFreq = true
+			if len(attr.Args) != 1 {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1212",
+					Severity: diag.SeverityError,
+					Message:  "@access_freq requires one string argument",
+					Primary:  attr.Span,
+					Suggest:  `write @access_freq("low"), @access_freq("medium"), or @access_freq("high")`,
+				})
+				continue
+			}
+			strVal, ok := attr.Args[0].(ast.StringExpr)
+			if !ok || (strVal.Value != "low" && strVal.Value != "medium" && strVal.Value != "high") {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1213",
+					Severity: diag.SeverityError,
+					Message:  `@access_freq value must be "low", "medium", or "high"`,
+					Primary:  attr.Span,
+					Suggest:  `write @access_freq("low"), @access_freq("medium"), or @access_freq("high")`,
+				})
+			}
 		default:
 			diags = append(diags, diag.Diagnostic{
 				Code:     "HZN1205",
 				Severity: diag.SeverityError,
 				Message:  fmt.Sprintf("unsupported map attribute @%s", attr.Name),
 				Primary:  attr.Span,
-				Suggest:  "Horizon maps support @max_entries(...)",
+				Suggest:  "Horizon maps support @max_entries(...), @steady_state_entries(...), @access_freq(...)",
 			})
 		}
 	}
@@ -952,7 +1014,7 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 			Severity: diag.SeverityError,
 			Message:  fmt.Sprintf("function %q has multiple eBPF program sections", decl.Name),
 			Primary:  decl.Span,
-			Suggest:  `use exactly one section attribute such as @tracepoint(...), @xdp, @tc("ingress"), @cgroup("connect4"), @lsm("file_open"), @kprobe(...), or @kretprobe(...)`,
+			Suggest:  `use exactly one section attribute such as @tracepoint(...), @xdp, @tc("ingress"), @cgroup("connect4"), @lsm("file_open"), @kprobe(...), @kretprobe(...), @uprobe("path:sym"), @uretprobe("path:sym"), @fentry("symbol"), @fexit("symbol"), @raw_tp("event"), @sockops, or @struct_ops("op_name")`,
 		})
 	}
 	for _, attr := range decl.Attrs {
@@ -1093,6 +1155,139 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 					Suggest:  `use a non-empty kernel symbol such as @kretprobe("do_sys_openat2")`,
 				})
 			}
+		case "uprobe":
+			if !attrHasStringArg(attr) {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1327",
+					Severity: diag.SeverityError,
+					Message:  `@uprobe requires one "binaryPath:symbol" string argument`,
+					Primary:  attr.Span,
+				})
+				break
+			}
+			attach := attrStringArg(attr)
+			if !validUprobeAttach(attach) {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1328",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("@uprobe attach %q must use binaryPath:symbol form", attach),
+					Primary:  attr.Span,
+					Suggest:  `use a path:symbol pair such as @uprobe("/usr/bin/ls:main")`,
+				})
+			}
+		case "uretprobe":
+			if !attrHasStringArg(attr) {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1329",
+					Severity: diag.SeverityError,
+					Message:  `@uretprobe requires one "binaryPath:symbol" string argument`,
+					Primary:  attr.Span,
+				})
+				break
+			}
+			attach := attrStringArg(attr)
+			if !validUprobeAttach(attach) {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1330",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("@uretprobe attach %q must use binaryPath:symbol form", attach),
+					Primary:  attr.Span,
+					Suggest:  `use a path:symbol pair such as @uretprobe("/usr/bin/ls:main")`,
+				})
+			}
+		case "fentry":
+			if !attrHasStringArg(attr) {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1331",
+					Severity: diag.SeverityError,
+					Message:  `@fentry requires one kernel symbol string argument`,
+					Primary:  attr.Span,
+					Suggest:  `use a kernel symbol such as @fentry("do_filp_open")`,
+				})
+				break
+			}
+			symbol := attrStringArg(attr)
+			if !validAttachToken(symbol) {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1332",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("@fentry symbol %q is not a valid kernel symbol", symbol),
+					Primary:  attr.Span,
+					Suggest:  `use a non-empty kernel symbol such as @fentry("do_filp_open")`,
+				})
+			}
+		case "fexit":
+			if !attrHasStringArg(attr) {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1333",
+					Severity: diag.SeverityError,
+					Message:  `@fexit requires one kernel symbol string argument`,
+					Primary:  attr.Span,
+					Suggest:  `use a kernel symbol such as @fexit("do_filp_open")`,
+				})
+				break
+			}
+			symbol := attrStringArg(attr)
+			if !validAttachToken(symbol) {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1334",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("@fexit symbol %q is not a valid kernel symbol", symbol),
+					Primary:  attr.Span,
+					Suggest:  `use a non-empty kernel symbol such as @fexit("do_filp_open")`,
+				})
+			}
+		case "raw_tp":
+			if !attrHasStringArg(attr) {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1335",
+					Severity: diag.SeverityError,
+					Message:  `@raw_tp requires one tracepoint event string argument`,
+					Primary:  attr.Span,
+					Suggest:  `use a raw tracepoint event such as @raw_tp("sched_process_exec")`,
+				})
+				break
+			}
+			event := attrStringArg(attr)
+			if !validAttachToken(event) {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1335",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("@raw_tp event %q is not a valid tracepoint event name", event),
+					Primary:  attr.Span,
+					Suggest:  `use a non-empty event name such as @raw_tp("sched_process_exec")`,
+				})
+			}
+		case "sockops":
+			if len(attr.Args) != 0 {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1336",
+					Severity: diag.SeverityError,
+					Message:  "@sockops does not take arguments; the cgroup path is provided at attach time",
+					Primary:  attr.Span,
+				})
+			}
+		case "struct_ops":
+			if !attrHasStringArg(attr) {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1337",
+					Severity: diag.SeverityError,
+					Message:  `@struct_ops requires one op-name string argument`,
+					Primary:  attr.Span,
+					Suggest:  `use an op name such as @struct_ops("tcp_init")`,
+				})
+				break
+			}
+			op := attrStringArg(attr)
+			if !validAttachToken(op) {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1337",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("@struct_ops op name %q is not a valid identifier", op),
+					Primary:  attr.Span,
+					Suggest:  `use a non-empty op name such as @struct_ops("tcp_init")`,
+				})
+			}
 		case "capability":
 			diags = append(diags, validateCapabilityAttr(attr, capabilities)...)
 			if isHelper {
@@ -1106,10 +1301,11 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 			}
 		default:
 			diags = append(diags, diag.Diagnostic{
-				Code:     "HZN1303",
+				Code:     "HZN1338",
 				Severity: diag.SeverityError,
-				Message:  fmt.Sprintf("unsupported attribute @%s", attr.Name),
+				Message:  fmt.Sprintf("unknown attach surface or attribute @%s", attr.Name),
 				Primary:  attr.Span,
+				Suggest:  "use a recognized attach surface: @tracepoint, @xdp, @tc, @cgroup, @lsm, @kprobe, @kretprobe, @uprobe, @uretprobe, @fentry, @fexit, @raw_tp, @sockops, or @struct_ops",
 			})
 		}
 	}
@@ -1146,31 +1342,39 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 func validateCapabilityDecl(decl ast.CapabilityDecl) []diag.Diagnostic {
 	var diags []diag.Diagnostic
 	if decl.Value != "" {
-		if decl.Danger != "" && !validCapabilityDanger(decl.Danger) {
-			diags = append(diags, diag.Diagnostic{
-				Code:     "HZN1323",
-				Severity: diag.SeverityError,
-				Message:  fmt.Sprintf("capability alias %q declares unsupported danger %q", decl.Name, decl.Danger),
-				Primary:  decl.Span,
-				Suggest:  "use one of observe, mutate, drop, block, or privileged",
-			})
-		} else if floor := capabilityNameDanger(decl.Value); decl.Danger != "" && floor != "" && dangerLess(DangerLevel(decl.Danger), floor) {
-			diags = append(diags, diag.Diagnostic{
-				Code:     "HZN1324",
-				Severity: diag.SeverityError,
-				Message:  fmt.Sprintf("capability alias %q declares danger %q but capability name implies %q", decl.Name, decl.Danger, floor),
-				Primary:  decl.Span,
-				Suggest:  fmt.Sprintf("declare danger %s or choose a capability name that matches the intended impact", floor),
-			})
+		if decl.Danger != "" {
+			if strings.ContainsRune(decl.Danger, ',') {
+				// Explicit triple form "mode,scope,reversibility" — validate via ParseDangerAxes.
+				if _, err := ParseDangerAxes(decl.Danger); err != nil {
+					diags = append(diags, diag.Diagnostic{
+						Code:     "HZN1323",
+						Severity: diag.SeverityError,
+						Message:  fmt.Sprintf("capability alias %q declares invalid danger axes %q: %v", decl.Name, decl.Danger, err),
+						Primary:  decl.Span,
+						Suggest:  "use mode,scope,reversibility where mode∈{observe,mutate,control}, scope∈{event,process,network,filesystem,system}, reversibility∈{none,restart,persistent}",
+					})
+				}
+			} else if !validCapabilityDanger(decl.Danger) {
+				// Legacy flat form — validate against the v0 enum.
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1323",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("capability alias %q declares unsupported danger %q", decl.Name, decl.Danger),
+					Primary:  decl.Span,
+					Suggest:  "use one of observe, mutate, drop, block, or privileged",
+				})
+			} else if floor := capabilityNameDanger(decl.Value); floor != "" && dangerLess(DangerLevel(decl.Danger), floor) {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1324",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("capability alias %q declares danger %q but capability name implies %q", decl.Name, decl.Danger, floor),
+					Primary:  decl.Span,
+					Suggest:  fmt.Sprintf("declare danger %s or choose a capability name that matches the intended impact", floor),
+				})
+			}
 		}
-		if strings.HasPrefix(decl.Value, "kernel.") && !recognizedCapabilityLeaf(decl.Value) {
-			diags = append(diags, diag.Diagnostic{
-				Code:     "HZN1326",
-				Severity: diag.SeverityError,
-				Message:  fmt.Sprintf("capability %q uses an unrecognized leaf in the reserved kernel.* namespace", decl.Value),
-				Primary:  decl.Span,
-				Suggest:  "use a recognized leaf word: observe, mutate, drop, block, privileged, deny, or allow",
-			})
+		if strings.HasPrefix(decl.Value, "kernel.") {
+			diags = append(diags, validateCapabilityNamespaceLeaf(decl)...)
 		}
 		return diags
 	}
@@ -1184,9 +1388,90 @@ func validateCapabilityDecl(decl ast.CapabilityDecl) []diag.Diagnostic {
 	return diags
 }
 
+// validateCapabilityNamespaceLeaf checks that the namespace prefix of a
+// kernel.* capability value is registered in the canonical registry, and that
+// the leaf word is in the allowed_danger_leaves for that namespace.
+//
+//   - HZN1339: namespace prefix is not in the registry at all.
+//   - HZN1326: namespace is registered but the leaf is not allowed.
+func validateCapabilityNamespaceLeaf(decl ast.CapabilityDecl) []diag.Diagnostic {
+	// Split "kernel.process.exec.observe" into prefix "kernel.process.exec"
+	// and leaf "observe".
+	lastDot := strings.LastIndex(decl.Value, ".")
+	if lastDot < 0 {
+		// No dot at all — malformed; let HZN1322 handle it elsewhere.
+		return nil
+	}
+	prefix := decl.Value[:lastDot]
+	leaf := decl.Value[lastDot+1:]
+
+	reg := registry.MustLoad()
+
+	// Collect all allowed leaves for this namespace prefix across all entries.
+	var allowedLeaves []string
+	for _, ns := range reg.Namespaces {
+		if ns.Namespace == prefix {
+			allowedLeaves = append(allowedLeaves, ns.AllowedDangerLeaves...)
+		}
+	}
+
+	if len(allowedLeaves) == 0 {
+		// Namespace prefix not found in the registry.
+		return []diag.Diagnostic{{
+			Code:     "HZN1339",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("capability %q uses an unregistered namespace prefix %q in the reserved kernel.* namespace", decl.Value, prefix),
+			Primary:  decl.Span,
+			Suggest:  "use a canonical capability namespace registered in the Horizon capability-namespaces registry",
+		}}
+	}
+
+	// Check that the leaf is allowed for at least one registry entry for this namespace.
+	for _, allowed := range allowedLeaves {
+		if leaf == allowed {
+			return nil
+		}
+	}
+
+	// Deduplicate allowed leaves for the error message.
+	seen := map[string]bool{}
+	unique := allowedLeaves[:0]
+	for _, l := range allowedLeaves {
+		if !seen[l] {
+			seen[l] = true
+			unique = append(unique, l)
+		}
+	}
+	return []diag.Diagnostic{{
+		Code:     "HZN1326",
+		Severity: diag.SeverityError,
+		Message:  fmt.Sprintf("capability %q uses leaf %q not allowed in namespace %q (allowed: %s)", decl.Value, leaf, prefix, strings.Join(unique, ", ")),
+		Primary:  decl.Span,
+		Suggest:  fmt.Sprintf("use one of the allowed leaves for namespace %q: %s", prefix, strings.Join(unique, ", ")),
+	}}
+}
+
 func validTracepointAttach(attach string) bool {
 	category, event, ok := strings.Cut(attach, ":")
 	return ok && validAttachToken(category) && validAttachToken(event)
+}
+
+// validUprobeAttach validates an uprobe/uretprobe attach string of the form
+// "binaryPath:symbol". The binary path may contain slashes; the symbol must be
+// a non-empty, non-whitespace token without colons.
+func validUprobeAttach(attach string) bool {
+	colon := strings.LastIndex(attach, ":")
+	if colon <= 0 {
+		return false
+	}
+	binaryPath := attach[:colon]
+	symbol := attach[colon+1:]
+	if binaryPath == "" || symbol == "" {
+		return false
+	}
+	return !strings.ContainsFunc(symbol, func(r rune) bool {
+		return r == 0 || r == '"' || r == '\'' || r == '\\' || r == '`' || r <= ' '
+	})
 }
 
 func validAttachToken(token string) bool {
@@ -1224,26 +1509,6 @@ func capabilityNameDanger(name string) DangerLevel {
 	}
 }
 
-// recognizedCapabilityLeaf reports whether name's final dotted segment is a
-// recognized danger or action leaf word. Used to gate kernel.* capabilities
-// against the false-acceptance hole described in
-// spec.horizon-continuum-integration.v1 §A.1.
-func recognizedCapabilityLeaf(name string) bool {
-	leaf := name
-	for {
-		_, suffix, ok := strings.Cut(leaf, ".")
-		if !ok {
-			break
-		}
-		leaf = suffix
-	}
-	switch leaf {
-	case "observe", "mutate", "drop", "block", "privileged", "deny", "allow":
-		return true
-	default:
-		return false
-	}
-}
 
 func dangerLess(left DangerLevel, right DangerLevel) bool {
 	return dangerRank(left) < dangerRank(right)
@@ -1541,6 +1806,20 @@ func sectionAttrs(attrs []ast.Attr) []sectionSpec {
 			out = append(out, sectionSpec{Attr: attr, Context: "kprobe.Context"})
 		case "kretprobe":
 			out = append(out, sectionSpec{Attr: attr, Context: "kretprobe.Context"})
+		case "uprobe":
+			out = append(out, sectionSpec{Attr: attr, Context: "uprobe.Context"})
+		case "uretprobe":
+			out = append(out, sectionSpec{Attr: attr, Context: "uretprobe.Context"})
+		case "fentry":
+			out = append(out, sectionSpec{Attr: attr, Context: "fentry.Context"})
+		case "fexit":
+			out = append(out, sectionSpec{Attr: attr, Context: "fexit.Context"})
+		case "raw_tp":
+			out = append(out, sectionSpec{Attr: attr, Context: "raw_tp.Context"})
+		case "sockops":
+			out = append(out, sectionSpec{Attr: attr, Context: "sockops.Context"})
+		case "struct_ops":
+			out = append(out, sectionSpec{Attr: attr, Context: "struct_ops.Context"})
 		}
 	}
 	return out

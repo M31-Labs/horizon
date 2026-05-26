@@ -88,12 +88,30 @@ func buildMapDecl(parsed *parser.File, n *gotreesitter.Node) MapDecl {
 		if child.Type(parsed.Lang) == "attribute" {
 			attr := buildAttr(parsed, child)
 			decl.Attrs = append(decl.Attrs, attr)
-			if attr.Name == "max_entries" && len(attr.Args) == 1 {
-				switch value := attr.Args[0].(type) {
-				case IntExpr:
-					decl.MaxEntries = value.Value
-				case IdentExpr:
-					decl.MaxEntries = value.Name
+			switch attr.Name {
+			case "max_entries":
+				if len(attr.Args) == 1 {
+					switch value := attr.Args[0].(type) {
+					case IntExpr:
+						decl.MaxEntries = value.Value
+					case IdentExpr:
+						decl.MaxEntries = value.Name
+					}
+				}
+			case "steady_state_entries":
+				if len(attr.Args) == 1 {
+					switch value := attr.Args[0].(type) {
+					case IntExpr:
+						decl.SteadyStateEntries = value.Value
+					case IdentExpr:
+						decl.SteadyStateEntries = value.Name
+					}
+				}
+			case "access_freq":
+				if len(attr.Args) == 1 {
+					if value, ok := attr.Args[0].(StringExpr); ok {
+						decl.AccessFreq = value.Value
+					}
 				}
 			}
 		}

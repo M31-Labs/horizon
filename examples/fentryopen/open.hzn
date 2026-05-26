@@ -1,0 +1,22 @@
+package probes
+
+type FentryOpenEvent struct {
+    pid u32
+}
+
+map FentryOpenEvents ringbuf[FentryOpenEvent]
+
+capability FentryOpenObserve danger observe = "kernel.file.open.observe"
+
+@capability(FentryOpenObserve)
+@fentry("do_filp_open")
+func OnFileOpen(ctx fentry.Context) i32 {
+    event := FentryOpenEvents.reserve()
+    if event == nil {
+        return 0
+    }
+    // pid hardcoded to 0 until bpf.* helpers are wired for fentry context (Track A coordination).
+    event.pid = 0
+    FentryOpenEvents.submit(event)
+    return 0
+}

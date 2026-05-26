@@ -1,0 +1,61 @@
+{
+  "capabilities": [
+    {
+      "danger": "mutate",
+      "kind": "source",
+      "maps": {
+        "events": [],
+        "read": [],
+        "write": []
+      },
+      "name": "kernel.network.tcp.congestion.mutate",
+      "program": "OnTCPInit",
+      "requirements": {
+        "features": [
+          "btf",
+          "struct_ops"
+        ],
+        "min_kernel": "5.6",
+        "permissions": [
+          "bpf_program_load"
+        ],
+        "programs": [
+          {
+            "min_kernel": "5.6",
+            "name": "struct_ops"
+          }
+        ]
+      },
+      "section": "struct_ops/tcp_init"
+    }
+  ],
+  "package": "probes",
+  "programs": [
+    {
+      "attach": "tcp_init",
+      "capabilities": [
+        "kernel.network.tcp.congestion.mutate"
+      ],
+      "kind": "struct_ops",
+      "name": "OnTCPInit",
+      "section": "struct_ops/tcp_init"
+    }
+  ],
+  "requirements": {
+    "features": [
+      "btf",
+      "struct_ops"
+    ],
+    "min_kernel": "5.6",
+    "permissions": [
+      "bpf_program_load"
+    ],
+    "programs": [
+      {
+        "min_kernel": "5.6",
+        "name": "struct_ops"
+      }
+    ]
+  },
+  "schema": "m31labs.dev/horizon/capability/v0"
+}

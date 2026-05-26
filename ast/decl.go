@@ -68,13 +68,15 @@ func (k MapKind) IsArrayLike() bool {
 }
 
 type MapDecl struct {
-	Name       string
-	Attrs      []Attr
-	Kind       MapKind
-	Key        TypeRef
-	Val        TypeRef
-	MaxEntries string
-	Span       span.Span
+	Name               string
+	Attrs              []Attr
+	Kind               MapKind
+	Key                TypeRef
+	Val                TypeRef
+	MaxEntries         string
+	SteadyStateEntries string // empty if not declared
+	AccessFreq         string // empty if not declared; values: "low", "medium", "high"
+	Span               span.Span
 }
 
 func (MapDecl) declNode() {}
