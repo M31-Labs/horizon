@@ -62,6 +62,22 @@ All notable changes to Horizon are documented in this file. Format follows
   (roadmap: #13)
 
 ### Added
+- Helper-effect annotations extended to cover context accessors
+  (`kprobe.arg1..arg5`, `kretprobe.ret`,
+  `cgroup.{family,sock_type,protocol,dst_port,dst_ip4,src_ip4,ip4}`),
+  packet parsers (`xdp.{eth,ipv4,tcp,udp,ntohs}`), and endianness
+  intrinsics (`bpf.{htons,htonl,ntohs,ntohl}`). Registry
+  (`internal/registry/helpers-v1.json`) grew from 12 to 34 entries; the
+  closed observation-token vocabulary gained three new dotted roots —
+  `kernel.syscall.*`, `kernel.socket.*`, `kernel.network.packet.*` —
+  mirrored in both `internal/registry/helpers.go::allowedHelperObserveTokens`
+  and `capability/validate.go::observeVocabulary` and pinned by a new
+  cross-package drift test (`capability/vocabulary_drift_test.go`).
+  Pure-compute and pure-construction helpers (endianness ops,
+  `cgroup.ip4`, `xdp.ntohs`) carry explicit empty `observes` / `mutates`
+  arrays as a positive "I observe nothing" assertion. Goldens for
+  `openwatch`, `cgroupconnect`, and `xdpdrop` regenerated to surface
+  the new `helper_effects` entries. (roadmap: #10)
 - Verifier-message catalog (`internal/registry/verifier-catalog-v1.json`)
   maps common verifier diagnostics to stable `HZN31xx` codes with
   remediation guidance. `hzn diagnose` now sets a per-entry code and
