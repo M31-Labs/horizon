@@ -7,6 +7,14 @@ All notable changes to Horizon are documented in this file. Format follows
 ## [Unreleased]
 
 ### Changed
+- `HZN1564` (struct shape conflict) and `HZN1565` (capability schema conflict)
+  now fire only at the IR merge layer (`ir.MergeWithDiagnostics`). The
+  manifest-aggregation layer (`capability.AggregateManifests`) now emits the
+  new codes `HZN1566` (map shape conflict, post-aggregation) and `HZN1567`
+  (type schema conflict, post-aggregation). Distinct `Suggest` strings name
+  the layer at which the conflict was detected so CI logs and downstream
+  consumers no longer need to disambiguate by inspecting code. See
+  `docs/migrations/v0.2-to-v0.3.md`. (roadmap: #9)
 - Legacy `cmd/hzn/diagnose.go:verifierSuggestion` switch removed; remediation
   guidance now flows exclusively from the verifier catalog. Unrecognized
   verifier messages fall back to `HZN3100` with no `suggest`. (roadmap: #14)
