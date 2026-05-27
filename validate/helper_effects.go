@@ -255,6 +255,21 @@ func analyzeParamEffect(fn ir.Function, paramName string, known HelperEffects, d
 	for _, block := range fn.Body {
 		walkParamEffectStatements(block.Statements, paramName, aliases, known, depth, &flags)
 	}
+	// #6 (B2) field-store escape rule (plan Q2): if the helper stored its
+	// tracked param into a container field and that field was NOT later
+	// consumed downstream (no submit / discard / deref through the field
+	// alias), the param's downstream fate inside the container is opaque to
+	// intra-function analysis. Widen to escaped (sound conservative). The
+	// alternative — threading the container's caller through the field — is
+	// the deferred cross-function struct-field aliasing debt.
+	if !flags.consumed {
+		for _, src := range aliases.fieldParent {
+			if aliases.root(src) == paramName {
+				flags.escaped = true
+				break
+			}
+		}
+	}
 	return flags.compress()
 }
 
@@ -314,8 +329,35 @@ func walkParamEffectStatement(stmt ir.Statement, paramName string, aliases *alia
 		if base, ok := selectorBase(stmt.Target); ok && aliases.root(base) == paramName {
 			flags.consumed = true
 		}
-		walkParamEffectExpr(stmt.Target, paramName, aliases, known, depth, flags)
-		walkParamEffectExpr(stmt.Value, paramName, aliases, known, depth, flags)
+		// #6 field-store aliasing: when `container.slot = paramAlias` is seen
+		// and paramAlias roots to the analyzed param, register the field edge
+		// so later reads through that selector (e.g. `Events.submit(c.slot)`)
+		// resolve back to the param's root via rootOfSelector. We deliberately
+		// skip walking stmt.Value through case 5 (ident → preserved) in this
+		// shape — the store is a "move into container", not a "use as value",
+		// so flagging preserved would spuriously force Mixed when the field is
+		// later consumed. The field-store itself is widened to escaped at the
+		// end of analyzeParamEffect IF the field was never consumed downstream.
+		isFieldStoreOfParam := false
+		if stmt.Target != nil && stmt.Target.Kind == "selector" &&
+			stmt.Target.Operand != nil && stmt.Target.Operand.Kind == "ident" &&
+			stmt.Value != nil && stmt.Value.Kind == "ident" &&
+			aliases.root(stmt.Value.Name) == paramName {
+			aliases.registerFieldStore(stmt.Target.Operand.Name, stmt.Target.Field, stmt.Value.Name)
+			isFieldStoreOfParam = true
+		}
+		// For the field-store-of-param shape, skip walking BOTH target and
+		// value: walking the target after registering the edge would cause
+		// case 3 (selector deref) to spuriously fire `consumed` because the
+		// selector now roots to paramName via the just-registered field edge.
+		// Walking the value would spuriously fire `preserved` for the same
+		// reason described in the registerFieldStore comment above. Any nested
+		// escapes inside the container ident (e.g. `c.subfield = ev`) would
+		// require nested-field handling, which is an acknowledged debt.
+		if !isFieldStoreOfParam {
+			walkParamEffectExpr(stmt.Target, paramName, aliases, known, depth, flags)
+			walkParamEffectExpr(stmt.Value, paramName, aliases, known, depth, flags)
+		}
 	case "expr":
 		walkParamEffectExpr(stmt.Expr, paramName, aliases, known, depth, flags)
 	case "return":
@@ -367,10 +409,12 @@ func walkParamEffectExpr(expr *ir.Expr, paramName string, aliases *aliasGraph, k
 		return
 	}
 	// 1. Compiler-known consume: Events.submit(param) / Events.discard(param).
-	//    Fully classified at this level; do NOT recurse into the call's parts
-	//    (the arg-ident would otherwise also register as "preserved" in
-	//    case 6, double-counting the same syntactic occurrence).
-	if _, _, argName, ok := consumeCall(expr); ok {
+	//    Uses consumeCallResolved so selector-form args (`Events.submit(c.slot)`)
+	//    resolve through the field-store alias graph (#6) back to the original
+	//    tracked root. Fully classified at this level; do NOT recurse into the
+	//    call's parts (the arg-ident would otherwise also register as
+	//    "preserved" in case 6, double-counting the same syntactic occurrence).
+	if _, _, argName, ok := consumeCallResolved(expr, aliases); ok {
 		if aliases.root(argName) == paramName {
 			flags.consumed = true
 		}
@@ -390,8 +434,15 @@ func walkParamEffectExpr(expr *ir.Expr, paramName string, aliases *aliasGraph, k
 	// 3. Dereference of param via selector (param.field). This consumes the
 	//    nullable handle at the use site; do NOT recurse into the operand
 	//    (which is the param ident itself) — that would double-count as
-	//    "preserved" in case 6.
+	//    "preserved" in case 6. Also handle the #6 field-alias case where
+	//    the selector reads from a container slot that was registered as a
+	//    field-store of paramName (`container.slot` after `container.slot = ev`):
+	//    the read still consumes the underlying tracked root.
 	if expr.Kind == "selector" {
+		if root := aliases.rootOfSelector(expr); root == paramName {
+			flags.consumed = true
+			return
+		}
 		if base, ok := selectorBase(expr); ok && aliases.root(base) == paramName {
 			flags.consumed = true
 			return

@@ -325,6 +325,87 @@ func fmtName(prefix string, i int) string {
 	return prefix + string(rune('0'+i/10)) + string(rune('0'+i%10))
 }
 
+// ── #6 (B2) struct-field aliasing inside helper bodies ────────────────────────
+//
+// These tests pin the field-store extension to walkParamEffectStatement: a
+// helper that stores its tracked param into a container field must be
+// classified soundly, and a helper that subsequently submits through the
+// field-aliased selector must classify as Consumes (not lose the chain).
+
+// TestHelperEffectsTracksFieldStoreOfParam verifies that a helper which
+// stores its tracked resource param into a container field — without later
+// referencing the field — classifies as Escapes. The container's downstream
+// fate is opaque to intra-function analysis; the sound conservative answer
+// is to widen to Escapes so the caller falls back to the Phase 1 "escaped"
+// transition.
+func TestHelperEffectsTracksFieldStoreOfParam(t *testing.T) {
+	// func hide(ev *Event, c *Container) bool { c.slot = ev; return true }
+	containerSlot := &ir.Expr{
+		Kind:    "selector",
+		Operand: &ir.Expr{Kind: "ident", Name: "c"},
+		Field:   "slot",
+	}
+	fn := helperFn("hide",
+		[]ir.Param{
+			resourceParam("ev", "Event"),
+			resourceParam("c", "Container"),
+		},
+		[]ir.Statement{
+			{Kind: "assign", Target: containerSlot, Value: &ir.Expr{Kind: "ident", Name: "ev"}},
+			{Kind: "return", Value: &ir.Expr{Kind: "bool", Value: "true"}},
+		},
+	)
+	prog := programWith(fn)
+	effects := validate.BuildHelperEffects(prog)
+	if got := effects.EffectFor("hide", 0); got != validate.HelperEffectEscapes {
+		t.Fatalf("EffectFor(hide, 0) = %v, want HelperEffectEscapes (param stored into container field — sound conservative)", got)
+	}
+}
+
+// TestHelperEffectsTracksFieldStoreThenSubmit verifies that a helper which
+// stores its tracked resource param into a container field and then submits
+// via the field-aliased selector classifies as Consumes. The field-store
+// edge added by Task 3 routes through walkParamEffectExpr's selector check
+// (already in place for `param.field` reads), so the consumeCallResolved
+// path detects Events.submit(c.slot) as consuming the original ev root.
+func TestHelperEffectsTracksFieldStoreThenSubmit(t *testing.T) {
+	// func consume(ev *Event, c *Container) bool {
+	//   c.slot = ev
+	//   Events.submit(c.slot)
+	//   return true
+	// }
+	containerSlot := &ir.Expr{
+		Kind:    "selector",
+		Operand: &ir.Expr{Kind: "ident", Name: "c"},
+		Field:   "slot",
+	}
+	submitSelector := &ir.Expr{
+		Kind: "call",
+		Func: &ir.Expr{
+			Kind:    "selector",
+			Operand: &ir.Expr{Kind: "ident", Name: "Events"},
+			Field:   "submit",
+		},
+		Args: []ir.Expr{*containerSlot},
+	}
+	fn := helperFn("consume",
+		[]ir.Param{
+			resourceParam("ev", "Event"),
+			resourceParam("c", "Container"),
+		},
+		[]ir.Statement{
+			{Kind: "assign", Target: containerSlot, Value: &ir.Expr{Kind: "ident", Name: "ev"}},
+			{Kind: "expr", Expr: submitSelector},
+			{Kind: "return", Value: &ir.Expr{Kind: "bool", Value: "true"}},
+		},
+	)
+	prog := programWith(fn)
+	effects := validate.BuildHelperEffects(prog)
+	if got := effects.EffectFor("consume", 0); got != validate.HelperEffectConsumes {
+		t.Fatalf("EffectFor(consume, 0) = %v, want HelperEffectConsumes (field-aliased submit consumes the root param)", got)
+	}
+}
+
 // TestHelperEffectsForScalarParamsIsPreserves verifies that non-resource
 // parameters (scalars, bools) are always summarized as Preserves regardless
 // of body shape. The caller would never apply a tracked transition to a
