@@ -7,6 +7,14 @@ All notable changes to Horizon are documented in this file. Format follows
 ## [Unreleased]
 
 ### Changed
+- Validate-layer alias graph (`validate/aliases.go`) now tracks struct-field
+  stores within a function: `container.slot = event` registers an edge so
+  later reads through the same selector (`container.slot`) resolve back to
+  the underlying tracked reservation. Ringbuf / maps / packet validators
+  consume the new edge through `aliases.rootOfSelector(expr)`, and
+  `Events.submit(container.slot)` (selector-form consume argument) now
+  consumes the field-aliased resource. Intra-function only;
+  cross-function struct-field aliasing remains out of scope. (roadmap: #6)
 - Legacy `cmd/hzn/diagnose.go:verifierSuggestion` switch removed; remediation
   guidance now flows exclusively from the verifier catalog. Unrecognized
   verifier messages fall back to `HZN3100` with no `suggest`. (roadmap: #14)

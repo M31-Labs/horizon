@@ -510,3 +510,133 @@ func TestEscapeDominatesBranchMergeForPacketHeader(t *testing.T) {
 		t.Fatalf("HZN2600 count = %d, want 0 (escaped state should dominate branch merge)", hzn2600)
 	}
 }
+
+// ── #6 (B2) struct-field aliasing — intra-function graph extension ────────────
+//
+// The next three tests pin the field-store edges added to aliasGraph for #6.
+// Each constructs synthetic IR; .hzn source cannot reach these shapes today
+// because HZN1447 (statement-level alias guard in types/checker.go) rejects
+// any `event.alias = x` style assignment whose RHS is a tracked pointer.
+// The substrate landing covers (i) future relaxations of HZN1447 inside helper
+// bodies and (ii) IR-construction paths that synthesize selector stores.
+
+// buildAliasFieldStoreProgram constructs the IR equivalent of:
+//
+//	event := Events.reserve()
+//	if event == nil { return 0 }
+//	container.slot = event   // field-store of tracked resource
+//	return 0                  // live on return — exactly ONE HZN2104 expected
+//
+// Pre-Task-3 the field store was a no-op for the alias graph; the validator
+// still produced exactly one HZN2104 for `event`. Post-Task-3 the field-store
+// edge MUST NOT introduce a second tracked entry that double-reports — the
+// rootOfSelector resolution collapses container.slot back onto event's root.
+func buildAliasFieldStoreProgram() ir.Program {
+	containerSlot := &ir.Expr{
+		Kind:    "selector",
+		Operand: identExpr("container"),
+		Field:   "slot",
+	}
+	return ringbufProg([]ir.Statement{
+		{Kind: "short_var", Name: "event", Value: reserveExpr("Events")},
+		{Kind: "if", Cond: eqNilCond("event"), Then: []ir.Statement{returnZero()}},
+		// container.slot = event
+		{Kind: "assign", Target: containerSlot, Value: identExpr("event")},
+		returnZero(),
+	})
+}
+
+// TestAliasingPropagatesRingbufStateThroughFieldStore pins that storing a
+// tracked ringbuf reservation into a struct field collapses to the same root
+// (one HZN2104, not two) and never creates a spurious second tracked entry
+// for `container.slot`.
+func TestAliasingPropagatesRingbufStateThroughFieldStore(t *testing.T) {
+	prog := buildAliasFieldStoreProgram()
+	diags := validate.Program(prog)
+	hzn2104 := countDiag(diags, "HZN2104")
+	if hzn2104 != 1 {
+		t.Fatalf("HZN2104 count = %d, want 1 (field-store alias must not double-report)", hzn2104)
+	}
+}
+
+// buildAliasFieldRebindThenSubmitProgram constructs the IR equivalent of:
+//
+//	event := Events.reserve()
+//	if event == nil { return 0 }
+//	container.slot = event
+//	Events.submit(container.slot)   // submit via the field-aliased name
+//	return 0
+//
+// The submit's argument is a selector, not a bare ident. Without rootOfSelector
+// wired into the consume-call resolver, the submit reads as unclassified, event
+// stays "live", and HZN2104 fires on return. Post-Task-3 the field-store edge
+// rooted at `event` lets the submit consume the underlying reservation.
+func buildAliasFieldRebindThenSubmitProgram() ir.Program {
+	containerSlot := &ir.Expr{
+		Kind:    "selector",
+		Operand: identExpr("container"),
+		Field:   "slot",
+	}
+	submitSelector := &ir.Expr{
+		Kind: "call",
+		Func: &ir.Expr{
+			Kind:    "selector",
+			Operand: identExpr("Events"),
+			Field:   "submit",
+		},
+		Args: []ir.Expr{*containerSlot},
+	}
+	return ringbufProg([]ir.Statement{
+		{Kind: "short_var", Name: "event", Value: reserveExpr("Events")},
+		{Kind: "if", Cond: eqNilCond("event"), Then: []ir.Statement{returnZero()}},
+		{Kind: "assign", Target: containerSlot, Value: identExpr("event")},
+		exprStmt(submitSelector),
+		returnZero(),
+	})
+}
+
+// TestAliasingFieldRebindDoesNotLoseTracking pins that submitting via the
+// field-aliased selector (`Events.submit(container.slot)`) successfully
+// consumes the underlying tracked reservation — no HZN2104 should fire.
+func TestAliasingFieldRebindDoesNotLoseTracking(t *testing.T) {
+	prog := buildAliasFieldRebindThenSubmitProgram()
+	diags := validate.Program(prog)
+	hzn2104 := countDiag(diags, "HZN2104")
+	if hzn2104 != 0 {
+		t.Fatalf("HZN2104 count = %d, want 0 (submit via field-alias must consume root)", hzn2104)
+	}
+}
+
+// buildAliasFieldStoreOfNonResourceProgram constructs the IR equivalent of:
+//
+//	container.slot = 42   // pure integer store — no tracked resources at all
+//	return 0
+//
+// The field-store edge must NOT fire for non-tracked RHS. Otherwise we would
+// silently shadow legitimate integer field writes with a spurious alias edge,
+// breaking later analysis. Assertion: zero diagnostics on this fixture.
+func buildAliasFieldStoreOfNonResourceProgram() ir.Program {
+	containerSlot := &ir.Expr{
+		Kind:    "selector",
+		Operand: identExpr("container"),
+		Field:   "slot",
+	}
+	return ringbufProg([]ir.Statement{
+		{Kind: "assign", Target: containerSlot, Value: &ir.Expr{Kind: "int", Value: "42"}},
+		returnZero(),
+	})
+}
+
+// TestAliasingFieldStoreOfNonResourceIgnored pins that an integer-valued field
+// store registers no alias edge and produces no diagnostics.
+func TestAliasingFieldStoreOfNonResourceIgnored(t *testing.T) {
+	prog := buildAliasFieldStoreOfNonResourceProgram()
+	diags := validate.Program(prog)
+	if len(diags) != 0 {
+		codes := make([]string, len(diags))
+		for i, d := range diags {
+			codes[i] = d.Code
+		}
+		t.Fatalf("expected 0 diagnostics, got %d: %v", len(diags), codes)
+	}
+}
