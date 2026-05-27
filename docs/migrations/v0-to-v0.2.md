@@ -7,7 +7,7 @@ validate layer in four soundness directions, adds seven new attach
 surfaces, and grows the language from one-file programs to multi-file +
 vendored-package builds. Only one user-visible break exists — the
 capability manifest schema — and v0.2.x ships an in-memory auto-migration
-shim so existing readers keep working until v0.3. For per-area details,
+shim so existing readers keep working. For per-area details,
 see [`v0-to-v1-manifest.md`](v0-to-v1-manifest.md) and
 [`v0.2-package-composition.md`](v0.2-package-composition.md).
 
@@ -15,7 +15,7 @@ see [`v0-to-v1-manifest.md`](v0-to-v1-manifest.md) and
 
 | Area | Change | Action |
 |---|---|---|
-| Capability manifest schema | `m31labs.dev/horizon/capability/v0` → `v1`. `danger` is now an axes triple (`mode × scope × reversibility`) rather than a flat string. | Call `capability.LoadManifest(raw)` instead of `json.Unmarshal` directly. v0 JSON auto-migrates in memory until v0.3 (emits `HZN3303` deprecation warning). See [`v0-to-v1-manifest.md`](v0-to-v1-manifest.md). |
+| Capability manifest schema | `m31labs.dev/horizon/capability/v0` → `v1`. `danger` is now an axes triple (`mode × scope × reversibility`) rather than a flat string. | Call `capability.LoadManifest(raw)` instead of `json.Unmarshal` directly. v0 JSON auto-migrates in memory and emits an `HZN3303` deprecation warning. See [`v0-to-v1-manifest.md`](v0-to-v1-manifest.md). |
 | Capability leaf word in reserved `kernel.*` namespace (already shipped in v0.1.1, reiterated here) | `kernel.*` names must end in `observe`, `mutate`, `drop`, `block`, `privileged`, `deny`, or `allow`. | Rename non-conforming capabilities (e.g., `kernel.process.exec.count` → `kernel.process.exec.count.observe`). |
 
 There are no `.hzn` source-level breaks in Phase 1/2. Programs that
@@ -122,10 +122,10 @@ range map.
 | `HZN3302`/`HZN3303` | Phase 1 (cedar) | Manifest schema-version contract: `HZN3302` rejects unknown schemas; `HZN3303` warns on auto-migrated v0 manifests. | `capability/load.go` |
 | Helper-effects validation | Phase 2 (oak) | `helper_effects` token-vocabulary validation and registry-coverage drift. No new HZN-coded user diagnostics in v0.2; failures surface through the drift test at build time. | `capability/helper_effects.go`, `internal/registry/helpers_test.go` |
 
-## Acknowledged debts (known not-fixed-yet)
+## Documented limits
 
-These ship in v0.2 as documented limits. Users will hit them; they are
-not bugs against the v0.2 promise.
+These are limits of the v0.2 implementation that users may hit. They
+are not bugs; the migration story works around or accepts them.
 
 - **`VC0001` remediation template renders `()` when no register capture.**
   The catalog template treats `{{.Captures.register}}` as optional but
@@ -134,36 +134,33 @@ not bugs against the v0.2 promise.
 - **`HZN1564` and `HZN1565` are reused at two layers.** They fire at
   both the manifest aggregator (`capability/aggregate.go`) and the IR
   merge (`ir/qualified.go`). Message templates are identical so
-  downstream consumers need only one branch per concern, but the
-  duplication will be consolidated in v0.3.
-- **`examples/eventbatch/` is not in the golden harness yet.** It
-  builds and is referenced from the Makefile, but is not in the
-  `examples` slice in `compiler/golden_examples_test.go`. The
-  ringbuf-through-helper pattern is exercised by the example itself
-  and by `validate/helper_effects.go` unit tests; golden coverage
-  follows in v0.3.
-- **Real-kernel verifier-catalog fixtures (Subtask B) deferred to v0.3.**
-  The v0.2 catalog ships with synthetic fixtures only. Real-kernel
-  capture lands once `M31-Labs/horizon-kernel-images` publishes
-  qcow2 images.
-- **DeMorgan and mixed-op nil-check chains deferred.** `!(x == nil)`
-  and `||`-disjunctions do not currently promote operands in the
-  validate-layer nil-check recognition. `&&`-chains do (Phase 1 #2).
-  Programs using the deferred forms remain conservatively unrecognized
-  (i.e., the validator may flag a path it should know is safe; the
-  inverse — accepting an unsafe path — does not occur).
+  downstream consumers need only one branch per concern.
+- **`examples/eventbatch/` is not in the golden harness.** It builds
+  and is referenced from the Makefile, but is not in the `examples`
+  slice in `compiler/golden_examples_test.go`. The ringbuf-through-helper
+  pattern is exercised by the example itself and by
+  `validate/helper_effects.go` unit tests.
+- **The verifier-message catalog ships with synthetic fixtures only.**
+  Real-kernel fixture capture is gated on canned BTF-enabled qcow2
+  images publishing at `M31-Labs/horizon-kernel-images`.
+- **DeMorgan and mixed-op nil-check chains are not recognized.**
+  `!(x == nil)` and `||`-disjunctions do not currently promote
+  operands in the validate-layer nil-check recognition. `&&`-chains
+  do (Phase 1 #2). Programs using the unrecognized forms remain
+  conservatively flagged — the validator may flag a path it should
+  know is safe; the inverse (accepting an unsafe path) does not occur.
 - **`struct_ops` bindgen attach is stubbed.** The example
   (`examples/structopstcp/`) compiles and emits a manifest, but
   `bindgen/generate.go:emitStructOpsAttach` returns an error if
   invoked. A typed `AttachOnFn` binding helper for `struct_ops`
-  programs is a v0.3 follow-up under roadmap #9.
-
-Cross-cutting Phase 2 debts (helper-effect annotations for context
-accessors `kprobe.arg*`, packet parsers `xdp.Eth/IPv4/TCP/UDP`,
-endianness intrinsics, `CONFIG_*` requirements; interprocedural alias
-tracking through struct fields; per-call-site path sensitivity in
-helper-effect summaries) are deferred to v0.3. See the
-"Acknowledged debts" sections of the Phase 2 plans for the full list.
+  programs is not yet implemented.
+- **Helper-effect annotations are limited to compiler-known helpers.**
+  Context accessors (`kprobe.arg*`), packet parsers
+  (`xdp.Eth/IPv4/TCP/UDP`), endianness intrinsics, and `CONFIG_*`
+  kernel-feature requirements are not annotated.
+- **Interprocedural alias tracking does not follow struct fields.**
+  Aliases captured into struct fields, or per-call-site path-sensitive
+  helper-effect summaries, are not modeled.
 
 ## Links
 

@@ -15,7 +15,7 @@ All notable changes to Horizon are documented in this file. Format follows
   to emit-time `HZN3300`. The `recognizedCapabilityLeaf` hardcoded list and
   `ExpectedKernelCapabilityPrefix` switch are replaced by registry-driven lookups.
   (roadmap: #10)
-- **Breaking:** Capability manifest schema bumped from `m31labs.dev/horizon/capability/v0` to `v1`. Danger is now an axis triple (`mode` × `scope` × `reversibility`) rather than a flat enum. v0 manifests remain loadable via `capability.LoadManifest()` (auto-migrated in memory) through v0.2.x; v0 loader will be removed in v0.3. New manifest emission always uses v1. See `docs/migrations/v0-to-v1-manifest.md`. (roadmap: #6, #7)
+- **Breaking:** Capability manifest schema bumped from `m31labs.dev/horizon/capability/v0` to `v1`. Danger is now an axis triple (`mode` × `scope` × `reversibility`) rather than a flat enum. v0 manifests remain loadable via `capability.LoadManifest()` (auto-migrated in memory, emits `HZN3303` deprecation warning). New manifest emission always uses v1. See `docs/migrations/v0-to-v1-manifest.md`. (roadmap: #6, #7)
 - `ir.Program` no longer carries a partially-populated `SourceMap` field. Source maps are owned end-to-end by `emitc.Output`. No CLI / artifact change. (roadmap: #12)
 - Validators (`validate/`) now share a single IR traversal via `validate.Collect`. Each rule consumes pre-collected sites rather than re-walking. No diagnostic-output change; contract-tested against every example. Note: `StackLocalSite` detection is currently narrower than the legacy `stack.go` inference (literal struct/array declarations only); `stack.go`'s inferred-type pass remains for the broader case. Future work may extend `StackLocalSite` with inferred type to fully unify. (roadmap: #4)
 - Validate-layer state machines (ringbuf, maps, packet) now track
@@ -29,8 +29,8 @@ All notable changes to Horizon are documented in this file. Format follows
   handles `&&`-chained comparisons: `if x != nil && y != nil { ... }`
   promotes BOTH `x` and `y` to live in the then-arm. `||` disjunctions
   remain conservatively NOT promoted (only one disjunct may hold).
-  DeMorgan equivalences (`!(x == nil)`) and mixed-op chains deferred
-  to v0.3. (roadmap: #2)
+  DeMorgan equivalences (`!(x == nil)`) and mixed-op chains are not
+  recognized in v0.2. (roadmap: #2)
 - Validate-layer state machines (ringbuf, maps, packet) now model
   resource state across `for` loop iterations via a bounded 2-iteration
   fixpoint. Patterns that would change state between iterations — e.g.,
@@ -67,9 +67,9 @@ All notable changes to Horizon are documented in this file. Format follows
   remediation guidance. `hzn diagnose` now sets a per-entry code and
   renders the catalog's remediation as the diagnostic's `suggest` text.
   Ships with 10 seed entries (`VC0001`–`VC0010`) and a hand-crafted
-  fixture corpus under `testdata/verifier-fixtures/`; a real-kernel-captured
-  corpus follows in v0.3 once `M31-Labs/horizon-kernel-images` publishes
-  (tracked as Subtask B). (roadmap: #14)
+  fixture corpus under `testdata/verifier-fixtures/`. A real-kernel
+  fixture corpus is gated on canned BTF-enabled qcow2 images publishing
+  at `M31-Labs/horizon-kernel-images`. (roadmap: #14)
 - `validate/helpers.go` recognizes the seven new attach surfaces (uprobe, uretprobe, fentry, fexit, raw_tp, sockops, struct_ops) as known program kinds; uprobe/uretprobe/fentry/fexit/raw_tp count as tracing programs so the existing `bpf.current_pid()`/`bpf.ktime_get_ns()` style helpers are now available to those programs. Resolves the Phase 1 cross-track coordination gap that had the new surfaces' examples hardcoding `event.pid = 0`. (Phase 1 integration, follows roadmap #9 + #4)
 - Map declarations may now carry `@steady_state_entries(N)` (positive integer ≤ `max_entries`) and `@access_freq("low"|"medium"|"high")` annotations. Both fields surface in manifest v1 for capacity planning. (roadmap: #22)
 - Seven new attach surfaces recognized end-to-end: uprobe, uretprobe, fentry, fexit, raw_tp, sockops, struct_ops. Each ships with at least one example, registry entries, manifest emission, and (where the attach path is tractable) a typed `Attach<Fn>` binding helper. struct_ops attach helpers are stubbed pending a follow-up. (roadmap: #9)
@@ -103,7 +103,7 @@ All notable changes to Horizon are documented in this file. Format follows
   `HZN1561`. Parser fuzz seeds and an `examples/imported-execcount/`
   vendored fixture exercise the end-to-end flow. Remote import fetching,
   package versioning, re-exports, and per-package published manifests
-  remain v0.3 candidates. See `docs/migrations/v0.2-package-composition.md`.
+  are explicitly out of scope. See `docs/migrations/v0.2-package-composition.md`.
   (roadmap: #21)
 
 ## [v0.1.2] — 2026-05-25

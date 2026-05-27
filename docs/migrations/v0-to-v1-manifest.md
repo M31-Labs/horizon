@@ -109,11 +109,7 @@ entries in `internal/registry/capability-namespaces-v1.json`.
 
 ## Map Access Annotations
 
-> **Note:** `@steady_state_entries` and `@access_freq` are planned for v0.2
-> (roadmap #22) and are not yet available. This section documents the expected
-> shape when they ship.
-
-These annotations on map declarations will surface in the v1 manifest for
+These annotations on map declarations surface in the v1 manifest for
 capacity planning:
 
 ```
@@ -252,14 +248,10 @@ populate it from the current source.
 - Continuum integration spec §A.7 (helper side-effect registry contract)
 - Roadmap: #8
 
-## Deprecation Timeline
+## v0 manifest handling
 
-| Release | v0 manifest behavior                               |
-|---------|----------------------------------------------------|
-| v0.2.x  | Loadable via `capability.LoadManifest`; emits `HZN3303` warning |
-| v0.3.0  | v0 loader removed; `LoadManifest` rejects v0 with an error |
-
-Horizon itself emits only v1 manifests as of v0.2. If you vendor pre-v0.2
-manifests (e.g., from a build cache or a third-party artifact), call
-`LoadManifest` before v0.3 ships to migrate them in memory and regenerate
-the stored JSON as v1.
+`capability.LoadManifest` accepts v0 JSON, auto-migrates in memory, and
+emits an `HZN3303` deprecation warning. Horizon itself emits only v1
+manifests as of v0.2. If you vendor pre-v0.2 manifests (e.g., from a
+build cache or a third-party artifact), call `LoadManifest` to migrate
+them in memory and regenerate the stored JSON as v1.
