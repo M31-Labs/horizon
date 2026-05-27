@@ -98,25 +98,38 @@ func TestRegistryCoversAllCompilerKnownHelpers(t *testing.T) {
 	}
 }
 
-// TestCompilerHelperRequirementsResolvesEveryKnownBPFName asserts that
-// every "bpf.*" entry in compilerKnownHelperSurface that actually emits
-// a kernel BPF helper call still resolves to a non-empty kernel-symbol
-// list via compilerHelperRequirements. Deleting a case from the switch
-// without removing the surface name here is a regression this test
-// catches.
+// TestCompilerHelperRequirementsResolvesEveryKnownBPFName asserts the
+// compilerHelperRequirements kernel-symbol resolver covers every helper
+// surface name that emits a BPF helper kernel call. The assertion only
+// fires for the BPF helper-call subset of compilerKnownHelperSurface;
+// the helper families below intentionally fail
+// compilerHelperRequirements (they have no kernel-symbol requirement at
+// the helper-call level) and are SKIPPED:
 //
-// Endianness intrinsics (bpf.htons, bpf.htonl, bpf.ntohs, bpf.ntohl)
-// are deliberately skipped — they compile to inline byte-swaps and have
-// no kernel-symbol requirement, so compilerHelperRequirements correctly
-// returns nil for them. The drift test still requires registry entries
-// for them (asserted by TestRegistryCoversAllCompilerKnownHelpers); only
-// the kernel-symbol resolution path is orthogonal.
+//   - bpf.htons / bpf.htonl / bpf.ntohs / bpf.ntohl — endianness ops
+//     compile to inline byte-swaps; no kernel symbol involved.
+//   - kprobe.arg1..arg5, kretprobe.ret — expand to PT_REGS_PARMn /
+//     PT_REGS_RC macros at the call site; no kernel symbol involved.
+//   - cgroup.{family,sock_type,protocol,dst_port,dst_ip4,src_ip4,ip4} —
+//     either bpf_sock_addr field accessors (compile to direct context
+//     loads, no helper call) or pure construction (ip4).
+//   - xdp.{eth,ipv4,tcp,udp,ntohs} — packet-parser intrinsics
+//     compiled inline; no kernel helper call.
+//   - map.* / ringbuf.* — kernel-symbol resolution lives in the
+//     mapMethodHelper switch, not compilerHelperRequirements. The
+//     parallel assertion is TestMapMethodHelperResolvesEveryKnownMapAndRingbufMethod
+//     below.
+//
+// The drift test still requires registry entries for every helper in
+// compilerKnownHelperSurface (asserted by
+// TestRegistryCoversAllCompilerKnownHelpers); only the kernel-symbol
+// resolution path is orthogonal for the skipped families. The
+// annotation captures the *semantic effect*, while
+// compilerHelperRequirements tracks *kernel-symbol requirements* — the
+// two are intentionally decoupled.
 func TestCompilerHelperRequirementsResolvesEveryKnownBPFName(t *testing.T) {
 	for _, name := range compilerKnownHelperSurface {
-		if !strings.HasPrefix(name, "bpf.") {
-			continue
-		}
-		if isEndiannessIntrinsic(name) {
+		if !requiresKernelHelperSymbol(name) {
 			continue
 		}
 		syms := compilerHelperRequirements(name)
@@ -124,6 +137,36 @@ func TestCompilerHelperRequirementsResolvesEveryKnownBPFName(t *testing.T) {
 			t.Errorf("compilerHelperRequirements(%q) returned no symbols — switch case missing or surface name drifted", name)
 		}
 	}
+}
+
+// requiresKernelHelperSymbol reports whether a helper surface name
+// emits a kernel BPF helper call (and thus has an entry in
+// compilerHelperRequirements). Returns false for context accessors,
+// packet parsers, endianness intrinsics, and map / ringbuf resource
+// verbs — see the doc comment on
+// TestCompilerHelperRequirementsResolvesEveryKnownBPFName for the
+// rationale on each skipped family.
+func requiresKernelHelperSymbol(name string) bool {
+	if isEndiannessIntrinsic(name) {
+		return false
+	}
+	if strings.HasPrefix(name, "kprobe.") || strings.HasPrefix(name, "kretprobe.") {
+		return false
+	}
+	if strings.HasPrefix(name, "cgroup.") {
+		return false
+	}
+	if strings.HasPrefix(name, "xdp.") {
+		return false
+	}
+	if strings.HasPrefix(name, "map.") || strings.HasPrefix(name, "ringbuf.") {
+		// map / ringbuf resource verbs resolve via mapMethodHelper, not
+		// compilerHelperRequirements. The parallel drift test
+		// TestMapMethodHelperResolvesEveryKnownMapAndRingbufMethod covers
+		// them.
+		return false
+	}
+	return strings.HasPrefix(name, "bpf.")
 }
 
 // isEndiannessIntrinsic returns true for the four bpf.* endianness
