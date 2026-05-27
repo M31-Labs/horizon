@@ -13,32 +13,39 @@ const maxBPFStackBytes = 512
 
 // AnalyzeStack runs stack-byte accounting per function.
 //
-// NOTE: this validator does NOT consume sites.StackLocals as a filter, even
-// though the AnalyzeStack signature accepts a Sites. StackLocalSite currently
-// captures only literal struct/array declarations (short_var with struct_lit RHS
-// and var_decl with an aggregate type), while stack accounting must also catch
-// short_vars whose RHS is a call/expression returning an aggregate by value.
-// Filtering by sites.StackLocals here would silently drop that broader coverage.
-//
-// When StackLocalSite is broadened to cover the call-returning-aggregate case
-// (deferred to v0.3 per walk.go's note), this function should be re-evaluated
-// to filter by sites or to consume sites directly for byte accounting.
-func AnalyzeStack(program ir.Program, _ Sites) []diag.Diagnostic {
+// Site discovery is consumed from sites.StackLocals (v0.3 Phase 0 #4
+// unification): each stack-local short_var / var_decl is indexed once during
+// Collect, and AnalyzeStack reads the inferred Type from the site rather
+// than re-running its own type-inference pass. The CFG-aware peak walker
+// remains in this file because if/switch/for branch maxima are not encodable
+// in a flat site list — sites tells us *which* statements own a stack-local
+// and *what type* it is; the walker computes how those locals stack up
+// across mutually-exclusive control-flow branches.
+func AnalyzeStack(program ir.Program, sites Sites) []diag.Diagnostic {
 	structs := map[string]ir.Struct{}
 	for _, decl := range program.Structs {
 		structs[decl.Name] = decl
 	}
-	maps := map[string]ir.Map{}
-	for _, m := range program.Maps {
-		maps[m.Name] = m
+
+	// Index stack-local sites by their owning statement pointer so the
+	// CFG walker can look up the inferred type for each declaration
+	// without re-running expression-type inference.
+	siteTypes := make(map[*ir.Statement]ir.Type, len(sites.StackLocals))
+	for _, s := range sites.StackLocals {
+		siteTypes[s.Stmt] = s.Type
 	}
 
 	var diags []diag.Diagnostic
-	for _, fn := range program.Functions {
-		if !hasTypedStatements(fn) {
+	// Iterate by index so the statements walked here are the same
+	// addressable storage that validate.Collect indexed in siteTypes.
+	// Ranging by value would copy fn.Body and lose pointer identity
+	// against the siteTypes map (which is keyed by *ir.Statement).
+	for i := range program.Functions {
+		fn := &program.Functions[i]
+		if !hasTypedStatements(*fn) {
 			continue
 		}
-		usage := estimateStack(fn, structs, maps)
+		usage := estimateStack(fn, structs, siteTypes)
 		if usage.total() <= maxBPFStackBytes {
 			continue
 		}
@@ -69,32 +76,31 @@ func (u stackUsage) total() int {
 
 type stackEstimator struct {
 	structs    map[string]ir.Struct
-	maps       map[string]ir.Map
-	locals     map[string]ir.Type
+	siteTypes  map[*ir.Statement]ir.Type
 	localBytes int
 	usage      stackUsage
 }
 
-func estimateStack(fn ir.Function, structs map[string]ir.Struct, maps map[string]ir.Map) stackUsage {
+func estimateStack(fn *ir.Function, structs map[string]ir.Struct, siteTypes map[*ir.Statement]ir.Type) stackUsage {
 	e := stackEstimator{
-		structs: structs,
-		maps:    maps,
-		locals:  map[string]ir.Type{},
+		structs:   structs,
+		siteTypes: siteTypes,
 	}
-	for _, param := range fn.Params {
-		e.locals[param.Name] = param.Type
+	// Walk each block's Statements slice directly so the &stmts[i]
+	// pointers match the ones validate.Collect indexed in siteTypes.
+	for j := range fn.Body {
+		e.walkStatements(fn.Body[j].Statements)
 	}
-	e.walkStatements(functionStatements(fn))
 	return e.usage
 }
 
 func (e *stackEstimator) walkStatements(stmts []ir.Statement) {
-	for _, stmt := range stmts {
-		e.walkStatement(stmt)
+	for i := range stmts {
+		e.walkStatement(&stmts[i])
 	}
 }
 
-func (e *stackEstimator) walkStatement(stmt ir.Statement) {
+func (e *stackEstimator) walkStatement(stmt *ir.Statement) {
 	switch stmt.Kind {
 	case "short_var":
 		if stmt.Value != nil && stmt.Value.Kind == "struct_lit" {
@@ -102,8 +108,10 @@ func (e *stackEstimator) walkStatement(stmt ir.Statement) {
 		} else {
 			e.walkExpr(stmt.Value)
 		}
-		if typ, ok := e.exprType(stmt.Value); ok {
-			e.locals[stmt.Name] = typ
+		// Site discovery is delegated to sites.StackLocals (populated by
+		// validate.Collect): if this short_var was indexed there, charge
+		// its inferred aggregate size against the running local total.
+		if typ, ok := e.siteTypes[stmt]; ok {
 			if bytes := e.aggregateSize(typ); bytes > 0 {
 				e.localBytes += bytes
 				e.trackPeak(e.localBytes, stmt.Span)
@@ -115,7 +123,6 @@ func (e *stackEstimator) walkStatement(stmt ir.Statement) {
 		} else {
 			e.walkExpr(stmt.Value)
 		}
-		e.locals[stmt.Name] = stmt.Type
 		if bytes := e.aggregateSize(stmt.Type); bytes > 0 {
 			e.localBytes += bytes
 			e.trackPeak(e.localBytes, stmt.Span)
@@ -123,11 +130,6 @@ func (e *stackEstimator) walkStatement(stmt ir.Statement) {
 	case "assign":
 		e.walkExpr(stmt.Target)
 		e.walkExpr(stmt.Value)
-		if stmt.Target != nil && stmt.Target.Kind == "ident" {
-			if typ, ok := e.exprType(stmt.Value); ok {
-				e.locals[stmt.Target.Name] = typ
-			}
-		}
 	case "expr":
 		e.walkExpr(stmt.Expr)
 	case "return":
@@ -135,7 +137,7 @@ func (e *stackEstimator) walkStatement(stmt ir.Statement) {
 	case "if":
 		ifEstimator := e.child()
 		if stmt.Init != nil {
-			ifEstimator.walkStatement(*stmt.Init)
+			ifEstimator.walkStatement(stmt.Init)
 		}
 		ifEstimator.walkExpr(stmt.Cond)
 		thenEstimator := ifEstimator.child()
@@ -160,11 +162,11 @@ func (e *stackEstimator) walkStatement(stmt ir.Statement) {
 	case "for":
 		loopEstimator := e.child()
 		if stmt.Init != nil {
-			loopEstimator.walkStatement(*stmt.Init)
+			loopEstimator.walkStatement(stmt.Init)
 		}
 		loopEstimator.walkExpr(stmt.Cond)
 		if stmt.Post != nil {
-			loopEstimator.walkStatement(*stmt.Post)
+			loopEstimator.walkStatement(stmt.Post)
 		}
 		bodyEstimator := loopEstimator.child()
 		bodyEstimator.walkStatements(stmt.Body)
@@ -203,19 +205,10 @@ func (e *stackEstimator) walkExprChildren(expr *ir.Expr) {
 func (e *stackEstimator) child() stackEstimator {
 	return stackEstimator{
 		structs:    e.structs,
-		maps:       e.maps,
-		locals:     cloneStackLocals(e.locals),
+		siteTypes:  e.siteTypes,
 		localBytes: e.localBytes,
 		usage:      e.usage,
 	}
-}
-
-func cloneStackLocals(in map[string]ir.Type) map[string]ir.Type {
-	out := make(map[string]ir.Type, len(in))
-	for name, typ := range in {
-		out[name] = typ
-	}
-	return out
 }
 
 func (e *stackEstimator) mergePeak(usage stackUsage) {
@@ -233,74 +226,6 @@ func (e *stackEstimator) trackPeak(total int, primary span.Span) {
 	if !primary.IsZero() {
 		e.usage.Primary = primary
 	}
-}
-
-func (e *stackEstimator) exprType(expr *ir.Expr) (ir.Type, bool) {
-	if expr == nil {
-		return ir.Type{}, false
-	}
-	switch expr.Kind {
-	case "ident":
-		typ, ok := e.locals[expr.Name]
-		return typ, ok
-	case "int":
-		return ir.Type{Name: "i64"}, true
-	case "struct_lit":
-		return ir.Type{Name: expr.Name}, expr.Name != ""
-	case "call":
-		if mapName, ok := reserveCall(expr); ok {
-			return ptrToStackType(e.mapValue(mapName)), true
-		}
-		if mapName, ok := mapLookupCall(expr); ok {
-			return ptrToStackType(e.mapValue(mapName)), true
-		}
-		return ir.Type{Name: "i64"}, true
-	case "selector":
-		operand, ok := e.exprType(expr.Operand)
-		if !ok {
-			return ir.Type{}, false
-		}
-		if operand.Ptr && operand.Elem != nil {
-			operand = *operand.Elem
-		}
-		decl, ok := e.structs[operand.Name]
-		if !ok {
-			return ir.Type{}, false
-		}
-		for _, field := range decl.Fields {
-			if field.Name == expr.Field {
-				return field.Type, true
-			}
-		}
-	case "unary":
-		operand, ok := e.exprType(expr.Operand)
-		if !ok {
-			return ir.Type{}, false
-		}
-		if expr.Op == "&" {
-			return ptrToStackType(operand), true
-		}
-		return operand, true
-	case "binary":
-		left, ok := e.exprType(expr.Left)
-		if ok {
-			return left, true
-		}
-		return ir.Type{Name: "i64"}, true
-	}
-	return ir.Type{}, false
-}
-
-func (e *stackEstimator) mapValue(name string) ir.Type {
-	if m, ok := e.maps[name]; ok {
-		return m.Val
-	}
-	return ir.Type{}
-}
-
-func ptrToStackType(typ ir.Type) ir.Type {
-	elem := typ
-	return ir.Type{Name: typ.Name, Ptr: true, Elem: &elem}
 }
 
 func (e *stackEstimator) aggregateSize(typ ir.Type) int {
