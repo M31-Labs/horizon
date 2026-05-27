@@ -406,6 +406,166 @@ func TestHelperEffectsTracksFieldStoreThenSubmit(t *testing.T) {
 	}
 }
 
+// ── #7 (B3) per-call-site path-sensitive helper-effect specialization ─────────
+//
+// These tests pin EffectForCall — the new public API that constant-folds
+// literal call-site args and re-specializes the helper summary on the fly.
+// The existing EffectFor (flat) API is unchanged and used for callers that
+// have no arg context.
+
+// recordHelperFn builds the canonical specialization fixture:
+//
+//	func record(ev *Event, flag u32) bool {
+//	    if flag != 0 {
+//	        Events.submit(ev)
+//	        return true
+//	    } else {
+//	        return ev      // preserved on the else branch
+//	    }
+//	}
+//
+// With flag=1 the helper definitely submits → Consumes on ev.
+// With flag=0 the helper definitely returns without submitting → Preserves
+// on ev.
+// With a non-literal flag the flat summary is Mixed (then-branch consumes,
+// else-branch preserves).
+func recordHelperFn() ir.Function {
+	return helperFn("record",
+		[]ir.Param{
+			resourceParam("ev", "Event"),
+			scalarParam("flag", "u32"),
+		},
+		[]ir.Statement{
+			{
+				Kind: "if",
+				Cond: &ir.Expr{
+					Kind:  "binary",
+					Op:    "!=",
+					Left:  &ir.Expr{Kind: "ident", Name: "flag"},
+					Right: &ir.Expr{Kind: "int", Value: "0"},
+				},
+				Then: []ir.Statement{
+					{Kind: "expr", Expr: submitExpr("Events", "ev")},
+					{Kind: "return", Value: &ir.Expr{Kind: "bool", Value: "true"}},
+				},
+				Else: []ir.Statement{
+					// Reference ev so the else branch records "preserved" —
+					// this is what makes the flat summary Mixed (the
+					// precondition for the non-literal-arg fallback test).
+					{Kind: "return", Value: &ir.Expr{Kind: "ident", Name: "ev"}},
+				},
+			},
+		},
+	)
+}
+
+// TestHelperEffectsConstantArgPathSpecializeToConsumes verifies that a call
+// site with a literal `flag=1` specializes the `record` helper's summary to
+// Consumes on the `ev` param (the path that submits is the only feasible
+// path under the substitution).
+func TestHelperEffectsConstantArgPathSpecializeToConsumes(t *testing.T) {
+	prog := programWith(recordHelperFn())
+	effects := validate.BuildHelperEffects(prog)
+	args := []ir.Expr{
+		{Kind: "ident", Name: "e"},
+		{Kind: "int", Value: "1"},
+	}
+	got := effects.EffectForCall("record", args)
+	if len(got) != 2 {
+		t.Fatalf("EffectForCall returned %d effects, want 2", len(got))
+	}
+	if got[0] != validate.HelperEffectConsumes {
+		t.Fatalf("EffectForCall(record, flag=1)[0] = %v, want HelperEffectConsumes (literal-1 path always submits)", got[0])
+	}
+	if got[1] != validate.HelperEffectPreserves {
+		t.Fatalf("EffectForCall(record, flag=1)[1] = %v, want HelperEffectPreserves (scalar param)", got[1])
+	}
+}
+
+// TestHelperEffectsConstantArgPathSpecializeToPreserves verifies that a call
+// site with a literal `flag=0` specializes the `record` helper's summary to
+// Preserves on `ev` (the only feasible path returns without submitting).
+func TestHelperEffectsConstantArgPathSpecializeToPreserves(t *testing.T) {
+	prog := programWith(recordHelperFn())
+	effects := validate.BuildHelperEffects(prog)
+	args := []ir.Expr{
+		{Kind: "ident", Name: "e"},
+		{Kind: "int", Value: "0"},
+	}
+	got := effects.EffectForCall("record", args)
+	if len(got) != 2 {
+		t.Fatalf("EffectForCall returned %d effects, want 2", len(got))
+	}
+	if got[0] != validate.HelperEffectPreserves {
+		t.Fatalf("EffectForCall(record, flag=0)[0] = %v, want HelperEffectPreserves (literal-0 path never submits)", got[0])
+	}
+	if got[1] != validate.HelperEffectPreserves {
+		t.Fatalf("EffectForCall(record, flag=0)[1] = %v, want HelperEffectPreserves (scalar param)", got[1])
+	}
+}
+
+// TestHelperEffectsNonLiteralArgFallsBackToFlatSummary verifies that when no
+// arg is a literal, EffectForCall returns the flat per-helper summary (Mixed
+// for `ev` in record's case — submit on one path, return without on another).
+func TestHelperEffectsNonLiteralArgFallsBackToFlatSummary(t *testing.T) {
+	prog := programWith(recordHelperFn())
+	effects := validate.BuildHelperEffects(prog)
+	args := []ir.Expr{
+		{Kind: "ident", Name: "e"},
+		{Kind: "ident", Name: "dynamicFlag"},
+	}
+	got := effects.EffectForCall("record", args)
+	if len(got) != 2 {
+		t.Fatalf("EffectForCall returned %d effects, want 2", len(got))
+	}
+	flat := effects.EffectFor("record", 0)
+	if flat != validate.HelperEffectMixed {
+		t.Fatalf("flat EffectFor(record, 0) = %v, want HelperEffectMixed (precondition for fallback test)", flat)
+	}
+	if got[0] != flat {
+		t.Fatalf("EffectForCall(non-literal)[0] = %v, want flat %v (no literal arg → fallback)", got[0], flat)
+	}
+}
+
+// TestHelperEffectsSpecializationBudgetExceededFallsBack stresses the
+// per-helper 32-entry specialization cache cap. After 32 unique literal-arg
+// signatures, subsequent distinct signatures must fall back to the flat
+// summary (cap bounds worst-case work; telemetry via CacheOverflows tracks
+// how often it fires).
+func TestHelperEffectsSpecializationBudgetExceededFallsBack(t *testing.T) {
+	prog := programWith(recordHelperFn())
+	effects := validate.BuildHelperEffects(prog)
+	flat := effects.EffectFor("record", 0)
+	if flat != validate.HelperEffectMixed {
+		t.Fatalf("flat EffectFor(record, 0) = %v, want HelperEffectMixed (precondition)", flat)
+	}
+	// Drive 64 unique literal signatures through EffectForCall. The 32-entry
+	// cap means the first 32 specialize (flag != 0 → Consumes), entries 33+
+	// overflow and fall back to flat Mixed.
+	for i := 0; i < 64; i++ {
+		args := []ir.Expr{
+			{Kind: "ident", Name: "e"},
+			{Kind: "int", Value: fmtName("", i+1)}, // 1..64, all non-zero → Consumes
+		}
+		got := effects.EffectForCall("record", args)
+		if len(got) != 2 {
+			t.Fatalf("iteration %d: EffectForCall returned %d effects, want 2", i, len(got))
+		}
+		if i < 32 {
+			if got[0] != validate.HelperEffectConsumes {
+				t.Fatalf("iteration %d: EffectForCall[0] = %v, want HelperEffectConsumes (within budget)", i, got[0])
+			}
+		} else {
+			if got[0] != flat {
+				t.Fatalf("iteration %d: EffectForCall[0] = %v, want flat %v (over-budget fallback)", i, got[0], flat)
+			}
+		}
+	}
+	if effects.CacheOverflows() == 0 {
+		t.Fatalf("CacheOverflows = 0 after exceeding budget, want > 0")
+	}
+}
+
 // TestHelperEffectsForScalarParamsIsPreserves verifies that non-resource
 // parameters (scalars, bools) are always summarized as Preserves regardless
 // of body shape. The caller would never apply a tracked transition to a

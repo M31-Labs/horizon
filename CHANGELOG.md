@@ -7,6 +7,21 @@ All notable changes to Horizon are documented in this file. Format follows
 ## [Unreleased]
 
 ### Changed
+- Helper-effect summarizer (`validate/helper_effects.go`) now specializes
+  per-call-site for literal arguments via new `EffectForCall(helper, args)`
+  API. A helper whose flat summary is `Mixed` because one branch consumes
+  and another preserves (`if flag != 0 { submit } else { return ev }`)
+  re-walks under the constant-folded substitution when the caller passes a
+  literal `int`/`bool`/`nil`: `flag=1` specializes to `Consumes`, `flag=0`
+  to `Preserves`. The existing flat `EffectFor` API is unchanged for callers
+  without arg context. The substitution-aware walker folds `ident ==
+  literal` / `ident != literal` / `unary{!}` / `binary{&&, ||}` of folded
+  leaves; anything else falls through to walking both branches. Cached by
+  canonical literal-arg signature (`"0=int:1,1=bool:true"`); bounded at 32
+  entries per helper, after which `EffectForCall` falls back to the flat
+  summary and bumps `CacheOverflows()` for telemetry. Wired through
+  `applyHelperEffectRingbuf` / `applyHelperEffectLookup` /
+  `applyHelperEffectPacket`. (roadmap: #7)
 - Validate-layer alias graph (`validate/aliases.go`) now tracks struct-field
   stores within a function: `container.slot = event` registers an edge so
   later reads through the same selector (`container.slot`) resolve back to
