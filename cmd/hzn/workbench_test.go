@@ -715,12 +715,14 @@ func TestWorkbenchReportsClangDiagnostics(t *testing.T) {
 		t.Fatalf("write stale object: %v", err)
 	}
 	fakeClang := filepath.Join(fakeBin, "clang")
-	// A pure clang-shaped error message — chosen so it does not incidentally
-	// match any verifier-catalog entry pattern. Clang errors flow through the
-	// same diagnose pipeline as verifier logs, so a message that overlaps with
-	// a VC entry's regex would trigger catalog enrichment and an HZN31xx code.
-	// The HZN3100 assertions below pin the "no catalog match" contract for
-	// genuine clang errors.
+	// A clang-shaped error message — `bad_helper` is a non-bpf identifier
+	// so it matches CC0002 (generic undeclared identifier) → HZN3411, not
+	// CC0001 (which is bpf-prefixed → HZN3410). Pre-v0.3 this fell back
+	// to HZN3100 (the verifier no-match sentinel) because the verifier
+	// catalog gate skipped clang origin; v0.3 (#13) routes clang-rooted
+	// diagnostics through the clang catalog instead. The HZN3411
+	// assertions below pin the CC0002 catalog-match contract for generic
+	// undeclared identifiers in clang stderr.
 	output := cPath + ":57:5: error: use of undeclared identifier 'bad_helper'"
 	script := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' %q >&2\nexit 1\n", output)
 	if err := os.WriteFile(fakeClang, []byte(script), 0o755); err != nil {
@@ -751,14 +753,18 @@ func TestWorkbenchReportsClangDiagnostics(t *testing.T) {
 	if report.Clang == "" {
 		t.Fatal("clang output is empty")
 	}
-	if report.DiagnosticCount == 0 || !hasDiagnosticCode(report.Diagnostics, "HZN3100") {
-		t.Fatalf("diagnostics = %#v, want HZN3100", report.Diagnostics)
+	// CC0002 matches "use of undeclared identifier 'bad_helper'" →
+	// HZN3411 (generic undeclared identifier; CC0001 is bpf-only).
+	if report.DiagnosticCount == 0 || !hasDiagnosticCode(report.Diagnostics, "HZN3411") {
+		t.Fatalf("diagnostics = %#v, want HZN3411 (CC0002 generic undeclared identifier)", report.Diagnostics)
 	}
-	// The clang_error path should not carry a verifier-derived remediation.
-	// Pre-catalog, the legacy legacy suggestion switch's `invalid mem access`
-	// arm fired against this fake clang stderr line and produced a stale
-	// "nil-check" suggestion — a misclassification, not a feature. Catalog
-	// enrichment intentionally does not match clang-only messages.
+	// The clang_error path carries clang-catalog remediation (CC0002) — not
+	// verifier-catalog remediation. Pre-v0.3 catalog, the legacy suggestion
+	// switch's `invalid mem access` arm fired against any clang stderr that
+	// happened to contain the substring and produced a stale "nil-check"
+	// suggestion — a misclassification, not a feature. v0.3 routes clang
+	// origin through its own catalog (HZN34xx), keeping verifier vocabulary
+	// out of clang-rooted remediation.
 	if report.Diagnostics[0].Primary.File != "../../testdata/golden/exec/input.hzn" {
 		t.Fatalf("primary file = %q, want authored input", report.Diagnostics[0].Primary.File)
 	}
@@ -784,8 +790,8 @@ func TestWorkbenchReportsClangDiagnostics(t *testing.T) {
 	if err := json.Unmarshal(data, &diagnostics); err != nil {
 		t.Fatalf("unmarshal diagnostics: %v", err)
 	}
-	if !hasDiagnosticCode(diagnostics, "HZN3100") {
-		t.Fatalf("diagnostics artifact = %#v, want HZN3100", diagnostics)
+	if !hasDiagnosticCode(diagnostics, "HZN3411") {
+		t.Fatalf("diagnostics artifact = %#v, want HZN3411 (CC0002 generic undeclared identifier)", diagnostics)
 	}
 }
 
