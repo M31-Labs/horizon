@@ -187,6 +187,128 @@ func TestPacketNilCheckRecognizedInAndConjunction(t *testing.T) {
 
 // ── Step 2.8: || disjunction negative test ────────────────────────────────────
 
+// notCond builds: !inner
+func notCond(inner *ir.Expr) *ir.Expr {
+	return &ir.Expr{
+		Kind:    "unary",
+		Op:      "!",
+		Operand: inner,
+	}
+}
+
+// ── Task 1 (#5 B1): DeMorgan / !-negation recognition tests ───────────────────
+
+// TestNilCheckRecognizedInNegatedEquality verifies that
+//
+//	event := Events.reserve()
+//	if !(event == nil) { Events.submit(event) }
+//	return 0
+//
+// produces zero HZN2100 diagnostics. `!(event == nil)` is DeMorgan-equivalent
+// to `event != nil`, so the then-arm should promote event to live.
+func TestNilCheckRecognizedInNegatedEquality(t *testing.T) {
+	prog := ringbufProg([]ir.Statement{
+		{Kind: "short_var", Name: "event", Value: reserveExpr("Events")},
+		{
+			Kind: "if",
+			Cond: notCond(eqNilCond("event")),
+			Then: []ir.Statement{exprStmt(submitExpr("Events", "event"))},
+		},
+		returnZero(),
+	})
+
+	diags := validate.Program(prog)
+	hzn2100 := countDiag(diags, "HZN2100")
+	if hzn2100 != 0 {
+		t.Fatalf("HZN2100 count = %d, want 0 (!(event == nil) should promote event to live)", hzn2100)
+	}
+}
+
+// TestNilCheckRecognizedInDoubleNegation verifies that
+//
+//	event := Events.reserve()
+//	if !!(event != nil) { Events.submit(event) }
+//	return 0
+//
+// produces zero HZN2100 diagnostics. Two consecutive `!`s cancel; `!!(event !=
+// nil)` is equivalent to `event != nil`.
+func TestNilCheckRecognizedInDoubleNegation(t *testing.T) {
+	prog := ringbufProg([]ir.Statement{
+		{Kind: "short_var", Name: "event", Value: reserveExpr("Events")},
+		{
+			Kind: "if",
+			Cond: notCond(notCond(neqNilCond("event"))),
+			Then: []ir.Statement{exprStmt(submitExpr("Events", "event"))},
+		},
+		returnZero(),
+	})
+
+	diags := validate.Program(prog)
+	hzn2100 := countDiag(diags, "HZN2100")
+	if hzn2100 != 0 {
+		t.Fatalf("HZN2100 count = %d, want 0 (!!(event != nil) should promote event to live)", hzn2100)
+	}
+}
+
+// TestNilCheckRecognizedInDemorganDisjunction verifies that
+//
+//	a := Events.reserve()
+//	b := Events.reserve()
+//	if !(a == nil || b == nil) { Events.submit(a); Events.submit(b) }
+//	return 0
+//
+// produces zero HZN2100 diagnostics. `!(a == nil || b == nil)` is DeMorgan-
+// equivalent to `a != nil && b != nil`, so both reservations should promote
+// to live in the then-arm.
+func TestNilCheckRecognizedInDemorganDisjunction(t *testing.T) {
+	prog := ringbufProg([]ir.Statement{
+		{Kind: "short_var", Name: "a", Value: reserveExpr("Events")},
+		{Kind: "short_var", Name: "b", Value: reserveExpr("Events")},
+		{
+			Kind: "if",
+			Cond: notCond(orCond(eqNilCond("a"), eqNilCond("b"))),
+			Then: []ir.Statement{
+				exprStmt(submitExpr("Events", "a")),
+				exprStmt(submitExpr("Events", "b")),
+			},
+		},
+		returnZero(),
+	})
+
+	diags := validate.Program(prog)
+	hzn2100 := countDiag(diags, "HZN2100")
+	if hzn2100 != 0 {
+		t.Fatalf("HZN2100 count = %d, want 0 (!(a == nil || b == nil) should promote both)", hzn2100)
+	}
+}
+
+// TestNilCheckNegatedConjunctionDoesNotPromote verifies that
+//
+//	event := Events.reserve()
+//	if !(event != nil && pid > 0) { Events.submit(event) }
+//	return 0
+//
+// produces at least one HZN2100. `!(event != nil && pid > 0)` is DeMorgan-
+// equivalent to `event == nil || pid <= 0`, so event must NOT promote to live
+// in the then-arm — only one disjunct may hold.
+func TestNilCheckNegatedConjunctionDoesNotPromote(t *testing.T) {
+	prog := ringbufProg([]ir.Statement{
+		{Kind: "short_var", Name: "event", Value: reserveExpr("Events")},
+		{
+			Kind: "if",
+			Cond: notCond(andCond(neqNilCond("event"), intGtCond("pid", "0"))),
+			Then: []ir.Statement{exprStmt(submitExpr("Events", "event"))},
+		},
+		returnZero(),
+	})
+
+	diags := validate.Program(prog)
+	hzn2100 := countDiag(diags, "HZN2100")
+	if hzn2100 == 0 {
+		t.Errorf("HZN2100 count = 0, want >= 1 (negated conjunction must NOT promote event)")
+	}
+}
+
 // TestNilCheckDisjunctionDoesNotPromote verifies that
 //
 //	event := Events.reserve()
