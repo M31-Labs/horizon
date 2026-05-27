@@ -14,7 +14,7 @@ import (
 var updateGolden = flag.Bool("update-golden", false, "regenerate testdata/golden/examples baselines")
 
 var examples = []string{
-	"cgroupconnect", "execwatch", "execcount", "execdeny",
+	"cgroupconnect", "eventbatch", "execwatch", "execcount", "execdeny",
 	"killwatch", "lsmfile", "openwatch", "tcpconnect", "tcpass", "xdpdrop",
 	"uprobeexec", "uretprobeexec",
 	"fentryopen", "fexitopen",

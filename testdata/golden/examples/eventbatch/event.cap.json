@@ -1,0 +1,162 @@
+{
+  "capabilities": [
+    {
+      "danger": {
+        "mode": "observe",
+        "reversibility": "none",
+        "scope": "event"
+      },
+      "helper_effects": [
+        {
+          "name": "bpf.current_comm",
+          "observes": [
+            "task.comm"
+          ]
+        },
+        {
+          "name": "bpf.current_pid",
+          "observes": [
+            "task.tgid"
+          ]
+        },
+        {
+          "mutates": [
+            "ringbuf:BatchEvents"
+          ],
+          "name": "ringbuf.reserve",
+          "resource": "reserve"
+        },
+        {
+          "mutates": [
+            "ringbuf:BatchEvents"
+          ],
+          "name": "ringbuf.submit",
+          "resource": "submit"
+        }
+      ],
+      "kind": "source",
+      "maps": {
+        "events": [],
+        "read": [],
+        "write": []
+      },
+      "name": "kernel.process.exec.observe",
+      "program": "OnExec",
+      "requirements": {
+        "features": [
+          "tracefs"
+        ],
+        "helpers": [
+          {
+            "min_kernel": "4.1",
+            "name": "bpf_get_current_comm"
+          },
+          {
+            "min_kernel": "4.1",
+            "name": "bpf_get_current_pid_tgid"
+          },
+          {
+            "min_kernel": "5.8",
+            "name": "bpf_ringbuf_reserve"
+          },
+          {
+            "min_kernel": "5.8",
+            "name": "bpf_ringbuf_submit"
+          }
+        ],
+        "min_kernel": "5.8",
+        "permissions": [
+          "bpf_program_load",
+          "perf_event_open"
+        ],
+        "programs": [
+          {
+            "min_kernel": "4.7",
+            "name": "tracepoint"
+          }
+        ]
+      },
+      "section": "tracepoint/sched:sched_process_exec"
+    }
+  ],
+  "maps": [
+    {
+      "kind": "ringbuf",
+      "name": "BatchEvents",
+      "value": "BatchEvent"
+    }
+  ],
+  "package": "probes",
+  "programs": [
+    {
+      "attach": "sched:sched_process_exec",
+      "capabilities": [
+        "kernel.process.exec.observe"
+      ],
+      "kind": "tracepoint",
+      "name": "OnExec",
+      "section": "tracepoint/sched:sched_process_exec"
+    }
+  ],
+  "requirements": {
+    "features": [
+      "tracefs"
+    ],
+    "helpers": [
+      {
+        "min_kernel": "4.1",
+        "name": "bpf_get_current_comm"
+      },
+      {
+        "min_kernel": "4.1",
+        "name": "bpf_get_current_pid_tgid"
+      },
+      {
+        "min_kernel": "5.8",
+        "name": "bpf_ringbuf_reserve"
+      },
+      {
+        "min_kernel": "5.8",
+        "name": "bpf_ringbuf_submit"
+      }
+    ],
+    "maps": [
+      {
+        "min_kernel": "5.8",
+        "name": "ringbuf"
+      }
+    ],
+    "min_kernel": "5.8",
+    "permissions": [
+      "bpf_program_load",
+      "perf_event_open"
+    ],
+    "programs": [
+      {
+        "min_kernel": "4.7",
+        "name": "tracepoint"
+      }
+    ]
+  },
+  "schema": "m31labs.dev/horizon/capability/v1",
+  "types": [
+    {
+      "align": 4,
+      "fields": [
+        {
+          "name": "pid",
+          "offset": 0,
+          "type": "u32"
+        },
+        {
+          "name": "comm",
+          "offset": 4,
+          "type": "[16]u8"
+        }
+      ],
+      "kind": "struct",
+      "name": "BatchEvent",
+      "size": 20
+    }
+  ]
+}

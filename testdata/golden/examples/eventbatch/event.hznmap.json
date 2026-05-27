@@ -1,0 +1,490 @@
+{
+  "generated": {
+    "language": "c"
+  },
+  "mappings": [
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 23
+        },
+        "start": {
+          "column": 1,
+          "line": 19
+        }
+      },
+      "node": "helper_wrapper",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 39,
+          "line": 32
+        },
+        "end_byte": 903,
+        "file": "examples/eventbatch/event.hzn",
+        "start": {
+          "column": 22,
+          "line": 32
+        },
+        "start_byte": 886
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 27
+        },
+        "start": {
+          "column": 1,
+          "line": 23
+        }
+      },
+      "node": "helper_wrapper",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 34,
+          "line": 31
+        },
+        "end_byte": 864,
+        "file": "examples/eventbatch/event.hzn",
+        "start": {
+          "column": 5,
+          "line": 31
+        },
+        "start_byte": 835
+      }
+    },
+    {
+      "function": "",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 35
+        },
+        "start": {
+          "column": 1,
+          "line": 27
+        }
+      },
+      "node": "struct",
+      "section": "",
+      "source": {
+        "end": {
+          "column": 2,
+          "line": 8
+        },
+        "end_byte": 119,
+        "file": "examples/eventbatch/event.hzn",
+        "start": {
+          "column": 6,
+          "line": 5
+        },
+        "start_byte": 70
+      }
+    },
+    {
+      "function": "",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 40
+        },
+        "start": {
+          "column": 1,
+          "line": 35
+        }
+      },
+      "node": "map",
+      "section": "",
+      "source": {
+        "end": {
+          "column": 36,
+          "line": 10
+        },
+        "end_byte": 156,
+        "file": "examples/eventbatch/event.hzn",
+        "start": {
+          "column": 1,
+          "line": 10
+        },
+        "start_byte": 121
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 44
+        },
+        "start": {
+          "column": 1,
+          "line": 40
+        }
+      },
+      "node": "map_wrapper",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 35,
+          "line": 27
+        },
+        "end_byte": 785,
+        "file": "examples/eventbatch/event.hzn",
+        "start": {
+          "column": 14,
+          "line": 27
+        },
+        "start_byte": 764
+      }
+    },
+    {
+      "function": "fillEvent",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 48
+        },
+        "start": {
+          "column": 1,
+          "line": 44
+        }
+      },
+      "node": "map_wrapper",
+      "section": "",
+      "source": {
+        "end": {
+          "column": 27,
+          "line": 20
+        },
+        "end_byte": 626,
+        "file": "examples/eventbatch/event.hzn",
+        "start": {
+          "column": 5,
+          "line": 20
+        },
+        "start_byte": 604
+      }
+    },
+    {
+      "function": "fillEvent",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 53
+        },
+        "start": {
+          "column": 1,
+          "line": 52
+        }
+      },
+      "node": "assign",
+      "section": "",
+      "source": {
+        "end": {
+          "column": 17,
+          "line": 19
+        },
+        "end_byte": 599,
+        "file": "examples/eventbatch/event.hzn",
+        "start": {
+          "column": 5,
+          "line": 19
+        },
+        "start_byte": 587
+      }
+    },
+    {
+      "function": "fillEvent",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 54
+        },
+        "start": {
+          "column": 1,
+          "line": 53
+        }
+      },
+      "node": "expr",
+      "section": "",
+      "source": {
+        "end": {
+          "column": 27,
+          "line": 20
+        },
+        "end_byte": 626,
+        "file": "examples/eventbatch/event.hzn",
+        "start": {
+          "column": 5,
+          "line": 20
+        },
+        "start_byte": 604
+      }
+    },
+    {
+      "function": "fillEvent",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 55
+        },
+        "start": {
+          "column": 1,
+          "line": 54
+        }
+      },
+      "node": "return",
+      "section": "",
+      "source": {
+        "end": {
+          "column": 16,
+          "line": 21
+        },
+        "end_byte": 642,
+        "file": "examples/eventbatch/event.hzn",
+        "start": {
+          "column": 5,
+          "line": 21
+        },
+        "start_byte": 631
+      }
+    },
+    {
+      "function": "fillEvent",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 56
+        },
+        "start": {
+          "column": 1,
+          "line": 50
+        }
+      },
+      "node": "helper_function",
+      "section": "",
+      "source": {
+        "end": {
+          "column": 2,
+          "line": 22
+        },
+        "end_byte": 644,
+        "file": "examples/eventbatch/event.hzn",
+        "start": {
+          "column": 1,
+          "line": 18
+        },
+        "start_byte": 536
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 61
+        },
+        "start": {
+          "column": 1,
+          "line": 60
+        }
+      },
+      "node": "short_var",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 35,
+          "line": 27
+        },
+        "end_byte": 785,
+        "file": "examples/eventbatch/event.hzn",
+        "start": {
+          "column": 5,
+          "line": 27
+        },
+        "start_byte": 755
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 63
+        },
+        "start": {
+          "column": 1,
+          "line": 62
+        }
+      },
+      "node": "return",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 17,
+          "line": 29
+        },
+        "end_byte": 824,
+        "file": "examples/eventbatch/event.hzn",
+        "start": {
+          "column": 9,
+          "line": 29
+        },
+        "start_byte": 816
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 64
+        },
+        "start": {
+          "column": 1,
+          "line": 61
+        }
+      },
+      "node": "if",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 6,
+          "line": 30
+        },
+        "end_byte": 830,
+        "file": "examples/eventbatch/event.hzn",
+        "start": {
+          "column": 5,
+          "line": 28
+        },
+        "start_byte": 790
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 65
+        },
+        "start": {
+          "column": 1,
+          "line": 64
+        }
+      },
+      "node": "expr",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 34,
+          "line": 31
+        },
+        "end_byte": 864,
+        "file": "examples/eventbatch/event.hzn",
+        "start": {
+          "column": 5,
+          "line": 31
+        },
+        "start_byte": 835
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 66
+        },
+        "start": {
+          "column": 1,
+          "line": 65
+        }
+      },
+      "node": "expr",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 40,
+          "line": 32
+        },
+        "end_byte": 904,
+        "file": "examples/eventbatch/event.hzn",
+        "start": {
+          "column": 5,
+          "line": 32
+        },
+        "start_byte": 869
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 67
+        },
+        "start": {
+          "column": 1,
+          "line": 66
+        }
+      },
+      "node": "return",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 13,
+          "line": 33
+        },
+        "end_byte": 917,
+        "file": "examples/eventbatch/event.hzn",
+        "start": {
+          "column": 5,
+          "line": 33
+        },
+        "start_byte": 909
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 68
+        },
+        "start": {
+          "column": 1,
+          "line": 56
+        }
+      },
+      "node": "function",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 2,
+          "line": 34
+        },
+        "end_byte": 919,
+        "file": "examples/eventbatch/event.hzn",
+        "start": {
+          "column": 1,
+          "line": 24
+        },
+        "start_byte": 646
+      }
+    }
+  ],
+  "schema": "m31labs.dev/horizon/sourcemap/v0",
+  "sources": [
+    {
+      "id": 0,
+      "path": "examples/eventbatch/event.hzn"
+    }
+  ]
+}
