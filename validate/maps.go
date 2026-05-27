@@ -145,7 +145,13 @@ func validateTypedMapLookups(fn ir.Function, lookupMaps map[string]ir.Map, effec
 			return
 		}
 		if expr.Kind == "selector" {
-			if varName, ok := selectorBase(expr); ok {
+			// #6: prefer the field-store root if a field edge was registered for
+			// this selector; otherwise fall back to the ident-base path.
+			if root := aliases.rootOfSelector(expr); root != "" {
+				if state, ok := states[root]; ok && state.State != "live" {
+					reportDeref(root, state, expr.Span)
+				}
+			} else if varName, ok := selectorBase(expr); ok {
 				root := aliases.root(varName)
 				if state, ok := states[root]; ok && state.State != "live" {
 					reportDeref(root, state, expr.Span)
@@ -185,6 +191,19 @@ func validateTypedMapLookups(fn ir.Function, lookupMaps map[string]ir.Map, effec
 			case "assign":
 				checkExpr(stmt.Target)
 				checkExpr(stmt.Value)
+				// #6 field-store aliasing: register `container.slot = count` so
+				// later selector reads (`container.slot`) resolve through the
+				// field edge back to count's root. Only fires when RHS is an
+				// ident of an already-tracked name; integer/literal stores leave
+				// the graph alone.
+				if stmt.Target != nil && stmt.Target.Kind == "selector" &&
+					stmt.Target.Operand != nil && stmt.Target.Operand.Kind == "ident" &&
+					stmt.Value != nil && stmt.Value.Kind == "ident" {
+					src := stmt.Value.Name
+					if _, ok := states[aliases.root(src)]; ok {
+						aliases.registerFieldStore(stmt.Target.Operand.Name, stmt.Target.Field, src)
+					}
+				}
 			case "expr":
 				checkExpr(stmt.Expr)
 				// Apply the user-helper effect summary to the call's args.
