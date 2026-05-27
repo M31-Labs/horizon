@@ -405,12 +405,14 @@ func analyzeMultiPackage(rootPkg ast.Package, deps []ast.Package, graph ImportGr
 	result.Diagnostics = append(result.Diagnostics, lowerDiags...)
 
 	// Aggregate the per-origin partial manifests to surface
-	// HZN1553/HZN1560/HZN1564/HZN1565 conflict diagnostics through the
+	// HZN1553/HZN1560/HZN1566/HZN1567 conflict diagnostics through the
 	// compiler.Result diagnostic channel. The aggregated manifest itself is
 	// discarded here — workbench/bindgen still re-derive it on demand via
 	// capability.FromIR; what matters at AnalyzePath time is that the
-	// cross-package collision codes surface to `hzn check`. (roadmap #21
-	// Phase 2 Task 6c.)
+	// cross-package collision codes surface to `hzn check`. (The IR-merge
+	// layer separately emits HZN1562/1563/1564/1565 inside ir.FromPackages
+	// above; ADR-0003 documents the per-layer split.) (roadmap #21 Phase 2
+	// Task 6c.)
 	if !diag.HasErrors(result.Diagnostics) {
 		_, aggDiags := capability.FromIRWithDiagnostics(result.Program)
 		result.Diagnostics = append(result.Diagnostics, aggDiags...)
