@@ -1,6 +1,10 @@
 package validate_test
 
 import (
+	"bytes"
+	"io"
+	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -592,4 +596,125 @@ func TestHelperEffectsForScalarParamsIsPreserves(t *testing.T) {
 	if got := effects.EffectFor("compute", 1); got != validate.HelperEffectConsumes {
 		t.Fatalf("EffectFor(compute, 1) = %v, want HelperEffectConsumes", got)
 	}
+}
+
+// ── #8 (B5) helper-effect depth telemetry ─────────────────────────────────────
+
+// TestHelperEffectsMaxObservedDepth verifies BuildHelperEffects stashes the
+// deepest helper-call chain observed across all helpers. The fixture is a
+// 3-helper chain (outer → middle → inner) so the leaf sits at depth 1, the
+// middle at depth 2, and outer at depth 3.
+func TestHelperEffectsMaxObservedDepth(t *testing.T) {
+	inner := helperFn("inner",
+		[]ir.Param{resourceParam("ev", "Event")},
+		[]ir.Statement{
+			{Kind: "expr", Expr: submitExpr("Events", "ev")},
+			{Kind: "return", Value: &ir.Expr{Kind: "bool", Value: "true"}},
+		},
+	)
+	middle := helperFn("middle",
+		[]ir.Param{resourceParam("ev", "Event")},
+		[]ir.Statement{
+			{Kind: "expr", Expr: userCallExpr("inner", ir.Expr{Kind: "ident", Name: "ev"})},
+			{Kind: "return", Value: &ir.Expr{Kind: "bool", Value: "true"}},
+		},
+	)
+	outer := helperFn("outer",
+		[]ir.Param{resourceParam("ev", "Event")},
+		[]ir.Statement{
+			{Kind: "expr", Expr: userCallExpr("middle", ir.Expr{Kind: "ident", Name: "ev"})},
+			{Kind: "return", Value: &ir.Expr{Kind: "bool", Value: "true"}},
+		},
+	)
+	prog := programWith(inner, middle, outer)
+	effects := validate.BuildHelperEffects(prog)
+	if effects.MaxObservedDepth != 3 {
+		t.Fatalf("MaxObservedDepth = %d, want 3 (3-helper chain)", effects.MaxObservedDepth)
+	}
+}
+
+// TestDepthTelemetryEnvGate verifies that validate.Program emits the
+// `[birch-depth]` stderr line when HORIZON_BIRCH_DEPTH_REPORT is set, and
+// emits nothing when unset. Captures os.Stderr via os.Pipe to avoid coupling
+// to a fmt.Stringer or buffer-receiver indirection.
+func TestDepthTelemetryEnvGate(t *testing.T) {
+	// Build a fixture with a 2-helper chain so max_depth is observably > 0.
+	inner := helperFn("inner",
+		[]ir.Param{resourceParam("ev", "Event")},
+		[]ir.Statement{
+			{Kind: "expr", Expr: submitExpr("Events", "ev")},
+			{Kind: "return", Value: &ir.Expr{Kind: "bool", Value: "true"}},
+		},
+	)
+	outer := helperFn("outer",
+		[]ir.Param{resourceParam("ev", "Event")},
+		[]ir.Statement{
+			{Kind: "expr", Expr: userCallExpr("inner", ir.Expr{Kind: "ident", Name: "ev"})},
+			{Kind: "return", Value: &ir.Expr{Kind: "bool", Value: "true"}},
+		},
+	)
+	prog := ir.Program{
+		Package: "telemetry_fixture",
+		Maps: []ir.Map{{
+			Name: "Events",
+			Kind: ir.MapKindRingbuf,
+			Val:  ir.Type{Name: "Event"},
+		}},
+		Functions: []ir.Function{inner, outer},
+	}
+
+	// Sub-test 1: env unset → no telemetry line.
+	t.Run("unset", func(t *testing.T) {
+		// t.Setenv with empty string still sets the variable (Go semantics);
+		// use os.Unsetenv directly with cleanup to guarantee unset.
+		t.Setenv("HORIZON_BIRCH_DEPTH_REPORT", "")
+		os.Unsetenv("HORIZON_BIRCH_DEPTH_REPORT")
+		stderr := captureStderr(t, func() { _ = validate.Program(prog) })
+		if strings.Contains(stderr, "[birch-depth]") {
+			t.Fatalf("unset env still emitted telemetry line: %q", stderr)
+		}
+	})
+
+	// Sub-test 2: env set → one telemetry line with the expected fields.
+	t.Run("set", func(t *testing.T) {
+		t.Setenv("HORIZON_BIRCH_DEPTH_REPORT", "1")
+		stderr := captureStderr(t, func() { _ = validate.Program(prog) })
+		if !strings.Contains(stderr, "[birch-depth]") {
+			t.Fatalf("env set but no telemetry line emitted: %q", stderr)
+		}
+		// Spot-check field shape; max_depth=2 for a 2-helper chain.
+		for _, want := range []string{
+			"program=telemetry_fixture",
+			"max_depth=2",
+			"helper_count=2",
+			"cache_overflows=0",
+		} {
+			if !strings.Contains(stderr, want) {
+				t.Fatalf("telemetry line missing %q: %q", want, stderr)
+			}
+		}
+	})
+}
+
+// captureStderr redirects os.Stderr through an os.Pipe for the duration of
+// fn and returns whatever fn wrote. Restores os.Stderr in a t.Cleanup so
+// concurrent subtest failures do not leak.
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	orig := os.Stderr
+	os.Stderr = w
+	t.Cleanup(func() { os.Stderr = orig })
+	fn()
+	// Close the writer so the reader's io.Copy returns EOF.
+	w.Close()
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	r.Close()
+	// Restore eagerly so subsequent subtests don't share the pipe.
+	os.Stderr = orig
+	return buf.String()
 }
