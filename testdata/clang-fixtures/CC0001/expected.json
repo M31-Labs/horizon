@@ -1,0 +1,24 @@
+[
+  {
+    "code": "HZN3410",
+    "severity": "error",
+    "message": "Undeclared bpf_* helper identifier",
+    "primary": {
+      "start": {
+        "line": 0,
+        "column": 0
+      },
+      "end": {
+        "line": 0,
+        "column": 0
+      }
+    },
+    "notes": [
+      "clang-catalog: CC0001",
+      "cause: Clang could not find a declaration for a bpf_*-prefixed identifier. This almost always means the kernel-side helper surface is not on the include path: either Horizon's curated runtime/horizon_bpf.h wrapper was not included, or a broader kernel surface declared in vmlinux.h is required for this program.",
+      "capture: identifier=bpf_get_current_pid_tgid",
+      "/tmp/horizon-build/probes.bpf.c:42:13: error: use of undeclared identifier 'bpf_get_current_pid_tgid'"
+    ],
+    "suggest": "Ensure runtime/horizon_bpf.h is on the clang include path (Horizon's curated wrapper surfaces the most-used bpf helpers without requiring vmlinux.h regeneration). If bpf_get_current_pid_tgid is not covered by runtime/horizon_bpf.h, regenerate vmlinux.h against your target kernel (`bpftool btf dump file /sys/kernel/btf/vmlinux format c \u003e vmlinux.h`) and include it in your program."
+  }
+]

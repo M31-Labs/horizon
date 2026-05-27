@@ -33,6 +33,12 @@
           ]
         },
         {
+          "name": "kprobe.arg2",
+          "observes": [
+            "kernel.syscall.arg2"
+          ]
+        },
+        {
           "mutates": [
             "ringbuf:OpenEvents"
           ],

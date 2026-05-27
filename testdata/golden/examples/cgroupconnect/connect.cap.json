@@ -6,6 +6,35 @@
         "reversibility": "restart",
         "scope": "process"
       },
+      "helper_effects": [
+        {
+          "name": "cgroup.dst_ip4",
+          "observes": [
+            "kernel.socket.dst_ip4"
+          ]
+        },
+        {
+          "name": "cgroup.dst_port",
+          "observes": [
+            "kernel.socket.dst_port"
+          ]
+        },
+        {
+          "name": "cgroup.family",
+          "observes": [
+            "kernel.socket.family"
+          ]
+        },
+        {
+          "name": "cgroup.ip4"
+        },
+        {
+          "name": "cgroup.protocol",
+          "observes": [
+            "kernel.socket.protocol"
+          ]
+        }
+      ],
       "kind": "source",
       "maps": {
         "events": [],

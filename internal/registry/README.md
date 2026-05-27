@@ -9,10 +9,10 @@ and differ.
 
 Sibling-file pattern: each registry has its own loader Go file
 (`registry.go` for capability namespaces, `helpers.go` for helper
-side-effects, `verifier_catalog.go` for the verifier-message catalog).
-New registries land as additional sibling files; do not extend existing
-loaders. This keeps parallel agent tracks from rebase-colliding on a
-single loader file.
+side-effects, `verifier_catalog.go` for the verifier-message catalog,
+`clang_catalog.go` for the clang-message catalog). New registries land
+as additional sibling files; do not extend existing loaders. This keeps
+parallel agent tracks from rebase-colliding on a single loader file.
 
 ## Capability namespace registry
 
@@ -57,3 +57,25 @@ Hyphae original.
 
 See spec.horizon.verifier-catalog.v1 for the catalog's schema and
 the per-entry field reference.
+
+## Clang-message catalog
+
+File: `clang-catalog-v1.json`. Hyphae original:
+
+    ~/.hyphae/spaces/m31labs-horizon/specs/clang-catalog-v1.json
+
+Loaded by `clang_catalog.go` (sibling file in this package) and
+re-exported through `verifier/clang_catalog.go`. A drift check in
+`clang_catalog_drift_test.go` enforces byte-identity with the Hyphae
+original.
+
+Strict sibling of the verifier-message catalog: same regex-with-named-
+captures shape, same first-match-wins lookup, same drift / fuzz
+contract. Codes live in the `HZN34xx` range (`HZN3400` = no-match
+sentinel; `HZN3410`–`HZN3499` = classified entries). Catalog ids use
+the `CC` prefix (parallel to verifier's `VC`). Mutually exclusive with
+the verifier catalog by origin: callers gate on
+`d.Kind == "clang_diagnostic"` to pick which catalog to consult.
+
+See spec.horizon.clang-catalog.v1 and
+decision.horizon.0005-clang-diagnostic-catalog for the contract.

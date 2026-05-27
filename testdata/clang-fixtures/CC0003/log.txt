@@ -1,0 +1,4 @@
+/tmp/horizon-build/probes.bpf.c:51:5: error: implicit declaration of function 'bpf_printk' is invalid in C99
+    bpf_printk("entered probe\n");
+    ^
+1 error generated.

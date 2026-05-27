@@ -1,0 +1,4 @@
+/tmp/horizon-build/probes.bpf.c:9:8: error: unknown type name 'task_struct'
+struct task_struct *task;
+       ^
+1 error generated.

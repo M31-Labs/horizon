@@ -1,0 +1,4 @@
+/tmp/horizon-build/probes.bpf.c:27:13: error: incompatible pointer types passing 'struct xdp_md *' to parameter of type 'struct __sk_buff *' [-Werror,-Wincompatible-pointer-types]
+    handle(ctx);
+            ^~~
+1 error generated.

@@ -1,0 +1,114 @@
+{
+  "schema": "m31labs.dev/horizon/clang-catalog/v1",
+  "version": "1",
+  "entries": [
+    {
+      "id": "CC0001",
+      "summary": "Undeclared bpf_* helper identifier",
+      "match": {
+        "kind": "regex",
+        "patterns": [
+          "use of undeclared identifier '(?P<identifier>bpf_\\w+)'"
+        ],
+        "captures": {
+          "identifier": "use of undeclared identifier '(?P<identifier>bpf_\\w+)'"
+        }
+      },
+      "hzn_code": "HZN3410",
+      "common_cause": "Clang could not find a declaration for a bpf_*-prefixed identifier. This almost always means the kernel-side helper surface is not on the include path: either Horizon's curated runtime/horizon_bpf.h wrapper was not included, or a broader kernel surface declared in vmlinux.h is required for this program.",
+      "remediation": "Ensure runtime/horizon_bpf.h is on the clang include path (Horizon's curated wrapper surfaces the most-used bpf helpers without requiring vmlinux.h regeneration). If {{if .Captures.identifier}}{{.Captures.identifier}}{{else}}the helper{{end}} is not covered by runtime/horizon_bpf.h, regenerate vmlinux.h against your target kernel (`bpftool btf dump file /sys/kernel/btf/vmlinux format c > vmlinux.h`) and include it in your program.",
+      "see_also": ["HZN2900"],
+      "introduced": "v0.3.0"
+    },
+    {
+      "id": "CC0002",
+      "summary": "Undeclared identifier",
+      "match": {
+        "kind": "regex",
+        "patterns": [
+          "use of undeclared identifier '(?P<identifier>\\w+)'"
+        ],
+        "captures": {
+          "identifier": "use of undeclared identifier '(?P<identifier>\\w+)'"
+        }
+      },
+      "hzn_code": "HZN3411",
+      "common_cause": "Clang could not find a declaration for an identifier referenced in the generated BPF C. This usually means the Horizon source referenced a name that did not survive lowering (typo, missing import, or a name the emitter did not declare in scope at this point).",
+      "remediation": "Check that {{if .Captures.identifier}}`{{.Captures.identifier}}`{{else}}the identifier{{end}} is spelled correctly in the .hzn source and that any required import or capability declaration is present. If the identifier is a Horizon intrinsic (map name, helper, type), verify the surrounding scope: maps and types must be declared before use. If the Horizon validator did not flag this, the lowering pipeline may have dropped a declaration — capture the generated C and file a bug.",
+      "see_also": ["HZN2100"],
+      "introduced": "v0.3.0"
+    },
+    {
+      "id": "CC0003",
+      "summary": "Implicit declaration of function",
+      "match": {
+        "kind": "regex",
+        "patterns": [
+          "implicit declaration of function '(?P<function>\\w+)'"
+        ],
+        "captures": {
+          "function": "implicit declaration of function '(?P<function>\\w+)'"
+        }
+      },
+      "hzn_code": "HZN3420",
+      "common_cause": "Clang saw a call to a function with no prior declaration. Under BPF's strict compilation flags this is an error, not a warning. The lowering pipeline normally emits prototypes for every helper before use; an implicit-declaration error usually means a helper was referenced before its declaration was emitted, or a required header was not included.",
+      "remediation": "Confirm runtime/horizon_bpf.h is included before {{if .Captures.function}}the call to `{{.Captures.function}}`{{else}}the implicit call{{end}}. If the function is user-defined in .hzn, ensure it is declared before use (Horizon emits functions in declaration order; forward references require a prototype). For kernel helpers, ensure vmlinux.h is regenerated if Horizon's wrapper does not cover the symbol.",
+      "see_also": ["HZN3410"],
+      "introduced": "v0.3.0"
+    },
+    {
+      "id": "CC0004",
+      "summary": "Unknown type name",
+      "match": {
+        "kind": "regex",
+        "patterns": [
+          "unknown type name '(?P<type>\\w+)'"
+        ],
+        "captures": {
+          "type": "unknown type name '(?P<type>\\w+)'"
+        }
+      },
+      "hzn_code": "HZN3430",
+      "common_cause": "Clang could not find a declaration for a type name. For kernel-side types (`struct task_struct`, `struct sock`, BPF map definitions), this usually means vmlinux.h is missing or stale. For Horizon-emitted types (event structs, context structs), it may indicate the emitter did not declare the type in scope at this point.",
+      "remediation": "If {{if .Captures.type}}`{{.Captures.type}}`{{else}}the type{{end}} is a kernel type, regenerate vmlinux.h against your target kernel (`bpftool btf dump file /sys/kernel/btf/vmlinux format c > vmlinux.h`) and include it. If it is a Horizon-emitted type, verify the corresponding `type` or capability declaration appears before its first use in the .hzn source. If neither applies, capture the generated C and file a bug — the emitter may have dropped a declaration.",
+      "see_also": ["HZN2200"],
+      "introduced": "v0.3.0"
+    },
+    {
+      "id": "CC0005",
+      "summary": "Syntax error in generated BPF C",
+      "match": {
+        "kind": "regex",
+        "patterns": [
+          "expected '\\)'",
+          "expected ';'",
+          "expected expression",
+          "expected '\\}'",
+          "expected identifier or '\\('"
+        ]
+      },
+      "hzn_code": "HZN3440",
+      "common_cause": "Clang rejected the generated BPF C as syntactically invalid. This is almost always a bug in Horizon's lowering pipeline — well-typed .hzn source should produce well-formed C. Common causes include an emitter that produces unbalanced parentheses, missing semicolons in initializer lists, or expression-statement context confusion.",
+      "remediation": "This indicates a defect in Horizon's C emitter rather than a fixable .hzn source issue. Capture the generated C (run `hzn workbench -o <dir>` and inspect `<name>.bpf.c`), the source map (`<name>.hznmap.json`), and the .hzn source, and file a bug against the lowering pipeline. As a temporary workaround, the offending .hzn construct can sometimes be rewritten in a simpler shape (e.g., extract a complex expression into a local binding) to avoid the emitter's bug.",
+      "see_also": [],
+      "introduced": "v0.3.0"
+    },
+    {
+      "id": "CC0006",
+      "summary": "Incompatible pointer or integer types",
+      "match": {
+        "kind": "regex",
+        "patterns": [
+          "incompatible (?:pointer|integer) types",
+          "incompatible pointer to integer conversion",
+          "incompatible integer to pointer conversion"
+        ]
+      },
+      "hzn_code": "HZN3450",
+      "common_cause": "Clang rejected an assignment, return, or call argument whose types do not match. In BPF programs this most commonly arises from BPF context-pointer casts (e.g., assigning a `struct xdp_md *` to a different context pointer type) or from helper-return types being used where a different pointer width is expected. The verifier is strict about pointer provenance, and clang's type system enforces a coarser version of the same invariants.",
+      "remediation": "Check the .hzn source for an implicit context cast or a helper-return assignment that crosses pointer-type boundaries. Horizon's context types (`tracepoint.Exec`, `xdp.Context`, `kprobe.Context`, etc.) are not interchangeable; each program type expects its own context shape. If the mismatch is between a helper return and a local binding, ensure the local's declared type matches the helper's documented return type. If the source looks correct, capture the generated C and file a bug — the emitter may have miscompiled a context-typed expression.",
+      "see_also": ["HZN2300"],
+      "introduced": "v0.3.0"
+    }
+  ]
+}

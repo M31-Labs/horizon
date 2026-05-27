@@ -525,12 +525,18 @@ func isBuiltinType(name string) bool {
 	}
 }
 
-// observeVocabulary is the closed v0.2 vocabulary of dotted observe /
-// mutate tokens accepted on an emitted Capability.HelperEffects entry.
-// It mirrors the same set the registry loader enforces in
+// observeVocabulary is the closed vocabulary of dotted observe / mutate
+// tokens accepted on an emitted Capability.HelperEffects entry. It
+// mirrors the same set the registry loader enforces in
 // internal/registry/helpers.go on the *source-of-truth* side; here we
 // re-check it against *emitted* manifest values, which may have arrived
 // via a hand-crafted manifest the registry never saw.
+//
+// v0.3 extended the vocabulary with three new dotted roots —
+// kernel.syscall.*, kernel.socket.*, kernel.network.packet.* — to cover
+// the new kprobe / kretprobe / cgroup / xdp helper families. The set is
+// kept in lockstep with internal/registry/helpers.go::allowedHelperObserveTokens
+// by capability/vocabulary_drift_test.go.
 //
 // Resource tokens (map:<ident> / ringbuf:<ident>) are validated
 // separately by helperEffectResourceTokenPattern. The bare "$" sentinel
@@ -538,15 +544,31 @@ func isBuiltinType(name string) bool {
 // concrete identifier by ComputeHelperEffectsForFunction before reaching
 // the manifest.
 var observeVocabulary = map[string]bool{
-	"task.tgid":             true,
-	"task.pid":              true,
-	"task.uid":              true,
-	"task.gid":              true,
-	"task.comm":             true,
-	"task.real_parent.tgid": true,
-	"kernel.time.monotonic": true,
-	"userspace.string":      true,
-	"userspace.bytes":       true,
+	"task.tgid":                      true,
+	"task.pid":                       true,
+	"task.uid":                       true,
+	"task.gid":                       true,
+	"task.comm":                      true,
+	"task.real_parent.tgid":          true,
+	"kernel.time.monotonic":          true,
+	"userspace.string":               true,
+	"userspace.bytes":                true,
+	"kernel.syscall.arg1":            true,
+	"kernel.syscall.arg2":            true,
+	"kernel.syscall.arg3":            true,
+	"kernel.syscall.arg4":            true,
+	"kernel.syscall.arg5":            true,
+	"kernel.syscall.return":          true,
+	"kernel.socket.family":           true,
+	"kernel.socket.type":             true,
+	"kernel.socket.protocol":         true,
+	"kernel.socket.dst_port":         true,
+	"kernel.socket.dst_ip4":          true,
+	"kernel.socket.src_ip4":          true,
+	"kernel.network.packet.ethernet": true,
+	"kernel.network.packet.ipv4":     true,
+	"kernel.network.packet.tcp":      true,
+	"kernel.network.packet.udp":      true,
 }
 
 // helperEffectResourceTokenPattern matches a fully-resolved resource

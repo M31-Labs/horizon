@@ -24,6 +24,15 @@ import (
 // JSON or the loader is broken at build time.
 var verifierCatalog = verifier.MustLoadCatalog()
 
+// clangCatalog is the parsed clang-message catalog used to enrich
+// diagnostics rooted in clang stderr (those whose Kind == "clang_diagnostic").
+// Strict sibling of verifierCatalog: same load semantics, mutually exclusive
+// gate (see diagnosticsFromVerifier). Loaded once at package init via the
+// //go:embed-backed registry loader; a panic here means the vendored JSON
+// or the loader is broken at build time. See spec.horizon.clang-catalog.v1
+// and decision.horizon.0005-clang-diagnostic-catalog (roadmap #13).
+var clangCatalog = verifier.MustLoadClangCatalog()
+
 // catalogTemplateCache holds parsed text/templates for remediation and
 // common-cause strings, keyed by "<entry-id>:<field>". text/template parses
 // are not cheap relative to per-diagnostic emission, and the catalog is
@@ -167,41 +176,72 @@ func diagnosticsFromVerifier(remapped []verifier.Diagnostic, generated []byte) [
 		if severity == "" || severity == "fatal error" {
 			severity = diag.SeverityError
 		}
+		// Default code is the origin-specific no-match sentinel: clang-rooted
+		// diagnostics fall back to HZN3400, everything else to HZN3100. The
+		// catalog lookups below overwrite this when an entry matches.
+		defaultCode := "HZN3100"
+		if d.Kind == "clang_diagnostic" {
+			defaultCode = "HZN3400"
+		}
 		converted := diag.Diagnostic{
-			Code:     "HZN3100",
+			Code:     defaultCode,
 			Severity: severity,
 			Message:  d.Message,
 			Primary:  d.Span,
 		}
-		// Origin gate (plan Task 5.4): the verifier-message catalog is
-		// content-indexed, so a clang error whose text happens to contain
-		// a verifier idiom (e.g., "invalid mem access 'scalar'") would
-		// otherwise leak verifier remediation into a clang-rooted
-		// diagnostic. Clang and verifier are different vocabularies; the
-		// catalog targets the verifier vocabulary only. Synthetic fallback
-		// diagnostics (Kind == "") fall through to the catalog: those
-		// originate from raw verifier-log stdin without recognisable
-		// per-line structure, and treating them as verifier-by-default
-		// preserves the pre-gate match behaviour for those callers.
+		// Origin gate (plan Task 5.4 + Task 7 / roadmap #13): the two
+		// catalogs are mutually exclusive by origin. Each catalog is
+		// content-indexed against its own vocabulary, so allowing both to
+		// fire would leak verifier remediation into clang-rooted diagnostics
+		// (the original Task 5.4 problem) and now also leak clang remediation
+		// into verifier-rooted diagnostics. We pick one catalog per
+		// diagnostic by Kind:
+		//
+		//   - Kind == "clang_diagnostic" → clang catalog (HZN34xx); no-match
+		//     leaves the diagnostic on HZN3400 with empty Suggest.
+		//   - Kind != "clang_diagnostic" → verifier catalog (HZN31xx);
+		//     no-match leaves the diagnostic on HZN3100 with empty Suggest.
+		//
+		// Synthetic fallback diagnostics (Kind == "") still flow through the
+		// verifier-catalog path: those originate from raw verifier-log stdin
+		// without recognisable per-line structure, and treating them as
+		// verifier-by-default preserves the pre-gate match behaviour for
+		// those callers.
 		var (
-			entry    verifier.CatalogEntry
-			captures map[string]string
-			matched  bool
+			vEntry    verifier.CatalogEntry
+			vCaptures map[string]string
+			vMatched  bool
+			cEntry    verifier.ClangCatalogEntry
+			cCaptures map[string]string
+			cMatched  bool
 		)
-		if d.Kind != "clang_diagnostic" {
-			entry, captures, matched = verifierCatalog.Lookup(d.Message, d.Raw)
-		}
-		if matched {
-			converted.Code = entry.HZNCode
-			converted.Suggest = renderCatalogTemplate(entry.ID, "remediation", entry.Remediation, captures)
-			converted.Notes = append(converted.Notes, "verifier-catalog: "+entry.ID)
-			if entry.CommonCause != "" {
-				converted.Notes = append(converted.Notes, "cause: "+renderCatalogTemplate(entry.ID, "cause", entry.CommonCause, captures))
-			}
-			for _, name := range catalogCaptureKeys(entry, captures) {
-				converted.Notes = append(converted.Notes, fmt.Sprintf("capture: %s=%s", name, captures[name]))
-			}
+		if d.Kind == "clang_diagnostic" {
+			cEntry, cCaptures, cMatched = clangCatalog.Lookup(d.Message, d.Raw)
 		} else {
+			vEntry, vCaptures, vMatched = verifierCatalog.Lookup(d.Message, d.Raw)
+		}
+		switch {
+		case vMatched:
+			converted.Code = vEntry.HZNCode
+			converted.Suggest = renderCatalogTemplate(vEntry.ID, "remediation", vEntry.Remediation, vCaptures)
+			converted.Notes = append(converted.Notes, "verifier-catalog: "+vEntry.ID)
+			if vEntry.CommonCause != "" {
+				converted.Notes = append(converted.Notes, "cause: "+renderCatalogTemplate(vEntry.ID, "cause", vEntry.CommonCause, vCaptures))
+			}
+			for _, name := range catalogCaptureKeys(vEntry, vCaptures) {
+				converted.Notes = append(converted.Notes, fmt.Sprintf("capture: %s=%s", name, vCaptures[name]))
+			}
+		case cMatched:
+			converted.Code = cEntry.HZNCode
+			converted.Suggest = renderCatalogTemplate(cEntry.ID, "remediation", cEntry.Remediation, cCaptures)
+			converted.Notes = append(converted.Notes, "clang-catalog: "+cEntry.ID)
+			if cEntry.CommonCause != "" {
+				converted.Notes = append(converted.Notes, "cause: "+renderCatalogTemplate(cEntry.ID, "cause", cEntry.CommonCause, cCaptures))
+			}
+			for _, name := range clangCatalogCaptureKeys(cEntry, cCaptures) {
+				converted.Notes = append(converted.Notes, fmt.Sprintf("capture: %s=%s", name, cCaptures[name]))
+			}
+		default:
 			converted.Suggest = ""
 		}
 		if converted.Primary.IsZero() {
@@ -269,6 +309,25 @@ func renderCatalogTemplate(entryID, field, src string, captures map[string]strin
 // entry, filtered to those that actually fired (present in captures), in
 // sorted order for deterministic note emission.
 func catalogCaptureKeys(entry verifier.CatalogEntry, captures map[string]string) []string {
+	if len(captures) == 0 || len(entry.Match.Captures) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(entry.Match.Captures))
+	for name := range entry.Match.Captures {
+		if _, ok := captures[name]; ok {
+			out = append(out, name)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// clangCatalogCaptureKeys is the clang-catalog equivalent of
+// catalogCaptureKeys. The two catalog entry types are structurally
+// identical but live in distinct types (ClangCatalogEntry vs CatalogEntry)
+// so we keep a per-type helper to avoid the dependency on a shared
+// interface.
+func clangCatalogCaptureKeys(entry verifier.ClangCatalogEntry, captures map[string]string) []string {
 	if len(captures) == 0 || len(entry.Match.Captures) == 0 {
 		return nil
 	}

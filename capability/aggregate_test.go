@@ -185,7 +185,12 @@ func TestAggregateWarnsOnSharedCapabilityValueAcrossPackages(t *testing.T) {
 
 // TestAggregateRejectsConflictingMapShapes verifies that when two
 // manifests contribute a map under the same qualified name but disagree
-// on key/value/kind, AggregateManifests surfaces an error diagnostic.
+// on key/value/kind, AggregateManifests surfaces an HZN1566 error
+// diagnostic.
+//
+// HZN1566 = manifest-aggregation map shape conflict (post-IR-merge);
+// the IR-layer twin HZN1564 still fires at ir.MergeWithDiagnostics for
+// struct-layout collisions detected before manifest aggregation runs.
 func TestAggregateRejectsConflictingMapShapes(t *testing.T) {
 	a := NewManifest("events")
 	a.Maps = []Map{{Name: "Events", Kind: "ringbuf", Value: "ExecEvent"}}
@@ -195,8 +200,45 @@ func TestAggregateRejectsConflictingMapShapes(t *testing.T) {
 		mustOriginMaps(a, "events"),
 		mustOriginMaps(b, "events"),
 	}, "probes")
-	if !hasErrorDiag(diags) {
-		t.Fatalf("expected error diagnostic for conflicting map shapes; got %#v", diags)
+	if !hasDiagCode(diags, "HZN1566") {
+		t.Fatalf("expected HZN1566 manifest-aggregation map shape conflict; got %#v", diags)
+	}
+}
+
+// TestAggregateRejectsConflictingTypeSchemas verifies that when two
+// manifests contribute a type schema with the same bare name but
+// differing layouts (kind / size / fields), AggregateManifests surfaces
+// an HZN1567 error diagnostic.
+//
+// HZN1567 = manifest-aggregation type schema conflict (post-IR-merge);
+// the IR-layer twin HZN1565 still fires at ir.MergeWithDiagnostics for
+// capability collisions detected before manifest aggregation runs.
+func TestAggregateRejectsConflictingTypeSchemas(t *testing.T) {
+	a := NewManifest("events")
+	aSize := 8
+	a.Types = []TypeSchema{{
+		Name: "ExecEvent",
+		Kind: "struct",
+		Size: &aSize,
+		Fields: []FieldSchema{
+			{Name: "pid", Type: "u32"},
+			{Name: "uid", Type: "u32"},
+		},
+	}}
+	b := NewManifest("audit")
+	bSize := 16
+	b.Types = []TypeSchema{{
+		Name: "ExecEvent",
+		Kind: "struct",
+		Size: &bSize,
+		Fields: []FieldSchema{
+			{Name: "pid", Type: "u64"},
+			{Name: "tgid", Type: "u64"},
+		},
+	}}
+	_, diags := AggregateManifests([]Manifest{a, b}, "probes")
+	if !hasDiagCode(diags, "HZN1567") {
+		t.Fatalf("expected HZN1567 manifest-aggregation type schema conflict; got %#v", diags)
 	}
 }
 

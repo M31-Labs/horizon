@@ -131,10 +131,13 @@ are not bugs; the migration story works around or accepts them.
   The catalog template treats `{{.Captures.register}}` as optional but
   the literal `()` wrapper around it is unconditional. Cosmetic; the
   surrounding remediation text is still correct.
-- **`HZN1564` and `HZN1565` are reused at two layers.** They fire at
-  both the manifest aggregator (`capability/aggregate.go`) and the IR
-  merge (`ir/qualified.go`). Message templates are identical so
-  downstream consumers need only one branch per concern.
+- **`HZN1564` and `HZN1565` are reused at two layers (v0.2 only).** In
+  v0.2 they fire at both the manifest aggregator
+  (`capability/aggregate.go`) and the IR merge (`ir/qualified.go`) with
+  identical message templates, so downstream consumers need only one
+  branch per concern. v0.3 splits the aggregator codes off to
+  `HZN1566` / `HZN1567`; see
+  [`v0.2-to-v0.3.md`](v0.2-to-v0.3.md) for the per-layer allocation.
 - **`examples/eventbatch/` is not in the golden harness.** It builds
   and is referenced from the Makefile, but is not in the `examples`
   slice in `compiler/golden_examples_test.go`. The ringbuf-through-helper

@@ -1,0 +1,24 @@
+[
+  {
+    "code": "HZN3430",
+    "severity": "error",
+    "message": "Unknown type name",
+    "primary": {
+      "start": {
+        "line": 0,
+        "column": 0
+      },
+      "end": {
+        "line": 0,
+        "column": 0
+      }
+    },
+    "notes": [
+      "clang-catalog: CC0004",
+      "cause: Clang could not find a declaration for a type name. For kernel-side types (`struct task_struct`, `struct sock`, BPF map definitions), this usually means vmlinux.h is missing or stale. For Horizon-emitted types (event structs, context structs), it may indicate the emitter did not declare the type in scope at this point.",
+      "capture: type=task_struct",
+      "/tmp/horizon-build/probes.bpf.c:9:8: error: unknown type name 'task_struct'"
+    ],
+    "suggest": "If `task_struct` is a kernel type, regenerate vmlinux.h against your target kernel (`bpftool btf dump file /sys/kernel/btf/vmlinux format c \u003e vmlinux.h`) and include it. If it is a Horizon-emitted type, verify the corresponding `type` or capability declaration appears before its first use in the .hzn source. If neither applies, capture the generated C and file a bug — the emitter may have dropped a declaration."
+  }
+]

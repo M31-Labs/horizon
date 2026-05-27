@@ -9,26 +9,49 @@ import (
 	"testing"
 )
 
-// expectedHelperNames is the canonical compiler-known helper surface for
-// v0.2. Any drift between this set and the embedded registry is a build
-// breaker. The cross-package drift test in
+// expectedHelperNames is the canonical compiler-known helper surface as
+// of v0.3. Any drift between this set and the embedded registry is a
+// build breaker. The cross-package drift test in
 // capability/helper_effects_drift_test.go re-derives the same set from
 // the compiler-side helper inventory (compilerHelperRequirements +
-// mapMethodHelper) to keep the two sides of the registry contract pinned
-// to one another.
+// mapMethodHelper + the v0.3 context-accessor / packet-parser /
+// endianness intrinsic surface) to keep the two sides of the registry
+// contract pinned to one another.
 var expectedHelperNames = []string{
+	"bpf.current_comm",
 	"bpf.current_pid",
 	"bpf.current_ppid",
 	"bpf.current_uid",
-	"bpf.current_comm",
+	"bpf.htonl",
+	"bpf.htons",
 	"bpf.ktime_get_ns",
+	"bpf.ntohl",
+	"bpf.ntohs",
 	"bpf.probe_read_user_str",
-	"ringbuf.reserve",
-	"ringbuf.submit",
-	"ringbuf.discard",
+	"cgroup.dst_ip4",
+	"cgroup.dst_port",
+	"cgroup.family",
+	"cgroup.ip4",
+	"cgroup.protocol",
+	"cgroup.sock_type",
+	"cgroup.src_ip4",
+	"kprobe.arg1",
+	"kprobe.arg2",
+	"kprobe.arg3",
+	"kprobe.arg4",
+	"kprobe.arg5",
+	"kretprobe.ret",
+	"map.delete",
 	"map.lookup",
 	"map.update",
-	"map.delete",
+	"ringbuf.discard",
+	"ringbuf.reserve",
+	"ringbuf.submit",
+	"xdp.eth",
+	"xdp.ipv4",
+	"xdp.ntohs",
+	"xdp.tcp",
+	"xdp.udp",
 }
 
 func TestHelpersJSONParses(t *testing.T) {
@@ -77,15 +100,31 @@ var (
 		"none":    true,
 	}
 	allowedTopLevelTokens = map[string]bool{
-		"task.tgid":              true,
-		"task.pid":               true,
-		"task.uid":               true,
-		"task.gid":               true,
-		"task.comm":              true,
-		"task.real_parent.tgid":  true,
-		"kernel.time.monotonic":  true,
-		"userspace.string":       true,
-		"userspace.bytes":        true,
+		"task.tgid":                      true,
+		"task.pid":                       true,
+		"task.uid":                       true,
+		"task.gid":                       true,
+		"task.comm":                      true,
+		"task.real_parent.tgid":          true,
+		"kernel.time.monotonic":          true,
+		"userspace.string":               true,
+		"userspace.bytes":                true,
+		"kernel.syscall.arg1":            true,
+		"kernel.syscall.arg2":            true,
+		"kernel.syscall.arg3":            true,
+		"kernel.syscall.arg4":            true,
+		"kernel.syscall.arg5":            true,
+		"kernel.syscall.return":          true,
+		"kernel.socket.family":           true,
+		"kernel.socket.type":             true,
+		"kernel.socket.protocol":         true,
+		"kernel.socket.dst_port":         true,
+		"kernel.socket.dst_ip4":          true,
+		"kernel.socket.src_ip4":          true,
+		"kernel.network.packet.ethernet": true,
+		"kernel.network.packet.ipv4":     true,
+		"kernel.network.packet.tcp":      true,
+		"kernel.network.packet.udp":      true,
 	}
 	allowedRequiresTokens = map[string]bool{
 		"task_struct.real_parent": true,

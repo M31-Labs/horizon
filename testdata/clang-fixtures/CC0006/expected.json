@@ -1,0 +1,23 @@
+[
+  {
+    "code": "HZN3450",
+    "severity": "error",
+    "message": "Incompatible pointer or integer types",
+    "primary": {
+      "start": {
+        "line": 0,
+        "column": 0
+      },
+      "end": {
+        "line": 0,
+        "column": 0
+      }
+    },
+    "notes": [
+      "clang-catalog: CC0006",
+      "cause: Clang rejected an assignment, return, or call argument whose types do not match. In BPF programs this most commonly arises from BPF context-pointer casts (e.g., assigning a `struct xdp_md *` to a different context pointer type) or from helper-return types being used where a different pointer width is expected. The verifier is strict about pointer provenance, and clang's type system enforces a coarser version of the same invariants.",
+      "/tmp/horizon-build/probes.bpf.c:27:13: error: incompatible pointer types passing 'struct xdp_md *' to parameter of type 'struct __sk_buff *' [-Werror,-Wincompatible-pointer-types]"
+    ],
+    "suggest": "Check the .hzn source for an implicit context cast or a helper-return assignment that crosses pointer-type boundaries. Horizon's context types (`tracepoint.Exec`, `xdp.Context`, `kprobe.Context`, etc.) are not interchangeable; each program type expects its own context shape. If the mismatch is between a helper return and a local binding, ensure the local's declared type matches the helper's documented return type. If the source looks correct, capture the generated C and file a bug — the emitter may have miscompiled a context-typed expression."
+  }
+]

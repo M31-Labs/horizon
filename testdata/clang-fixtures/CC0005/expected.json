@@ -1,0 +1,41 @@
+[
+  {
+    "code": "HZN3440",
+    "severity": "error",
+    "message": "Syntax error in generated BPF C",
+    "primary": {
+      "start": {
+        "line": 0,
+        "column": 0
+      },
+      "end": {
+        "line": 0,
+        "column": 0
+      }
+    },
+    "notes": [
+      "clang-catalog: CC0005",
+      "cause: Clang rejected the generated BPF C as syntactically invalid. This is almost always a bug in Horizon's lowering pipeline — well-typed .hzn source should produce well-formed C. Common causes include an emitter that produces unbalanced parentheses, missing semicolons in initializer lists, or expression-statement context confusion.",
+      "/tmp/horizon-build/probes.bpf.c:33:12: error: expected ')'"
+    ],
+    "suggest": "This indicates a defect in Horizon's C emitter rather than a fixable .hzn source issue. Capture the generated C (run `hzn workbench -o \u003cdir\u003e` and inspect `\u003cname\u003e.bpf.c`), the source map (`\u003cname\u003e.hznmap.json`), and the .hzn source, and file a bug against the lowering pipeline. As a temporary workaround, the offending .hzn construct can sometimes be rewritten in a simpler shape (e.g., extract a complex expression into a local binding) to avoid the emitter's bug."
+  },
+  {
+    "code": "HZN3400",
+    "severity": "note",
+    "message": "note: to match this '('",
+    "primary": {
+      "start": {
+        "line": 0,
+        "column": 0
+      },
+      "end": {
+        "line": 0,
+        "column": 0
+      }
+    },
+    "notes": [
+      "/tmp/horizon-build/probes.bpf.c:33:11: note: to match this '('"
+    ]
+  }
+]

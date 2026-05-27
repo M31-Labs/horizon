@@ -321,6 +321,80 @@ func TestComputeHelperEffectsForFunction_SortedByName(t *testing.T) {
 	}
 }
 
+// TestComputeHelperEffectsForFunction_AnnotatesNewIntrinsics asserts the
+// v0.3 helper-vocabulary extension (cedar Phase 1 Track B, roadmap #10)
+// wires correctly through the existing emit walker without a code
+// change. The 22 new annotations (kprobe.arg1..arg5, kretprobe.ret,
+// cgroup.*, xdp.*, bpf.{htons,htonl,ntohs,ntohl}) are all
+// free-standing qualified calls (shape #1 in observeCall), which the
+// walker already handles via qualifiedName + LookupHelperEffects.
+//
+// One representative helper per new family is exercised here; if the
+// walker had a shape mismatch (e.g., the parser produces an
+// unexpected selector shape for cgroup intrinsics), this test catches
+// it. The expected outcome is GREEN with zero walker-code changes.
+//
+// Endianness intrinsics (bpf.ntohs etc.) and cgroup.ip4 carry explicit
+// empty observes / mutates as a positive "I observe nothing" assertion;
+// the test asserts that emit path preserves the empty-slice convention
+// (nil after substitutePlaceholders) rather than dropping the entry.
+func TestComputeHelperEffectsForFunction_AnnotatesNewIntrinsics(t *testing.T) {
+	cases := []struct {
+		name  string
+		call  ir.Expr
+		want  HelperEffect
+	}{
+		{
+			name: "kprobe.arg1 surfaces with kernel.syscall.arg1",
+			call: dottedCallExpr("kprobe", "arg1"),
+			want: HelperEffect{Name: "kprobe.arg1", Observes: []string{"kernel.syscall.arg1"}},
+		},
+		{
+			name: "kretprobe.ret surfaces with kernel.syscall.return",
+			call: dottedCallExpr("kretprobe", "ret"),
+			want: HelperEffect{Name: "kretprobe.ret", Observes: []string{"kernel.syscall.return"}},
+		},
+		{
+			name: "cgroup.family surfaces with kernel.socket.family",
+			call: dottedCallExpr("cgroup", "family"),
+			want: HelperEffect{Name: "cgroup.family", Observes: []string{"kernel.socket.family"}},
+		},
+		{
+			name: "cgroup.ip4 surfaces with empty observe / mutate (pure construction)",
+			call: dottedCallExpr("cgroup", "ip4"),
+			want: HelperEffect{Name: "cgroup.ip4"},
+		},
+		{
+			name: "xdp.eth surfaces with kernel.network.packet.ethernet",
+			call: dottedCallExpr("xdp", "eth"),
+			want: HelperEffect{Name: "xdp.eth", Observes: []string{"kernel.network.packet.ethernet"}},
+		},
+		{
+			name: "bpf.ntohs surfaces with empty observe / mutate (pure compute)",
+			call: dottedCallExpr("bpf", "ntohs"),
+			want: HelperEffect{Name: "bpf.ntohs"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fn := ir.Function{
+				Name:    "Intrinsic",
+				Section: ir.Section{Kind: ir.ProgramKprobe},
+				Body: []ir.Block{{Statements: []ir.Statement{
+					exprStmt(tc.call),
+				}}},
+			}
+			got := ComputeHelperEffectsForFunction(programFromFns(fn), fn)
+			if len(got) != 1 {
+				t.Fatalf("expected 1 entry, got %d (%+v)", len(got), got)
+			}
+			if !reflect.DeepEqual(got[0], tc.want) {
+				t.Fatalf("entry = %+v, want %+v", got[0], tc.want)
+			}
+		})
+	}
+}
+
 // TestComputeHelperEffectsForFunction_RegistryImmutableAfterSubstitution
 // pins the §D-5 immutability guarantee: even after the walker has
 // substituted a concrete map name into a placeholder, the registry's

@@ -23,12 +23,17 @@ func FromIR(program ir.Program) Manifest {
 
 // FromIRWithDiagnostics is FromIR's diagnostic-surfacing twin: it returns both
 // the aggregated manifest and the diagnostics produced by AggregateManifests
-// (HZN1553 advisory, HZN1560 capability conflict, HZN1564 map conflict,
-// HZN1565 type conflict). Callers that want the legacy lossy behavior keep
-// using FromIR; callers that want aggregation collisions surfaced through
+// (HZN1553 advisory, HZN1560 capability conflict, HZN1566 map shape conflict,
+// HZN1567 type schema conflict). Callers that want the legacy lossy behavior
+// keep using FromIR; callers that want aggregation collisions surfaced through
 // their own diagnostic channel (compiler.AnalyzePath wires this for the
 // cross-package build path) call FromIRWithDiagnostics. Single-origin
 // programs return an empty diagnostic slice. (roadmap #21 Phase 2 Task 6c.)
+//
+// The IR-merge layer (ir.MergeWithDiagnostics) emits HZN1562/1563/1564/1565
+// for cross-package function / map / struct / capability collisions detected
+// before per-package manifests are aggregated. ADR-0003 documents why the
+// aggregator-layer codes are distinct from the IR-merge codes.
 func FromIRWithDiagnostics(program ir.Program) (Manifest, []diag.Diagnostic) {
 	if programHasMixedOrigins(program) {
 		return fromIRAggregated(program)
@@ -97,7 +102,7 @@ func fromIRAggregated(program ir.Program) (Manifest, []diag.Diagnostic) {
 	}
 	out, diags := AggregateManifests(manifests, program.Package)
 	// Task 6c wires aggregator diagnostics through FromIRWithDiagnostics
-	// for callers that want HZN1553/HZN1560/HZN1564/HZN1565 surfaced. The
+	// for callers that want HZN1553/HZN1560/HZN1566/HZN1567 surfaced. The
 	// legacy FromIR entrypoint still returns just the manifest so existing
 	// callers (workbench, bindgen) keep their lossy-diagnostic behavior
 	// until their own wiring upgrades.

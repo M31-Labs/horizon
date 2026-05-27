@@ -7,6 +7,14 @@ All notable changes to Horizon are documented in this file. Format follows
 ## [Unreleased]
 
 ### Changed
+- `HZN1564` (struct shape conflict) and `HZN1565` (capability schema conflict)
+  now fire only at the IR merge layer (`ir.MergeWithDiagnostics`). The
+  manifest-aggregation layer (`capability.AggregateManifests`) now emits the
+  new codes `HZN1566` (map shape conflict, post-aggregation) and `HZN1567`
+  (type schema conflict, post-aggregation). Distinct `Suggest` strings name
+  the layer at which the conflict was detected so CI logs and downstream
+  consumers no longer need to disambiguate by inspecting code. See
+  `docs/migrations/v0.2-to-v0.3.md`. (roadmap: #9)
 - Legacy `cmd/hzn/diagnose.go:verifierSuggestion` switch removed; remediation
   guidance now flows exclusively from the verifier catalog. Unrecognized
   verifier messages fall back to `HZN3100` with no `suggest`. (roadmap: #14)
@@ -62,6 +70,72 @@ All notable changes to Horizon are documented in this file. Format follows
   (roadmap: #13)
 
 ### Added
+- Helper-effect annotations extended to cover context accessors
+  (`kprobe.arg1..arg5`, `kretprobe.ret`,
+  `cgroup.{family,sock_type,protocol,dst_port,dst_ip4,src_ip4,ip4}`),
+  packet parsers (`xdp.{eth,ipv4,tcp,udp,ntohs}`), and endianness
+  intrinsics (`bpf.{htons,htonl,ntohs,ntohl}`). Registry
+  (`internal/registry/helpers-v1.json`) grew from 12 to 34 entries; the
+  closed observation-token vocabulary gained three new dotted roots —
+  `kernel.syscall.*`, `kernel.socket.*`, `kernel.network.packet.*` —
+  mirrored in both `internal/registry/helpers.go::allowedHelperObserveTokens`
+  and `capability/validate.go::observeVocabulary` and pinned by a new
+  cross-package drift test (`capability/vocabulary_drift_test.go`).
+  Pure-compute and pure-construction helpers (endianness ops,
+  `cgroup.ip4`, `xdp.ntohs`) carry explicit empty `observes` / `mutates`
+  arrays as a positive "I observe nothing" assertion. Goldens for
+  `openwatch`, `cgroupconnect`, and `xdpdrop` regenerated to surface
+  the new `helper_effects` entries. (roadmap: #10)
+- New developer tool `cmd/hzn-helpergen` walks a pinned libbpf source
+  tree (commit `f5dcbae7` / v1.7.0; SHA256 verified per fetch) and
+  produces candidate helper-registry entries for diff review against the
+  hand-curated `internal/registry/helpers-v1.json`. `hzn-helpergen check`
+  exits non-zero on drift; `hzn-helpergen emit -o <path>` writes a
+  candidate document for human review. The tool never auto-writes to
+  the registry — hand-curation stays the source of truth. Pin metadata
+  lives at `cmd/hzn-helpergen/pin.go`; refresh workflow documented at
+  `docs/internal/helper-registry-regeneration.md`. Wired as `make
+  helpergen-check` / `make helpergen-emit`; intentionally NOT part of
+  `make ci-go` (requires network access; libbpf drift detection is a
+  release-engineering concern, not a per-PR concern). Rationale at
+  ADR-0004. (roadmap: #11)
+- `hzn check <pkg>` now emits a per-package manifest as a side artifact
+  at `<pkg>/<pkgname>.pkg.cap.json` when the package declares at least
+  one capability. The artifact is a fully-valid v1 `capability.Manifest`
+  produced via `capability.FromIR`; pure type / helper packages get no
+  emission. Two new flags govern emission: `-no-manifest` suppresses it
+  entirely; `-manifest-out <path>` relocates it. Text mode prints
+  `wrote per-package manifest: <relpath>` after the existing
+  `check passed:` line for discovery. JSON mode (`-json`) now returns
+  an object envelope (`{"diagnostics": [...], "manifest_path": "..."}`)
+  in place of the v0.2 bare diagnostic array — this is a **breaking
+  change** to the JSON CLI surface and is flagged `[BREAKING]` in
+  `docs/migrations/v0.2-to-v0.3.md`. Continuum can govern individual
+  packages by feeding the per-package artifact to its policy engine
+  without building the whole project; see the Continuum integration
+  spec §A.8. Rationale at ADR-0006. (roadmap: #12)
+- Clang diagnostic catalog (`internal/registry/clang-catalog-v1.json`)
+  maps common clang error messages to stable `HZN34xx` codes with
+  Horizon-flavored remediation copy. Strict sibling of pine's v0.2
+  verifier-message catalog: regex-with-named-captures match style,
+  document-order first-match-wins lookup, drift-tested against the
+  Hyphae canonical source. Ships with six seed entries
+  (`CC0001`–`CC0006`) covering undeclared `bpf_*` identifiers
+  (CC0001 → `HZN3410`), generic undeclared identifiers
+  (CC0002 → `HZN3411`), implicit function declarations
+  (CC0003 → `HZN3420`), unknown type names (CC0004 → `HZN3430`),
+  syntax errors (CC0005 → `HZN3440`), and incompatible pointer / integer
+  types (CC0006 → `HZN3450`). `HZN3400` is reserved as the no-match
+  sentinel. Hand-crafted fixture corpus at `testdata/clang-fixtures/`;
+  fuzz seeds at `internal/registry/clang_catalog_fuzz_test.go`. Gated in
+  `cmd/hzn/diagnose.go` by `d.Kind == "clang_diagnostic"` — the inverse
+  of pine's verifier-only gate — so the two catalogs are mutually
+  exclusive by origin. Pre-v0.3 clang errors landed on `HZN3100` (the
+  verifier no-match sentinel); v0.3 routes them through this catalog
+  instead. See `docs/migrations/v0.2-to-v0.3.md` for the migration
+  contract and ADR-0005 for the design rationale (including the
+  HZN3200→HZN3400 range shift to avoid colliding with bindgen).
+  (roadmap: #13)
 - Verifier-message catalog (`internal/registry/verifier-catalog-v1.json`)
   maps common verifier diagnostics to stable `HZN31xx` codes with
   remediation guidance. `hzn diagnose` now sets a per-entry code and

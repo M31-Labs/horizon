@@ -6,6 +6,17 @@
         "reversibility": "restart",
         "scope": "network"
       },
+      "helper_effects": [
+        {
+          "name": "xdp.ntohs"
+        },
+        {
+          "name": "xdp.tcp",
+          "observes": [
+            "kernel.network.packet.tcp"
+          ]
+        }
+      ],
       "kind": "source",
       "maps": {
         "events": [],

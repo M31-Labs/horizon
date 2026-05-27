@@ -12,7 +12,7 @@ HZN_EXAMPLES := \
 	./examples/tcpass \
 	./examples/xdpdrop
 
-.PHONY: test check ci ci-go ci-clang fmt-check doctor setup-vmlinux workbench build-example build-examples bindings-smoke clang-smoke golden-update verifier-fixtures-update kernel-smoke
+.PHONY: test check ci ci-go ci-clang fmt-check doctor setup-vmlinux workbench build-example build-examples bindings-smoke clang-smoke golden-update verifier-fixtures-update clang-fixtures-update kernel-smoke helpergen-check helpergen-emit
 
 test:
 	@log="$$(mktemp)"; \
@@ -110,6 +110,9 @@ golden-update:
 verifier-fixtures-update:
 	go test ./verifier -run TestVerifierCatalogFixtures -update-fixtures -v
 
+clang-fixtures-update:
+	go test ./verifier -run TestClangCatalogFixtures -update-clang-fixtures -v
+
 clang-smoke:
 	@log="$$(mktemp)"; \
 	if go test ./cmd/hzn -tags clang_smoke >"$$log" 2>&1; then \
@@ -124,3 +127,15 @@ clang-smoke:
 kernel-smoke:
 	@if [ -z "$(KERNEL)" ]; then echo "usage: make kernel-smoke KERNEL=<5.10|5.15|6.1|6.6> OUT=<bpf-obj-dir>"; exit 2; fi
 	bash scripts/kernel-matrix/run.sh $(KERNEL) $(OUT)
+
+# Developer-aid targets for refreshing helper annotations against newer
+# libbpf releases. Both fetch from raw.githubusercontent.com and are
+# intentionally NOT wired into `ci-go` — the libbpf source lives outside
+# the tree and intermittent network failures should not fail PRs. See
+# docs/internal/helper-registry-regeneration.md for the full workflow.
+helpergen-check:
+	go run ./cmd/hzn-helpergen check
+
+helpergen-emit:
+	go run ./cmd/hzn-helpergen emit -o /tmp/helpers-candidate.json
+	@echo "wrote /tmp/helpers-candidate.json — review against internal/registry/helpers-v1.json manually"

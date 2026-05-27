@@ -42,8 +42,13 @@ func TestDiagnoseJSONUsesCompilerDiagnosticShape(t *testing.T) {
 	if len(diagnostics) != 1 {
 		t.Fatalf("diagnostics = %d, want 1", len(diagnostics))
 	}
-	if diagnostics[0].Code != "HZN3100" {
-		t.Fatalf("code = %q, want HZN3100", diagnostics[0].Code)
+	// Pre-v0.3: clang-rooted diagnostics fell back to HZN3100 (the
+	// verifier no-match sentinel) because the verifier-catalog gate
+	// skipped clang origin. v0.3 (#13) routes clang diagnostics through
+	// the clang catalog instead; an unrecognised clang warning lands on
+	// HZN3400 — the clang-catalog no-match sentinel.
+	if diagnostics[0].Code != "HZN3400" {
+		t.Fatalf("code = %q, want HZN3400 (clang-catalog no-match sentinel)", diagnostics[0].Code)
 	}
 	if diagnostics[0].Severity != diag.SeverityWarning {
 		t.Fatalf("severity = %q, want warning", diagnostics[0].Severity)
@@ -447,12 +452,17 @@ func TestDiagnoseUsesCatalogForKnownVerifierMessage(t *testing.T) {
 // lookup is content-based and leaks verifier remediation into clang
 // errors (the misclassification surfaced during Wave 3 — see plan
 // Task 5.4).
-func TestDiagnoseSkipsCatalogForClangDiagnostics(t *testing.T) {
+func TestDiagnoseSkipsVerifierCatalogForClangDiagnostics(t *testing.T) {
 	dir := t.TempDir()
 	logPath := filepath.Join(dir, "clang.log")
 	// A clang-shaped diagnostic line. The message intentionally contains
 	// the substring "invalid mem access 'scalar'" so that, sans the
 	// origin gate, VC0001's regex would match against the clang error.
+	// The clang catalog has no pattern for this text, so the diagnostic
+	// lands on the clang no-match sentinel HZN3400 — proving the
+	// verifier catalog did not leak across the gate (no `verifier-catalog:`
+	// note) and the clang catalog did not silently misclassify it (no
+	// `clang-catalog:` note either).
 	clangLine := fmt.Sprintf("%s/some.bpf.c:17:9: error: invalid mem access 'scalar' in synthetic clang fixture\n", dir)
 	if err := os.WriteFile(logPath, []byte(clangLine), 0o644); err != nil {
 		t.Fatalf("write log: %v", err)
@@ -470,15 +480,116 @@ func TestDiagnoseSkipsCatalogForClangDiagnostics(t *testing.T) {
 	if len(diagnostics) != 1 {
 		t.Fatalf("diagnostics = %d, want 1", len(diagnostics))
 	}
-	if diagnostics[0].Code != "HZN3100" {
-		t.Fatalf("code = %q, want HZN3100 (clang origin must skip catalog)", diagnostics[0].Code)
+	// Pre-v0.3: clang origin landed on HZN3100 (verifier no-match
+	// sentinel) because the verifier-catalog gate skipped it. v0.3 (#13):
+	// clang origin lands on HZN3400 (clang no-match sentinel) — the
+	// origin-gate invariant is preserved (no verifier leak) and the new
+	// sentinel makes the origin explicit.
+	if diagnostics[0].Code != "HZN3400" {
+		t.Fatalf("code = %q, want HZN3400 (clang-catalog no-match sentinel)", diagnostics[0].Code)
 	}
 	if diagnostics[0].Suggest != "" {
-		t.Fatalf("suggest = %q, want empty (clang origin must skip catalog)", diagnostics[0].Suggest)
+		t.Fatalf("suggest = %q, want empty (no catalog match)", diagnostics[0].Suggest)
 	}
 	for _, note := range diagnostics[0].Notes {
 		if strings.Contains(note, "verifier-catalog:") {
 			t.Fatalf("notes contain verifier-catalog id on clang origin: %#v", diagnostics[0].Notes)
+		}
+		if strings.Contains(note, "clang-catalog:") {
+			t.Fatalf("notes contain clang-catalog id on no-match path: %#v", diagnostics[0].Notes)
+		}
+	}
+}
+
+// TestDiagnoseUsesClangCatalogForKnownClangMessage pins the v0.3 #13
+// contract: a clang-rooted diagnostic whose text matches a clang
+// catalog entry is enriched with the catalog's HZN34xx code, a
+// `clang-catalog: <id>` note, and the templated remediation. Mirrors
+// the verifier-catalog enrichment test from pine's v0.2 work.
+func TestDiagnoseUsesClangCatalogForKnownClangMessage(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "clang.log")
+	clangLine := fmt.Sprintf("%s/some.bpf.c:17:9: error: use of undeclared identifier 'bpf_get_current_pid_tgid'\n", dir)
+	if err := os.WriteFile(logPath, []byte(clangLine), 0o644); err != nil {
+		t.Fatalf("write log: %v", err)
+	}
+	stdout, err := captureStdout(t, func() error {
+		return run([]string{"diagnose", logPath, "-json"})
+	})
+	if err != nil {
+		t.Fatalf("run diagnose: %v", err)
+	}
+	var diagnostics []diag.Diagnostic
+	if err := json.Unmarshal([]byte(stdout), &diagnostics); err != nil {
+		t.Fatalf("unmarshal diagnostics: %v\n%s", err, stdout)
+	}
+	if len(diagnostics) != 1 {
+		t.Fatalf("diagnostics = %d, want 1", len(diagnostics))
+	}
+	// CC0001 (bpf-prefixed undeclared identifier) → HZN3410. Document
+	// order in the catalog puts CC0001 before CC0002 (per O-8) so the
+	// bpf-specific entry wins against the generic-undeclared entry.
+	if diagnostics[0].Code != "HZN3410" {
+		t.Fatalf("code = %q, want HZN3410 (CC0001)", diagnostics[0].Code)
+	}
+	if diagnostics[0].Suggest == "" {
+		t.Fatalf("suggest is empty, want CC0001 remediation")
+	}
+	if !strings.Contains(diagnostics[0].Suggest, "runtime/horizon_bpf.h") {
+		t.Fatalf("suggest = %q, want CC0001 remediation mentioning runtime/horizon_bpf.h", diagnostics[0].Suggest)
+	}
+	if !strings.Contains(diagnostics[0].Suggest, "vmlinux.h") {
+		t.Fatalf("suggest = %q, want CC0001 remediation mentioning vmlinux.h", diagnostics[0].Suggest)
+	}
+	if !hasNoteContaining(diagnostics[0], "clang-catalog: CC0001") {
+		t.Fatalf("notes = %#v, want `clang-catalog: CC0001` note", diagnostics[0].Notes)
+	}
+	if !hasNoteContaining(diagnostics[0], "capture: identifier=bpf_get_current_pid_tgid") {
+		t.Fatalf("notes = %#v, want captured identifier note", diagnostics[0].Notes)
+	}
+	for _, note := range diagnostics[0].Notes {
+		if strings.Contains(note, "verifier-catalog:") {
+			t.Fatalf("notes contain verifier-catalog id on clang-rooted diagnostic: %#v", diagnostics[0].Notes)
+		}
+	}
+}
+
+// TestDiagnoseFallsBackToClangCatalogNoMatchSentinel pins the no-match
+// contract: a clang-rooted diagnostic that matches no clang catalog
+// entry must fall back to HZN3400 with empty Suggest and no
+// `clang-catalog:` note.
+func TestDiagnoseFallsBackToClangCatalogNoMatchSentinel(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "clang.log")
+	// Chosen so it does not match any catalog entry (no `undeclared
+	// identifier`, no `implicit declaration`, no `unknown type`, no
+	// syntax / incompatible-types markers).
+	clangLine := fmt.Sprintf("%s/some.bpf.c:1:1: error: completely chaotic clang message that no catalog entry matches\n", dir)
+	if err := os.WriteFile(logPath, []byte(clangLine), 0o644); err != nil {
+		t.Fatalf("write log: %v", err)
+	}
+	stdout, err := captureStdout(t, func() error {
+		return run([]string{"diagnose", logPath, "-json"})
+	})
+	if err != nil {
+		t.Fatalf("run diagnose: %v", err)
+	}
+	var diagnostics []diag.Diagnostic
+	if err := json.Unmarshal([]byte(stdout), &diagnostics); err != nil {
+		t.Fatalf("unmarshal diagnostics: %v\n%s", err, stdout)
+	}
+	if len(diagnostics) != 1 {
+		t.Fatalf("diagnostics = %d, want 1", len(diagnostics))
+	}
+	if diagnostics[0].Code != "HZN3400" {
+		t.Fatalf("code = %q, want HZN3400 (clang-catalog no-match sentinel)", diagnostics[0].Code)
+	}
+	if diagnostics[0].Suggest != "" {
+		t.Fatalf("suggest = %q, want empty for clang no-match", diagnostics[0].Suggest)
+	}
+	for _, note := range diagnostics[0].Notes {
+		if strings.Contains(note, "clang-catalog:") {
+			t.Fatalf("notes contain clang-catalog id on no-match path: %#v", diagnostics[0].Notes)
 		}
 	}
 }
