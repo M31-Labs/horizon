@@ -15,6 +15,14 @@ All notable changes to Horizon are documented in this file. Format follows
   `Events.submit(container.slot)` (selector-form consume argument) now
   consumes the field-aliased resource. Intra-function only;
   cross-function struct-field aliasing remains out of scope. (roadmap: #6)
+- Helper-effect summarizer (`validate/helper_effects.go`) now propagates
+  struct-field aliases through helper bodies. A helper that stores its
+  tracked param into a container field (`c.slot = ev`) and never references
+  the field again classifies as `Escapes` (sound conservative — the
+  container's downstream fate is opaque). A helper that subsequently
+  consumes through the field-aliased selector (`Events.submit(c.slot)`)
+  classifies as `Consumes`. Implemented via the same intra-function
+  field-store edge added for the validator-level extension. (roadmap: #6)
 - Legacy `cmd/hzn/diagnose.go:verifierSuggestion` switch removed; remediation
   guidance now flows exclusively from the verifier catalog. Unrecognized
   verifier messages fall back to `HZN3100` with no `suggest`. (roadmap: #14)
