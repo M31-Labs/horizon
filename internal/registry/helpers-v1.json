@@ -3,6 +3,12 @@
   "version": "1",
   "helpers": [
     {
+      "name": "bpf.current_comm",
+      "kernel_symbol": "bpf_get_current_comm",
+      "observes": ["task.comm"],
+      "introduced": "v0.1.0"
+    },
+    {
       "name": "bpf.current_pid",
       "kernel_symbol": "bpf_get_current_pid_tgid",
       "observes": ["task.tgid"],
@@ -22,10 +28,18 @@
       "introduced": "v0.1.0"
     },
     {
-      "name": "bpf.current_comm",
-      "kernel_symbol": "bpf_get_current_comm",
-      "observes": ["task.comm"],
-      "introduced": "v0.1.0"
+      "name": "bpf.htonl",
+      "kernel_symbol": "bpf_htonl",
+      "observes": [],
+      "mutates": [],
+      "introduced": "v0.3.0"
+    },
+    {
+      "name": "bpf.htons",
+      "kernel_symbol": "bpf_htons",
+      "observes": [],
+      "mutates": [],
+      "introduced": "v0.3.0"
     },
     {
       "name": "bpf.ktime_get_ns",
@@ -34,30 +48,109 @@
       "introduced": "v0.1.0"
     },
     {
+      "name": "bpf.ntohl",
+      "kernel_symbol": "bpf_ntohl",
+      "observes": [],
+      "mutates": [],
+      "introduced": "v0.3.0"
+    },
+    {
+      "name": "bpf.ntohs",
+      "kernel_symbol": "bpf_ntohs",
+      "observes": [],
+      "mutates": [],
+      "introduced": "v0.3.0"
+    },
+    {
       "name": "bpf.probe_read_user_str",
       "kernel_symbol": "bpf_probe_read_user_str",
       "observes": ["userspace.string"],
       "introduced": "v0.1.0"
     },
     {
-      "name": "ringbuf.reserve",
-      "kernel_symbol": "bpf_ringbuf_reserve",
-      "mutates": ["ringbuf:$"],
-      "resource": "reserve",
-      "introduced": "v0.1.0"
+      "name": "cgroup.dst_ip4",
+      "kernel_symbol": "bpf_sock_addr_user_ip4",
+      "observes": ["kernel.socket.dst_ip4"],
+      "introduced": "v0.3.0"
     },
     {
-      "name": "ringbuf.submit",
-      "kernel_symbol": "bpf_ringbuf_submit",
-      "mutates": ["ringbuf:$"],
-      "resource": "submit",
-      "introduced": "v0.1.0"
+      "name": "cgroup.dst_port",
+      "kernel_symbol": "bpf_sock_addr_user_port",
+      "observes": ["kernel.socket.dst_port"],
+      "introduced": "v0.3.0"
     },
     {
-      "name": "ringbuf.discard",
-      "kernel_symbol": "bpf_ringbuf_discard",
-      "mutates": ["ringbuf:$"],
-      "resource": "discard",
+      "name": "cgroup.family",
+      "kernel_symbol": "bpf_sock_addr_family",
+      "observes": ["kernel.socket.family"],
+      "introduced": "v0.3.0"
+    },
+    {
+      "name": "cgroup.ip4",
+      "kernel_symbol": "bpf_sock_addr_ip4_pack",
+      "observes": [],
+      "mutates": [],
+      "introduced": "v0.3.0"
+    },
+    {
+      "name": "cgroup.protocol",
+      "kernel_symbol": "bpf_sock_addr_protocol",
+      "observes": ["kernel.socket.protocol"],
+      "introduced": "v0.3.0"
+    },
+    {
+      "name": "cgroup.sock_type",
+      "kernel_symbol": "bpf_sock_addr_type",
+      "observes": ["kernel.socket.type"],
+      "introduced": "v0.3.0"
+    },
+    {
+      "name": "cgroup.src_ip4",
+      "kernel_symbol": "bpf_sock_addr_src_ip4",
+      "observes": ["kernel.socket.src_ip4"],
+      "introduced": "v0.3.0"
+    },
+    {
+      "name": "kprobe.arg1",
+      "kernel_symbol": "PT_REGS_PARM1",
+      "observes": ["kernel.syscall.arg1"],
+      "introduced": "v0.3.0"
+    },
+    {
+      "name": "kprobe.arg2",
+      "kernel_symbol": "PT_REGS_PARM2",
+      "observes": ["kernel.syscall.arg2"],
+      "introduced": "v0.3.0"
+    },
+    {
+      "name": "kprobe.arg3",
+      "kernel_symbol": "PT_REGS_PARM3",
+      "observes": ["kernel.syscall.arg3"],
+      "introduced": "v0.3.0"
+    },
+    {
+      "name": "kprobe.arg4",
+      "kernel_symbol": "PT_REGS_PARM4",
+      "observes": ["kernel.syscall.arg4"],
+      "introduced": "v0.3.0"
+    },
+    {
+      "name": "kprobe.arg5",
+      "kernel_symbol": "PT_REGS_PARM5",
+      "observes": ["kernel.syscall.arg5"],
+      "introduced": "v0.3.0"
+    },
+    {
+      "name": "kretprobe.ret",
+      "kernel_symbol": "PT_REGS_RC",
+      "observes": ["kernel.syscall.return"],
+      "introduced": "v0.3.0"
+    },
+    {
+      "name": "map.delete",
+      "kernel_symbol": "bpf_map_delete_elem",
+      "mutates": ["map:$"],
+      "resource": "delete",
       "introduced": "v0.1.0"
     },
     {
@@ -75,11 +168,56 @@
       "introduced": "v0.1.0"
     },
     {
-      "name": "map.delete",
-      "kernel_symbol": "bpf_map_delete_elem",
-      "mutates": ["map:$"],
-      "resource": "delete",
+      "name": "ringbuf.discard",
+      "kernel_symbol": "bpf_ringbuf_discard",
+      "mutates": ["ringbuf:$"],
+      "resource": "discard",
       "introduced": "v0.1.0"
+    },
+    {
+      "name": "ringbuf.reserve",
+      "kernel_symbol": "bpf_ringbuf_reserve",
+      "mutates": ["ringbuf:$"],
+      "resource": "reserve",
+      "introduced": "v0.1.0"
+    },
+    {
+      "name": "ringbuf.submit",
+      "kernel_symbol": "bpf_ringbuf_submit",
+      "mutates": ["ringbuf:$"],
+      "resource": "submit",
+      "introduced": "v0.1.0"
+    },
+    {
+      "name": "xdp.eth",
+      "kernel_symbol": "xdp_parse_eth",
+      "observes": ["kernel.network.packet.ethernet"],
+      "introduced": "v0.3.0"
+    },
+    {
+      "name": "xdp.ipv4",
+      "kernel_symbol": "xdp_parse_ipv4",
+      "observes": ["kernel.network.packet.ipv4"],
+      "introduced": "v0.3.0"
+    },
+    {
+      "name": "xdp.ntohs",
+      "kernel_symbol": "bpf_ntohs",
+      "observes": [],
+      "mutates": [],
+      "introduced": "v0.3.0"
+    },
+    {
+      "name": "xdp.tcp",
+      "kernel_symbol": "xdp_parse_tcp",
+      "observes": ["kernel.network.packet.tcp"],
+      "introduced": "v0.3.0"
+    },
+    {
+      "name": "xdp.udp",
+      "kernel_symbol": "xdp_parse_udp",
+      "observes": ["kernel.network.packet.udp"],
+      "introduced": "v0.3.0"
     }
   ]
 }

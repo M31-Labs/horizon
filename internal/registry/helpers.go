@@ -71,20 +71,48 @@ type Helper struct {
 // at manifest time.
 var helperResourceTokenPattern = regexp.MustCompile(`^(map|ringbuf):(\$|[A-Za-z_][A-Za-z0-9_]*)$`)
 
-// allowedHelperObserveTokens enumerates the closed v0.2 vocabulary for
+// allowedHelperObserveTokens enumerates the closed vocabulary for
 // observe / mutate fields. Resource tokens (map: / ringbuf:) are
 // validated separately via helperResourceTokenPattern. Extending this
-// vocabulary is a registry version bump.
+// vocabulary is a registry content extension (additive within the v1
+// schema) — three new root nouns landed in v0.3 to cover the
+// kprobe / kretprobe / cgroup / xdp helper families:
+//
+//   - kernel.syscall.* — transient syscall args / return observed at
+//     kprobe / kretprobe call sites.
+//   - kernel.socket.* — fields of bpf_sock_addr context observed by
+//     cgroup hooks.
+//   - kernel.network.packet.* — protocol-layer assertions made by XDP
+//     packet parsers.
+//
+// The closed set is mirrored in capability/validate.go::observeVocabulary;
+// the two are kept in lockstep by capability/vocabulary_drift_test.go.
 var allowedHelperObserveTokens = map[string]bool{
-	"task.tgid":             true,
-	"task.pid":              true,
-	"task.uid":              true,
-	"task.gid":              true,
-	"task.comm":             true,
-	"task.real_parent.tgid": true,
-	"kernel.time.monotonic": true,
-	"userspace.string":      true,
-	"userspace.bytes":       true,
+	"task.tgid":                       true,
+	"task.pid":                        true,
+	"task.uid":                        true,
+	"task.gid":                        true,
+	"task.comm":                       true,
+	"task.real_parent.tgid":           true,
+	"kernel.time.monotonic":           true,
+	"userspace.string":                true,
+	"userspace.bytes":                 true,
+	"kernel.syscall.arg1":             true,
+	"kernel.syscall.arg2":             true,
+	"kernel.syscall.arg3":             true,
+	"kernel.syscall.arg4":             true,
+	"kernel.syscall.arg5":             true,
+	"kernel.syscall.return":           true,
+	"kernel.socket.family":            true,
+	"kernel.socket.type":              true,
+	"kernel.socket.protocol":          true,
+	"kernel.socket.dst_port":          true,
+	"kernel.socket.dst_ip4":           true,
+	"kernel.socket.src_ip4":           true,
+	"kernel.network.packet.ethernet": true,
+	"kernel.network.packet.ipv4":     true,
+	"kernel.network.packet.tcp":      true,
+	"kernel.network.packet.udp":      true,
 }
 
 // allowedHelperRequiresTokens enumerates the closed v0.2 vocabulary for
