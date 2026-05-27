@@ -1,0 +1,4 @@
+/tmp/horizon-build/probes.bpf.c:42:13: error: use of undeclared identifier 'bpf_get_current_pid_tgid'
+            u64 id = bpf_get_current_pid_tgid();
+                     ^
+1 error generated.

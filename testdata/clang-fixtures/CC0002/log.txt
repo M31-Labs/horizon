@@ -1,0 +1,4 @@
+/tmp/horizon-build/probes.bpf.c:17:9: error: use of undeclared identifier 'helper_function'
+        helper_function(ctx);
+        ^
+1 error generated.

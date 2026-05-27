@@ -1,0 +1,7 @@
+/tmp/horizon-build/probes.bpf.c:33:12: error: expected ')'
+    event = (event_t){.pid = pid;
+           ^
+/tmp/horizon-build/probes.bpf.c:33:11: note: to match this '('
+    event = (event_t){.pid = pid;
+          ^
+1 error generated.

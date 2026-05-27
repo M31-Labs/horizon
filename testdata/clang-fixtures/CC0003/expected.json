@@ -1,0 +1,24 @@
+[
+  {
+    "code": "HZN3420",
+    "severity": "error",
+    "message": "Implicit declaration of function",
+    "primary": {
+      "start": {
+        "line": 0,
+        "column": 0
+      },
+      "end": {
+        "line": 0,
+        "column": 0
+      }
+    },
+    "notes": [
+      "clang-catalog: CC0003",
+      "cause: Clang saw a call to a function with no prior declaration. Under BPF's strict compilation flags this is an error, not a warning. The lowering pipeline normally emits prototypes for every helper before use; an implicit-declaration error usually means a helper was referenced before its declaration was emitted, or a required header was not included.",
+      "capture: function=bpf_printk",
+      "/tmp/horizon-build/probes.bpf.c:51:5: error: implicit declaration of function 'bpf_printk' is invalid in C99"
+    ],
+    "suggest": "Confirm runtime/horizon_bpf.h is included before the call to `bpf_printk`. If the function is user-defined in .hzn, ensure it is declared before use (Horizon emits functions in declaration order; forward references require a prototype). For kernel helpers, ensure vmlinux.h is regenerated if Horizon's wrapper does not cover the symbol."
+  }
+]

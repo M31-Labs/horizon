@@ -1,0 +1,24 @@
+[
+  {
+    "code": "HZN3411",
+    "severity": "error",
+    "message": "Undeclared identifier",
+    "primary": {
+      "start": {
+        "line": 0,
+        "column": 0
+      },
+      "end": {
+        "line": 0,
+        "column": 0
+      }
+    },
+    "notes": [
+      "clang-catalog: CC0002",
+      "cause: Clang could not find a declaration for an identifier referenced in the generated BPF C. This usually means the Horizon source referenced a name that did not survive lowering (typo, missing import, or a name the emitter did not declare in scope at this point).",
+      "capture: identifier=helper_function",
+      "/tmp/horizon-build/probes.bpf.c:17:9: error: use of undeclared identifier 'helper_function'"
+    ],
+    "suggest": "Check that `helper_function` is spelled correctly in the .hzn source and that any required import or capability declaration is present. If the identifier is a Horizon intrinsic (map name, helper, type), verify the surrounding scope: maps and types must be declared before use. If the Horizon validator did not flag this, the lowering pipeline may have dropped a declaration — capture the generated C and file a bug."
+  }
+]
