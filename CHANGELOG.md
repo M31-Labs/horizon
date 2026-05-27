@@ -114,6 +114,28 @@ All notable changes to Horizon are documented in this file. Format follows
   packages by feeding the per-package artifact to its policy engine
   without building the whole project; see the Continuum integration
   spec §A.8. Rationale at ADR-0006. (roadmap: #12)
+- Clang diagnostic catalog (`internal/registry/clang-catalog-v1.json`)
+  maps common clang error messages to stable `HZN34xx` codes with
+  Horizon-flavored remediation copy. Strict sibling of pine's v0.2
+  verifier-message catalog: regex-with-named-captures match style,
+  document-order first-match-wins lookup, drift-tested against the
+  Hyphae canonical source. Ships with six seed entries
+  (`CC0001`–`CC0006`) covering undeclared `bpf_*` identifiers
+  (CC0001 → `HZN3410`), generic undeclared identifiers
+  (CC0002 → `HZN3411`), implicit function declarations
+  (CC0003 → `HZN3420`), unknown type names (CC0004 → `HZN3430`),
+  syntax errors (CC0005 → `HZN3440`), and incompatible pointer / integer
+  types (CC0006 → `HZN3450`). `HZN3400` is reserved as the no-match
+  sentinel. Hand-crafted fixture corpus at `testdata/clang-fixtures/`;
+  fuzz seeds at `internal/registry/clang_catalog_fuzz_test.go`. Gated in
+  `cmd/hzn/diagnose.go` by `d.Kind == "clang_diagnostic"` — the inverse
+  of pine's verifier-only gate — so the two catalogs are mutually
+  exclusive by origin. Pre-v0.3 clang errors landed on `HZN3100` (the
+  verifier no-match sentinel); v0.3 routes them through this catalog
+  instead. See `docs/migrations/v0.2-to-v0.3.md` for the migration
+  contract and ADR-0005 for the design rationale (including the
+  HZN3200→HZN3400 range shift to avoid colliding with bindgen).
+  (roadmap: #13)
 - Verifier-message catalog (`internal/registry/verifier-catalog-v1.json`)
   maps common verifier diagnostics to stable `HZN31xx` codes with
   remediation guidance. `hzn diagnose` now sets a per-entry code and
