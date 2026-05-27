@@ -16,7 +16,7 @@ jobs:
     outputs:
       objects-cache-key: ${{ steps.cache-key.outputs.key }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
         with:
           go-version: '1.24.x'
@@ -70,7 +70,7 @@ jobs:
       matrix:
         kernel: ['5.10', '5.15', '6.1', '6.6']
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: actions/cache/restore@v4
         with:
           path: /tmp/bpf-objs
