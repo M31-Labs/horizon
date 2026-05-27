@@ -384,6 +384,15 @@ func applyHelperEffectRingbuf(expr *ir.Expr, states map[string]reserveState, ali
 		// selector arg) — alias-resolution itself happened up there.
 		if _, _, _, ok := consumeCallResolved(expr, aliases); !ok {
 			helperName := userHelperName(expr.Func)
+			// #7 (B3) path-sensitive specialization: when the call site
+			// includes literal args, EffectForCall re-walks the helper body
+			// under the substitution to produce a tighter per-call effect
+			// vector. Computed once per call site; cached internally by
+			// HelperEffects.bySite (bounded at 32 entries per helper).
+			var perCallEffects []HelperEffect
+			if helperName != "" {
+				perCallEffects = effects.EffectForCall(helperName, expr.Args)
+			}
 			for i := range expr.Args {
 				arg := &expr.Args[i]
 				// Recurse into the arg FIRST so nested calls like
@@ -399,7 +408,11 @@ func applyHelperEffectRingbuf(expr *ir.Expr, states map[string]reserveState, ali
 					continue
 				}
 				if helperName != "" {
-					switch effects.EffectFor(helperName, i) {
+					effect := HelperEffectUnknown
+					if i < len(perCallEffects) {
+						effect = perCallEffects[i]
+					}
+					switch effect {
 					case HelperEffectConsumes:
 						if state.State == "live" || state.State == "maybe_nil" {
 							state.State = "consumed"

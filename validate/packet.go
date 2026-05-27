@@ -356,6 +356,11 @@ func applyHelperEffectPacket(expr *ir.Expr, states map[string]packetHeaderState,
 	}
 	if expr.Kind == "call" {
 		helperName := userHelperName(expr.Func)
+		// #7 path-sensitive specialization. See applyHelperEffectRingbuf.
+		var perCallEffects []HelperEffect
+		if helperName != "" {
+			perCallEffects = effects.EffectForCall(helperName, expr.Args)
+		}
 		for i := range expr.Args {
 			arg := &expr.Args[i]
 			// Recurse into the arg FIRST so nested calls classify their
@@ -370,7 +375,11 @@ func applyHelperEffectPacket(expr *ir.Expr, states map[string]packetHeaderState,
 				continue
 			}
 			if helperName != "" {
-				switch effects.EffectFor(helperName, i) {
+				effect := HelperEffectUnknown
+				if i < len(perCallEffects) {
+					effect = perCallEffects[i]
+				}
+				switch effect {
 				case HelperEffectPreserves, HelperEffectConsumes, HelperEffectMixed:
 					// State unchanged — for packet headers, the caller
 					// still owes a nil-check before its own field access

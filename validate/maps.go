@@ -419,6 +419,12 @@ func applyHelperEffectLookup(expr *ir.Expr, states map[string]lookupState, alias
 	}
 	if expr.Kind == "call" {
 		helperName := userHelperName(expr.Func)
+		// #7 path-sensitive specialization. See the analogous comment in
+		// applyHelperEffectRingbuf — same shape, same cache semantics.
+		var perCallEffects []HelperEffect
+		if helperName != "" {
+			perCallEffects = effects.EffectForCall(helperName, expr.Args)
+		}
 		for i := range expr.Args {
 			arg := &expr.Args[i]
 			// Recurse into the arg FIRST so nested calls classify their
@@ -433,7 +439,11 @@ func applyHelperEffectLookup(expr *ir.Expr, states map[string]lookupState, alias
 				continue
 			}
 			if helperName != "" {
-				switch effects.EffectFor(helperName, i) {
+				effect := HelperEffectUnknown
+				if i < len(perCallEffects) {
+					effect = perCallEffects[i]
+				}
+				switch effect {
 				case HelperEffectPreserves, HelperEffectConsumes, HelperEffectMixed:
 					// State unchanged — for maps, the caller still owes a
 					// nil-check before its own deref regardless of what
