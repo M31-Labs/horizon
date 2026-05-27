@@ -86,6 +86,21 @@ All notable changes to Horizon are documented in this file. Format follows
   arrays as a positive "I observe nothing" assertion. Goldens for
   `openwatch`, `cgroupconnect`, and `xdpdrop` regenerated to surface
   the new `helper_effects` entries. (roadmap: #10)
+- `hzn check <pkg>` now emits a per-package manifest as a side artifact
+  at `<pkg>/<pkgname>.pkg.cap.json` when the package declares at least
+  one capability. The artifact is a fully-valid v1 `capability.Manifest`
+  produced via `capability.FromIR`; pure type / helper packages get no
+  emission. Two new flags govern emission: `-no-manifest` suppresses it
+  entirely; `-manifest-out <path>` relocates it. Text mode prints
+  `wrote per-package manifest: <relpath>` after the existing
+  `check passed:` line for discovery. JSON mode (`-json`) now returns
+  an object envelope (`{"diagnostics": [...], "manifest_path": "..."}`)
+  in place of the v0.2 bare diagnostic array — this is a **breaking
+  change** to the JSON CLI surface and is flagged `[BREAKING]` in
+  `docs/migrations/v0.2-to-v0.3.md`. Continuum can govern individual
+  packages by feeding the per-package artifact to its policy engine
+  without building the whole project; see the Continuum integration
+  spec §A.8. Rationale at ADR-0006. (roadmap: #12)
 - Verifier-message catalog (`internal/registry/verifier-catalog-v1.json`)
   maps common verifier diagnostics to stable `HZN31xx` codes with
   remediation guidance. `hzn diagnose` now sets a per-entry code and
