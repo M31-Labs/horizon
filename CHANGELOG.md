@@ -7,6 +7,19 @@ All notable changes to Horizon are documented in this file. Format follows
 ## [Unreleased]
 
 ### Changed
+- Helper-effect summarizer (`validate/helper_effects.go`) now records the
+  deepest helper-call chain observed during `BuildHelperEffects` in
+  `HelperEffects.MaxObservedDepth`, alongside the per-call-site
+  specialization-cache overflow count in `CacheOverflows()`. New
+  env-gated stderr surface in `validate.Program`: setting
+  `HORIZON_BIRCH_DEPTH_REPORT=1` emits one `[birch-depth] program=… max_depth=… helper_count=… cache_overflows=…`
+  line per program. New Makefile target `make depth-report` runs `hzn check`
+  over every `HZN_EXAMPLES` entry, collates the lines into
+  `$(OUT)/birch-depth.txt`, and prints the global max + total overflow
+  count. Telemetry pass across the v0.3 examples observed max depth = 1
+  (well under the 8-cap headroom); `maxHelperEffectDepth` therefore stays
+  at 8 and will be revisited if a future telemetry run shows ≥ 6.
+  (roadmap: #8)
 - Helper-effect summarizer (`validate/helper_effects.go`) now specializes
   per-call-site for literal arguments via new `EffectForCall(helper, args)`
   API. A helper whose flat summary is `Mixed` because one branch consumes
