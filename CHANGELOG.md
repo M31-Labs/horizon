@@ -86,6 +86,19 @@ All notable changes to Horizon are documented in this file. Format follows
   arrays as a positive "I observe nothing" assertion. Goldens for
   `openwatch`, `cgroupconnect`, and `xdpdrop` regenerated to surface
   the new `helper_effects` entries. (roadmap: #10)
+- New developer tool `cmd/hzn-helpergen` walks a pinned libbpf source
+  tree (commit `f5dcbae7` / v1.7.0; SHA256 verified per fetch) and
+  produces candidate helper-registry entries for diff review against the
+  hand-curated `internal/registry/helpers-v1.json`. `hzn-helpergen check`
+  exits non-zero on drift; `hzn-helpergen emit -o <path>` writes a
+  candidate document for human review. The tool never auto-writes to
+  the registry — hand-curation stays the source of truth. Pin metadata
+  lives at `cmd/hzn-helpergen/pin.go`; refresh workflow documented at
+  `docs/internal/helper-registry-regeneration.md`. Wired as `make
+  helpergen-check` / `make helpergen-emit`; intentionally NOT part of
+  `make ci-go` (requires network access; libbpf drift detection is a
+  release-engineering concern, not a per-PR concern). Rationale at
+  ADR-0004. (roadmap: #11)
 - `hzn check <pkg>` now emits a per-package manifest as a side artifact
   at `<pkg>/<pkgname>.pkg.cap.json` when the package declares at least
   one capability. The artifact is a fully-valid v1 `capability.Manifest`
