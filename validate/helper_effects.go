@@ -841,8 +841,8 @@ func walkParamEffectStatementSpecialized(stmt ir.Statement, paramName string, al
 		// (We still recurse into the cond for any side-effect-bearing exprs,
 		// even though Horizon conditions are pure today.)
 		// depth is fixed at 0 here because EffectForCall does not chase
-		// transitive helper-of-helper specialization — see plan §Out-of-scope
-		// debts; that's a future v0.4 candidate.
+		// transitive helper-of-helper specialization — that is an
+		// explicit out-of-scope limit of the current implementation.
 		const depth = 0
 		walkParamEffectExpr(stmt.Cond, paramName, aliases, known, depth, flags)
 		thenFlags := *flags
