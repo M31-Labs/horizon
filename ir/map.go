@@ -31,10 +31,16 @@ func (k MapKind) HasPerCPUValue() bool {
 }
 
 type Map struct {
-	Name       string
-	Kind       MapKind
-	Key        Type
-	Val        Type
-	MaxEntries string
-	Span       span.Span
+	Name               string
+	Kind               MapKind
+	Key                Type
+	Val                Type
+	MaxEntries         string
+	SteadyStateEntries string // empty if not declared
+	AccessFreq         string // empty if not declared; values: "low", "medium", "high"
+	Span               span.Span
+	// Origin records the import alias of the dependency package this map
+	// was lowered from (roadmap #20 Phase 2 Subtask 4a). Root-package
+	// maps have Origin == "".
+	Origin string `json:",omitempty"`
 }

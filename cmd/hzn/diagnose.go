@@ -1,17 +1,35 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+	"sync"
+	"text/template"
 
 	"m31labs.dev/horizon/compiler/diag"
 	"m31labs.dev/horizon/ir"
 	"m31labs.dev/horizon/verifier"
+)
+
+// verifierCatalog is the parsed verifier-message catalog used to enrich
+// diagnostics produced from verifier logs. Loaded once at package init via
+// the //go:embed-backed registry loader; a panic here means the vendored
+// JSON or the loader is broken at build time.
+var verifierCatalog = verifier.MustLoadCatalog()
+
+// catalogTemplateCache holds parsed text/templates for remediation and
+// common-cause strings, keyed by "<entry-id>:<field>". text/template parses
+// are not cheap relative to per-diagnostic emission, and the catalog is
+// effectively immutable for the process lifetime, so caching is a clear win.
+var (
+	catalogTemplateCache sync.Map // map[string]*template.Template
 )
 
 func runDiagnose(args []string) error {
@@ -154,7 +172,37 @@ func diagnosticsFromVerifier(remapped []verifier.Diagnostic, generated []byte) [
 			Severity: severity,
 			Message:  d.Message,
 			Primary:  d.Span,
-			Suggest:  verifierSuggestion(d),
+		}
+		// Origin gate (plan Task 5.4): the verifier-message catalog is
+		// content-indexed, so a clang error whose text happens to contain
+		// a verifier idiom (e.g., "invalid mem access 'scalar'") would
+		// otherwise leak verifier remediation into a clang-rooted
+		// diagnostic. Clang and verifier are different vocabularies; the
+		// catalog targets the verifier vocabulary only. Synthetic fallback
+		// diagnostics (Kind == "") fall through to the catalog: those
+		// originate from raw verifier-log stdin without recognisable
+		// per-line structure, and treating them as verifier-by-default
+		// preserves the pre-gate match behaviour for those callers.
+		var (
+			entry    verifier.CatalogEntry
+			captures map[string]string
+			matched  bool
+		)
+		if d.Kind != "clang_diagnostic" {
+			entry, captures, matched = verifierCatalog.Lookup(d.Message, d.Raw)
+		}
+		if matched {
+			converted.Code = entry.HZNCode
+			converted.Suggest = renderCatalogTemplate(entry.ID, "remediation", entry.Remediation, captures)
+			converted.Notes = append(converted.Notes, "verifier-catalog: "+entry.ID)
+			if entry.CommonCause != "" {
+				converted.Notes = append(converted.Notes, "cause: "+renderCatalogTemplate(entry.ID, "cause", entry.CommonCause, captures))
+			}
+			for _, name := range catalogCaptureKeys(entry, captures) {
+				converted.Notes = append(converted.Notes, fmt.Sprintf("capture: %s=%s", name, captures[name]))
+			}
+		} else {
+			converted.Suggest = ""
 		}
 		if converted.Primary.IsZero() {
 			converted.Primary = d.Generated
@@ -184,30 +232,54 @@ func diagnosticsFromVerifier(remapped []verifier.Diagnostic, generated []byte) [
 	return out
 }
 
-func verifierSuggestion(d verifier.Diagnostic) string {
-	text := strings.ToLower(d.Message + "\n" + d.Raw)
-	switch {
-	case strings.Contains(text, "invalid mem access") || strings.Contains(text, "cannot access"):
-		return "prove pointer safety in .hzn before dereference: nil-check map lookup, ringbuf reserve, or packet helper results and keep using the checked local"
-	case strings.Contains(text, "unreleased reference"):
-		return "submit or discard every ringbuf reservation on all return paths"
-	case strings.Contains(text, "unbounded"):
-		return "use a counted for loop with a literal or integer const upper bound"
-	case strings.Contains(text, "unknown func"):
-		return "use only Horizon compiler-known helpers for this program kind, or add a typed helper wrapper before calling it"
-	case strings.Contains(text, "r0 !read_ok"):
-		return "return an explicit i32 action or value on every control-flow path"
-	case strings.Contains(text, "stack depth"):
-		return "move large local records into maps or ringbuf reservations to stay within the BPF stack limit"
-	case strings.Contains(text, "out of bounds"):
-		return "use Horizon packet helpers and nil checks so bounds are proven before reading packet data"
-	case strings.Contains(text, "permission denied"):
-		return "check the attach type, helper availability, and capability manifest kernel requirements for this program"
-	case strings.Contains(text, "math between"):
-		return "avoid raw pointer arithmetic in .hzn; use compiler-known packet and map helpers that carry verifier-safe bounds"
-	default:
-		return ""
+// renderCatalogTemplate parses and renders a catalog template string against
+// the captures map. Parses are cached per (entry-id, field) so repeated
+// diagnostics for the same entry skip the parse cost. On any parse or
+// execute error, the raw source string is returned unchanged — remediation
+// copy must never crash diagnostics on malformed templates; the catalog
+// drift / fuzz harness covers the malformed-template failure mode at load
+// time.
+func renderCatalogTemplate(entryID, field, src string, captures map[string]string) string {
+	if !strings.Contains(src, "{{") {
+		return src
 	}
+	key := entryID + ":" + field
+	var tpl *template.Template
+	if cached, ok := catalogTemplateCache.Load(key); ok {
+		tpl = cached.(*template.Template)
+	} else {
+		parsed, err := template.New(key).Parse(src)
+		if err != nil {
+			return src
+		}
+		catalogTemplateCache.Store(key, parsed)
+		tpl = parsed
+	}
+	var buf bytes.Buffer
+	data := struct {
+		Captures map[string]string
+	}{Captures: captures}
+	if err := tpl.Execute(&buf, data); err != nil {
+		return src
+	}
+	return buf.String()
+}
+
+// catalogCaptureKeys returns the catalog-declared capture keys for an
+// entry, filtered to those that actually fired (present in captures), in
+// sorted order for deterministic note emission.
+func catalogCaptureKeys(entry verifier.CatalogEntry, captures map[string]string) []string {
+	if len(captures) == 0 || len(entry.Match.Captures) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(entry.Match.Captures))
+	for name := range entry.Match.Captures {
+		if _, ok := captures[name]; ok {
+			out = append(out, name)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 func sourceMapNote(d verifier.Diagnostic) string {

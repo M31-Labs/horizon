@@ -1,0 +1,24 @@
+[
+  {
+    "code": "HZN3112",
+    "severity": "error",
+    "message": "Out-of-bounds access on map value, packet, or stack pointer",
+    "primary": {
+      "start": {
+        "line": 0,
+        "column": 0
+      },
+      "end": {
+        "line": 0,
+        "column": 0
+      }
+    },
+    "notes": [
+      "verifier-catalog: VC0003",
+      "cause: The verifier proved an access could exceed the bounds of the underlying region — a map_value, packet payload, or stack frame. The offset or index was either a runtime scalar with no upper bound the verifier could prove, or a constant that already exceeds the region's size.",
+      "capture: register=3",
+      "0: R1=ctx() R10=fp0\n1: R2_w=map_value(id=0,off=0,ks=4,vs=16)\n; let payload = events[bpf.cpu_id() * 1024];\n2: (07) r2 += 4096\n3: (79) r3 = *(u64 *)(r2 +0)\nR3 invalid access to map_value, off=4096 size=8"
+    ],
+    "suggest": "Use Horizon packet helpers (`bpf.packet.read_*`) and bounded index operations so the verifier can prove the access stays in-region. For map values, prefer typed accessors that carry size proofs; for stack data, keep the index a literal or a value derived from a verifier-known bound."
+  }
+]

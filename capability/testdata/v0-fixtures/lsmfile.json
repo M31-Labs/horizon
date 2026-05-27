@@ -1,0 +1,61 @@
+{
+  "capabilities": [
+    {
+      "danger": "observe",
+      "kind": "source",
+      "maps": {
+        "events": [],
+        "read": [],
+        "write": []
+      },
+      "name": "kernel.file.open.observe",
+      "program": "ObserveFileOpen",
+      "requirements": {
+        "features": [
+          "bpf_lsm"
+        ],
+        "min_kernel": "5.7",
+        "permissions": [
+          "bpf_program_load",
+          "lsm_admin"
+        ],
+        "programs": [
+          {
+            "min_kernel": "5.7",
+            "name": "lsm"
+          }
+        ]
+      },
+      "section": "lsm/file_open"
+    }
+  ],
+  "package": "probes",
+  "programs": [
+    {
+      "attach": "file_open",
+      "capabilities": [
+        "kernel.file.open.observe"
+      ],
+      "kind": "lsm",
+      "name": "ObserveFileOpen",
+      "section": "lsm/file_open"
+    }
+  ],
+  "requirements": {
+    "features": [
+      "bpf_lsm"
+    ],
+    "min_kernel": "5.7",
+    "permissions": [
+      "bpf_program_load",
+      "lsm_admin"
+    ],
+    "programs": [
+      {
+        "min_kernel": "5.7",
+        "name": "lsm"
+      }
+    ]
+  },
+  "schema": "m31labs.dev/horizon/capability/v0"
+}

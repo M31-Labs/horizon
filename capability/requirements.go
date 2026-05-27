@@ -389,14 +389,24 @@ func programMinKernel(kind ir.ProgramKind) string {
 	switch kind {
 	case ir.ProgramKprobe, ir.ProgramKretprobe, ir.ProgramTC:
 		return "4.1"
+	case ir.ProgramUprobe, ir.ProgramUretprobe:
+		return "4.3"
+	case ir.ProgramFentry, ir.ProgramFexit:
+		return "5.5"
 	case ir.ProgramTracepoint:
 		return "4.7"
 	case ir.ProgramXDP:
 		return "4.8"
+	case ir.ProgramRawTP:
+		return "4.17"
 	case ir.ProgramCgroup:
 		return "4.17"
 	case ir.ProgramLSM:
 		return "5.7"
+	case ir.ProgramSockOps:
+		return "4.13"
+	case ir.ProgramStructOps:
+		return "5.6"
 	default:
 		return ""
 	}
@@ -408,12 +418,22 @@ func programPermissions(kind ir.ProgramKind) []string {
 		return []string{"bpf_program_load", "perf_event_open"}
 	case ir.ProgramKprobe, ir.ProgramKretprobe:
 		return []string{"bpf_program_load", "perf_event_open"}
+	case ir.ProgramUprobe, ir.ProgramUretprobe:
+		return []string{"bpf_program_load", "perf_event_open"}
+	case ir.ProgramRawTP:
+		return []string{"bpf_program_load", "perf_event_open"}
+	case ir.ProgramFentry, ir.ProgramFexit:
+		return []string{"bpf_program_load"}
 	case ir.ProgramXDP, ir.ProgramTC:
 		return []string{"bpf_program_load", "net_admin"}
 	case ir.ProgramCgroup:
 		return []string{"bpf_program_load", "cgroup_admin"}
 	case ir.ProgramLSM:
 		return []string{"bpf_program_load", "lsm_admin"}
+	case ir.ProgramSockOps:
+		return []string{"bpf_program_load", "net_admin", "cgroup_admin"}
+	case ir.ProgramStructOps:
+		return []string{"bpf_program_load"}
 	default:
 		return nil
 	}
@@ -425,6 +445,12 @@ func programFeatures(kind ir.ProgramKind) []string {
 		return []string{"tracefs"}
 	case ir.ProgramKprobe, ir.ProgramKretprobe:
 		return []string{"kprobes", "tracefs"}
+	case ir.ProgramUprobe, ir.ProgramUretprobe:
+		return []string{"uprobes", "tracefs"}
+	case ir.ProgramRawTP:
+		return []string{"tracefs"}
+	case ir.ProgramFentry, ir.ProgramFexit:
+		return []string{"btf"}
 	case ir.ProgramXDP:
 		return []string{"netdev_xdp"}
 	case ir.ProgramTC:
@@ -433,6 +459,10 @@ func programFeatures(kind ir.ProgramKind) []string {
 		return []string{"cgroup_v2"}
 	case ir.ProgramLSM:
 		return []string{"bpf_lsm"}
+	case ir.ProgramSockOps:
+		return []string{"cgroup_v2"}
+	case ir.ProgramStructOps:
+		return []string{"btf", "struct_ops"}
 	default:
 		return nil
 	}

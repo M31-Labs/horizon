@@ -1,6 +1,7 @@
 OUT ?= dist
 HZN_EXAMPLES := \
 	./examples/cgroupconnect \
+	./examples/eventbatch \
 	./examples/execwatch \
 	./examples/execcount \
 	./examples/execdeny \
@@ -11,7 +12,7 @@ HZN_EXAMPLES := \
 	./examples/tcpass \
 	./examples/xdpdrop
 
-.PHONY: test check ci ci-go ci-clang fmt-check doctor setup-vmlinux workbench build-example build-examples bindings-smoke clang-smoke golden-update kernel-smoke
+.PHONY: test check ci ci-go ci-clang fmt-check doctor setup-vmlinux workbench build-example build-examples bindings-smoke clang-smoke golden-update verifier-fixtures-update kernel-smoke
 
 test:
 	@log="$$(mktemp)"; \
@@ -105,6 +106,9 @@ bindings-smoke:
 
 golden-update:
 	go test ./compiler -run TestGoldenExamplesWorkbench -update-golden -v
+
+verifier-fixtures-update:
+	go test ./verifier -run TestVerifierCatalogFixtures -update-fixtures -v
 
 clang-smoke:
 	@log="$$(mktemp)"; \

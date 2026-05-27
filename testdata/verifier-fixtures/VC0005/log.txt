@@ -1,0 +1,8 @@
+0: R1=ctx() R10=fp0
+; for i in 0..n { sum += data[i]; }
+1: (b7) r2 = 0
+2: (b7) r3 = 0
+3: (0f) r2 += r3
+4: (05) goto pc-3
+unbounded loop detected: back-edge from insn 4 to 2
+processed 8 insns (limit 1000000) max_states_per_insn 0 total_states 0 peak_states 0 mark_read 0

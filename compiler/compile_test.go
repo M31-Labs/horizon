@@ -102,8 +102,8 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	if got, want := manifest.Capabilities[0].Name, "kernel.process.exec.observe"; got != want {
 		t.Fatalf("capability name = %q, want %q", got, want)
 	}
-	if got, want := manifest.Capabilities[0].Danger, "observe"; got != want {
-		t.Fatalf("capability danger = %q, want %q", got, want)
+	if got, want := manifest.Capabilities[0].Danger, (capability.DangerAxes{Mode: "observe", Scope: "event", Reversibility: "none"}); got != want {
+		t.Fatalf("capability danger = %+v, want %+v", got, want)
 	}
 }
 
@@ -125,8 +125,8 @@ func DropTCP(ctx xdp.Context) i32 {
 	if len(manifest.Capabilities) != 1 {
 		t.Fatalf("capabilities = %#v, want one", manifest.Capabilities)
 	}
-	if got, want := manifest.Capabilities[0].Danger, "drop"; got != want {
-		t.Fatalf("capability danger = %q, want %q", got, want)
+	if got, want := manifest.Capabilities[0].Danger, (capability.DangerAxes{Mode: "control", Scope: "network", Reversibility: "restart"}); got != want {
+		t.Fatalf("capability danger = %+v, want %+v", got, want)
 	}
 }
 
@@ -148,8 +148,8 @@ func DropTCP(ctx xdp.Context) i32 {
 	if len(manifest.Capabilities) != 1 {
 		t.Fatalf("capabilities = %#v, want one", manifest.Capabilities)
 	}
-	if got, want := manifest.Capabilities[0].Danger, "drop"; got != want {
-		t.Fatalf("capability danger = %q, want inferred floor %q", got, want)
+	if got, want := manifest.Capabilities[0].Danger, (capability.DangerAxes{Mode: "control", Scope: "network", Reversibility: "restart"}); got != want {
+		t.Fatalf("capability danger = %+v, want inferred floor %+v", got, want)
 	}
 }
 
@@ -169,8 +169,8 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	if len(manifest.Capabilities) != 1 {
 		t.Fatalf("capabilities = %#v, want one", manifest.Capabilities)
 	}
-	if got, want := manifest.Capabilities[0].Danger, "block"; got != want {
-		t.Fatalf("capability danger = %q, want capability-name floor %q", got, want)
+	if got, want := manifest.Capabilities[0].Danger, (capability.DangerAxes{Mode: "control", Scope: "process", Reversibility: "restart"}); got != want {
+		t.Fatalf("capability danger = %+v, want capability-name floor %+v", got, want)
 	}
 }
 
@@ -601,6 +601,7 @@ func TestAnalyzeInvalidRingbufPrograms(t *testing.T) {
 		"../testdata/invalid/ringbuf_missing_nil_check.hzn":              "HZN2100",
 		"../testdata/invalid/ringbuf_write_after_submit.hzn":             "HZN2103",
 		"../testdata/invalid/ringbuf_double_submit.hzn":                  "HZN2102",
+		"../testdata/invalid/ringbuf_double_submit_in_loop.hzn":          "HZN2102",
 		"../testdata/invalid/ringbuf_live_on_return.hzn":                 "HZN2104",
 		"../testdata/invalid/ringbuf_switch_live_on_return.hzn":          "HZN2104",
 		"../testdata/invalid/unbounded_loop.hzn":                         "HZN2200",
@@ -2477,7 +2478,7 @@ func DropTCP(ctx xdp.Context) i32 {
 	if len(manifest.Programs) != 1 || manifest.Programs[0].Section != "xdp" || manifest.Programs[0].Kind != "xdp" {
 		t.Fatalf("program manifest = %#v, want xdp section", manifest.Programs)
 	}
-	if len(manifest.Capabilities) != 1 || manifest.Capabilities[0].Section != "xdp" || manifest.Capabilities[0].Danger != "drop" {
+	if len(manifest.Capabilities) != 1 || manifest.Capabilities[0].Section != "xdp" || manifest.Capabilities[0].Danger != (capability.DangerAxes{Mode: "control", Scope: "network", Reversibility: "restart"}) {
 		t.Fatalf("capability manifest = %#v, want xdp drop capability section", manifest.Capabilities)
 	}
 }
@@ -2623,7 +2624,7 @@ func DropIngress(ctx tc.Context) i32 {
 	if len(manifest.Programs) != 1 || manifest.Programs[0].Section != "tc/ingress" || manifest.Programs[0].Kind != "tc" {
 		t.Fatalf("program manifest = %#v, want tc ingress section", manifest.Programs)
 	}
-	if len(manifest.Capabilities) != 1 || manifest.Capabilities[0].Section != "tc/ingress" || manifest.Capabilities[0].Danger != "drop" {
+	if len(manifest.Capabilities) != 1 || manifest.Capabilities[0].Section != "tc/ingress" || manifest.Capabilities[0].Danger != (capability.DangerAxes{Mode: "control", Scope: "network", Reversibility: "restart"}) {
 		t.Fatalf("capability manifest = %#v, want tc drop capability", manifest.Capabilities)
 	}
 }
@@ -2695,7 +2696,7 @@ func BlockSMTP(ctx cgroup.Connect) i32 {
 	if len(manifest.Programs) != 1 || manifest.Programs[0].Section != "cgroup/connect4" || manifest.Programs[0].Kind != "cgroup" {
 		t.Fatalf("program manifest = %#v, want cgroup connect4 section", manifest.Programs)
 	}
-	if len(manifest.Capabilities) != 1 || manifest.Capabilities[0].Section != "cgroup/connect4" || manifest.Capabilities[0].Danger != "block" {
+	if len(manifest.Capabilities) != 1 || manifest.Capabilities[0].Section != "cgroup/connect4" || manifest.Capabilities[0].Danger != (capability.DangerAxes{Mode: "control", Scope: "process", Reversibility: "restart"}) {
 		t.Fatalf("capability manifest = %#v, want cgroup block capability", manifest.Capabilities)
 	}
 	if manifest.Requirements == nil {
@@ -2772,7 +2773,7 @@ func DenyFileOpen(ctx lsm.Context) i32 {
 	if len(manifest.Programs) != 1 || manifest.Programs[0].Section != "lsm/file_open" || manifest.Programs[0].Kind != "lsm" {
 		t.Fatalf("program manifest = %#v, want lsm file_open section", manifest.Programs)
 	}
-	if len(manifest.Capabilities) != 1 || manifest.Capabilities[0].Section != "lsm/file_open" || manifest.Capabilities[0].Danger != "block" {
+	if len(manifest.Capabilities) != 1 || manifest.Capabilities[0].Section != "lsm/file_open" || manifest.Capabilities[0].Danger != (capability.DangerAxes{Mode: "control", Scope: "process", Reversibility: "restart"}) {
 		t.Fatalf("capability manifest = %#v, want lsm block capability", manifest.Capabilities)
 	}
 }
@@ -2835,7 +2836,7 @@ func OnOpen(ctx kprobe.Context) i32 {
 	if len(manifest.Programs) != 1 || manifest.Programs[0].Section != "kprobe/do_sys_openat2" || manifest.Programs[0].Kind != "kprobe" {
 		t.Fatalf("program manifest = %#v, want kprobe section", manifest.Programs)
 	}
-	if len(manifest.Capabilities) != 1 || manifest.Capabilities[0].Section != "kprobe/do_sys_openat2" || manifest.Capabilities[0].Danger != "observe" {
+	if len(manifest.Capabilities) != 1 || manifest.Capabilities[0].Section != "kprobe/do_sys_openat2" || manifest.Capabilities[0].Danger != (capability.DangerAxes{Mode: "observe", Scope: "event", Reversibility: "none"}) {
 		t.Fatalf("capability manifest = %#v, want kprobe observe capability", manifest.Capabilities)
 	}
 }

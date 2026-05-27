@@ -201,6 +201,27 @@ func validateCSectionName(section string, lineNo int) error {
 		return nil
 	case "tc/ingress", "tc/egress", "cgroup/connect4", "cgroup/connect6":
 		return nil
+	// uprobe and uretprobe use a bare section name; the binary/symbol are
+	// loader-time concerns expressed via link.OpenExecutable(...).Uprobe(...).
+	case "uprobe", "uretprobe":
+		return nil
+	// fentry and fexit use a bare section name; the kernel symbol is specified
+	// at load time via link.AttachTracing(TracingOptions{..., AttachType: ...}).
+	case "fentry", "fexit":
+		return nil
+	// raw_tp uses a bare section name; the event name is specified at load time
+	// via link.AttachRawTracepoint(RawTracepointOptions{Name: event, ...}).
+	case "raw_tp":
+		return nil
+	// sockops uses a bare section name; the cgroup path is provided at load time
+	// via link.AttachCgroup(CgroupOptions{Path: cgroupPath, Attach: ebpf.AttachCGroupSockOps}).
+	case "sockops":
+		return nil
+	// struct_ops uses a bare section name; the op name is recorded in the Horizon
+	// manifest Attach field and resolved at load time via BTF-based struct_ops map
+	// pinning. Userspace auto-attach is stubbed (see roadmap #9 follow-up).
+	case "struct_ops":
+		return nil
 	}
 	switch {
 	case strings.HasPrefix(section, "tracepoint/"):

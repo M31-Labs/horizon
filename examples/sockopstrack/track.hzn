@@ -1,0 +1,22 @@
+package probes
+
+type SockOpsEvent struct {
+    op u32
+}
+
+map SockOpsEvents ringbuf[SockOpsEvent]
+
+capability SockOpsObserve danger observe = "kernel.network.sockops.observe"
+
+@capability(SockOpsObserve)
+@sockops
+func OnSockOps(ctx sockops.Context) i32 {
+    event := SockOpsEvents.reserve()
+    if event == nil {
+        return 0
+    }
+    // op hardcoded to 0 until sockops context helpers are wired.
+    event.op = 0
+    SockOpsEvents.submit(event)
+    return 0
+}

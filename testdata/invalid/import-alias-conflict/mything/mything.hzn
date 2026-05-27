@@ -1,0 +1,5 @@
+package mything
+
+type Thing struct {
+    x u32
+}

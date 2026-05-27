@@ -3,12 +3,14 @@ package types
 import (
 	"fmt"
 	"math/big"
+	"path/filepath"
 	"strconv"
 	"strings"
 
 	"m31labs.dev/horizon/ast"
 	"m31labs.dev/horizon/compiler/diag"
 	"m31labs.dev/horizon/compiler/span"
+	"m31labs.dev/horizon/internal/registry"
 )
 
 func Check(file ast.File) []diag.Diagnostic {
@@ -19,15 +21,60 @@ func Check(file ast.File) []diag.Diagnostic {
 	return diags[0]
 }
 
+// CheckPackage type-checks every file in a single Horizon package and
+// returns per-file diagnostics. It is the legacy single-package entrypoint;
+// the multi-package path lives in CheckPackages and CheckPackage now
+// forwards to it with an empty ImportGraph, preserving today's behavior for
+// callers that don't have cross-package imports.
+//
+// (roadmap #20 — Phase 2 Subtask 3b.)
 func CheckPackage(files []ast.File) [][]diag.Diagnostic {
+	return checkPackageInternal(files, nil, nil)
+}
+
+// CheckPackages is the cross-package type-check entrypoint. Each root in
+// roots is checked against the resolved import graph: user-package aliases
+// reserved by `import alias "path"` are threaded through name-resolution,
+// and qualified `<alias>.<TypeName>` selector types are looked up in the
+// imported package's declaration index.
+//
+// The return value is keyed by package directory (matching the keys in
+// graph.Packages). Each entry is the per-file diagnostic slice produced by
+// the underlying checker for that package's files. (roadmap #20 — Phase 2
+// Subtask 3b.)
+func CheckPackages(roots []ast.Package, graph ImportGraph) map[string][][]diag.Diagnostic {
+	out := map[string][][]diag.Diagnostic{}
+	dirByPkg := reverseGraphIndex(graph)
+	for _, root := range roots {
+		dir := lookupPackageDir(root, dirByPkg)
+		var aliases map[string]bool
+		var importedPkgs map[string]ast.Package
+		if dir != "" {
+			aliases = packageAliasSet(graph, dir)
+			importedPkgs = importedPackagesByAlias(graph, dir)
+		}
+		out[dir] = checkPackageInternal(root.Files, aliases, importedPkgs)
+	}
+	return out
+}
+
+// checkPackageInternal is the shared implementation that powers both
+// CheckPackage (no imports) and CheckPackages (with import context).
+// importAliases is the alias set reserved at top-level scope; importedPkgs
+// is the alias → imported-package map used to resolve qualified
+// `<alias>.<TypeName>` selector types and stored-value type checks.
+func checkPackageInternal(files []ast.File, importAliases map[string]bool, importedPkgs map[string]ast.Package) [][]diag.Diagnostic {
+	importedDecls := buildImportedDecls(importedPkgs)
 	diags := make([][]diag.Diagnostic, len(files))
 	index := newPackageDeclIndex()
 	env := NewEnv()
 	for i, file := range files {
-		collectPackageFileDecls(file, &index, env, &diags[i])
+		collectPackageFileDecls(file, &index, env, &diags[i], importAliases)
 	}
+	registerQualifiedKnownTypes(&index, importedDecls)
 	files = resolveTypeAliasesInFiles(files, index.typeAliases)
 	resolved := indexResolvedDecls(files)
+	registerQualifiedResolvedDecls(&resolved, importedPkgs)
 	callGraphDiags := validateFunctionCallGraph(resolved.funcs)
 	for i, file := range files {
 		for _, decl := range file.Decls {
@@ -52,6 +99,9 @@ func CheckPackage(files []ast.File) [][]diag.Diagnostic {
 			}
 		}
 	}
+	for i, file := range files {
+		diags[i] = append(diags[i], validateQualifiedSelectorRefs(file, importAliases, importedDecls)...)
+	}
 	return diags
 }
 
@@ -67,7 +117,7 @@ func newPackageDeclIndex() packageDeclIndex {
 	}
 }
 
-func collectPackageFileDecls(file ast.File, index *packageDeclIndex, env *Env, diags *[]diag.Diagnostic) {
+func collectPackageFileDecls(file ast.File, index *packageDeclIndex, env *Env, diags *[]diag.Diagnostic, importAliases map[string]bool) {
 	if file.Package == "" {
 		*diags = append(*diags, diag.Diagnostic{
 			Code:     "HZN1001",
@@ -77,24 +127,24 @@ func collectPackageFileDecls(file ast.File, index *packageDeclIndex, env *Env, d
 		})
 	}
 	for _, decl := range file.Decls {
-		collectPackageDecl(decl, index, env, diags)
+		collectPackageDecl(decl, index, env, diags, importAliases)
 	}
 }
 
-func collectPackageDecl(decl ast.Decl, index *packageDeclIndex, env *Env, diags *[]diag.Diagnostic) {
+func collectPackageDecl(decl ast.Decl, index *packageDeclIndex, env *Env, diags *[]diag.Diagnostic, importAliases map[string]bool) {
 	name := declName(decl)
-	if name != "" && !declarePackageName(diags, env, name, decl) {
+	if name != "" && !declarePackageNameWithAliases(diags, env, name, decl, importAliases) {
 		return
 	}
 	switch d := decl.(type) {
 	case ast.TypeDecl:
 		collectTypeDecl(d, index)
 	case ast.TypeGroupDecl:
-		collectTypeGroupDecl(d, index, env, diags)
+		collectTypeGroupDecl(d, index, env, diags, importAliases)
 	case ast.EnumDecl:
-		collectEnumDecl(d, env, diags)
+		collectEnumDecl(d, env, diags, importAliases)
 	case ast.ConstGroupDecl:
-		collectConstGroupDecl(d, env, diags)
+		collectConstGroupDecl(d, env, diags, importAliases)
 	}
 }
 
@@ -108,32 +158,44 @@ func collectTypeDecl(decl ast.TypeDecl, index *packageDeclIndex) {
 	}
 }
 
-func collectTypeGroupDecl(decl ast.TypeGroupDecl, index *packageDeclIndex, env *Env, diags *[]diag.Diagnostic) {
+func collectTypeGroupDecl(decl ast.TypeGroupDecl, index *packageDeclIndex, env *Env, diags *[]diag.Diagnostic, importAliases map[string]bool) {
 	for _, typ := range decl.Types {
-		if typ.Name == "" || !declarePackageName(diags, env, typ.Name, typ) {
+		if typ.Name == "" || !declarePackageNameWithAliases(diags, env, typ.Name, typ, importAliases) {
 			continue
 		}
 		collectTypeDecl(typ, index)
 	}
 }
 
-func collectEnumDecl(decl ast.EnumDecl, env *Env, diags *[]diag.Diagnostic) {
+func collectEnumDecl(decl ast.EnumDecl, env *Env, diags *[]diag.Diagnostic, importAliases map[string]bool) {
 	for _, value := range decl.Values {
-		if value.Name == "" || !declarePackageName(diags, env, value.Name, value) {
+		if value.Name == "" || !declarePackageNameWithAliases(diags, env, value.Name, value, importAliases) {
 			continue
 		}
 	}
 }
 
-func collectConstGroupDecl(decl ast.ConstGroupDecl, env *Env, diags *[]diag.Diagnostic) {
+func collectConstGroupDecl(decl ast.ConstGroupDecl, env *Env, diags *[]diag.Diagnostic, importAliases map[string]bool) {
 	for _, constant := range decl.Consts {
-		if constant.Name == "" || !declarePackageName(diags, env, constant.Name, constant) {
+		if constant.Name == "" || !declarePackageNameWithAliases(diags, env, constant.Name, constant, importAliases) {
 			continue
 		}
 	}
 }
 
 func declarePackageName(diags *[]diag.Diagnostic, env *Env, name string, decl DeclRef) bool {
+	return declarePackageNameWithAliases(diags, env, name, decl, nil)
+}
+
+// declarePackageNameWithAliases is the alias-aware variant used by the
+// multi-package type-check entrypoint (CheckPackages). When importAliases is
+// non-nil, top-level declarations whose name collides with a user-package
+// alias are rejected silently — the alias reserves the name without firing
+// HZN1004 (which is dedicated to hardcoded compiler namespaces such as bpf,
+// xdp, tc, cgroup, lsm, kprobe, kretprobe, and tracepoint). User-alias
+// collisions get their own diagnostic in higher-level callers; this helper
+// only enforces the reservation. (roadmap #20 — Phase 2 Subtask 3a.)
+func declarePackageNameWithAliases(diags *[]diag.Diagnostic, env *Env, name string, decl DeclRef, importAliases map[string]bool) bool {
 	if compilerNamespace(name) {
 		*diags = append(*diags, diag.Diagnostic{
 			Code:     "HZN1004",
@@ -144,13 +206,31 @@ func declarePackageName(diags *[]diag.Diagnostic, env *Env, name string, decl De
 		})
 		return false
 	}
+	if importAliases[name] {
+		// User-package alias reserves the name; HZN1004 is intentionally
+		// not raised here because user aliases are not compiler namespaces.
+		// The dedicated collision diagnostic belongs to a higher-level
+		// caller (Subtask 3b's CheckPackages wires it via HZN1552).
+		return false
+	}
 	if prev, ok := env.Decl(name); ok {
+		prevSpan := prev.GetSpan()
+		curSpan := decl.GetSpan()
+		var note string
+		if prevSpan.File != "" && prevSpan.File != curSpan.File {
+			// Cross-file duplicate: surface the prior file path so users can
+			// navigate to the first declaration across package files
+			// (roadmap #21 — same-package multi-file aggregation rules).
+			note = fmt.Sprintf("previous declaration at %s:%d", prevSpan.File, prevSpan.Start.Line)
+		} else {
+			note = fmt.Sprintf("previous declaration at line %d", prevSpan.Start.Line)
+		}
 		*diags = append(*diags, diag.Diagnostic{
 			Code:     "HZN1002",
 			Severity: diag.SeverityError,
 			Message:  fmt.Sprintf("duplicate declaration %q", name),
-			Primary:  decl.GetSpan(),
-			Notes:    []string{fmt.Sprintf("previous declaration at line %d", prev.GetSpan().Start.Line)},
+			Primary:  curSpan,
+			Notes:    []string{note},
 		})
 		return false
 	}
@@ -406,6 +486,13 @@ func builtinTypes() map[string]bool {
 		"lsm.Context":       true,
 		"kprobe.Context":    true,
 		"kretprobe.Context": true,
+		"uprobe.Context":    true,
+		"uretprobe.Context": true,
+		"fentry.Context":    true,
+		"fexit.Context":     true,
+		"raw_tp.Context":    true,
+		"sockops.Context":    true,
+		"struct_ops.Context": true,
 	}
 }
 
@@ -560,6 +647,8 @@ func ringbufValueNeedsStructDiagnostic(ref ast.TypeRef, known map[string]bool, u
 func validateMapAttrs(decl ast.MapDecl, consts map[string]ast.ConstDecl) []diag.Diagnostic {
 	var diags []diag.Diagnostic
 	seenMaxEntries := false
+	seenSteadyStateEntries := false
+	seenAccessFreq := false
 	for _, attr := range decl.Attrs {
 		switch attr.Name {
 		case "max_entries":
@@ -593,13 +682,65 @@ func validateMapAttrs(decl ast.MapDecl, consts map[string]ast.ConstDecl) []diag.
 					Suggest:  "use a power-of-two byte size such as 262144",
 				})
 			}
+		case "steady_state_entries":
+			if seenSteadyStateEntries {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1209",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("map %q declares @steady_state_entries more than once", decl.Name),
+					Primary:  attr.Span,
+				})
+				continue
+			}
+			seenSteadyStateEntries = true
+			_, ok := mapMaxEntriesValue(attr, consts)
+			if !ok {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1210",
+					Severity: diag.SeverityError,
+					Message:  "@steady_state_entries requires one positive integer literal or integer const",
+					Primary:  attr.Span,
+					Suggest:  "write `@steady_state_entries(512)` above the map declaration",
+				})
+			}
+		case "access_freq":
+			if seenAccessFreq {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1211",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("map %q declares @access_freq more than once", decl.Name),
+					Primary:  attr.Span,
+				})
+				continue
+			}
+			seenAccessFreq = true
+			if len(attr.Args) != 1 {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1212",
+					Severity: diag.SeverityError,
+					Message:  "@access_freq requires one string argument",
+					Primary:  attr.Span,
+					Suggest:  `write @access_freq("low"), @access_freq("medium"), or @access_freq("high")`,
+				})
+				continue
+			}
+			strVal, ok := attr.Args[0].(ast.StringExpr)
+			if !ok || (strVal.Value != "low" && strVal.Value != "medium" && strVal.Value != "high") {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1213",
+					Severity: diag.SeverityError,
+					Message:  `@access_freq value must be "low", "medium", or "high"`,
+					Primary:  attr.Span,
+					Suggest:  `write @access_freq("low"), @access_freq("medium"), or @access_freq("high")`,
+				})
+			}
 		default:
 			diags = append(diags, diag.Diagnostic{
 				Code:     "HZN1205",
 				Severity: diag.SeverityError,
 				Message:  fmt.Sprintf("unsupported map attribute @%s", attr.Name),
 				Primary:  attr.Span,
-				Suggest:  "Horizon maps support @max_entries(...)",
+				Suggest:  "Horizon maps support @max_entries(...), @steady_state_entries(...), @access_freq(...)",
 			})
 		}
 	}
@@ -952,7 +1093,7 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 			Severity: diag.SeverityError,
 			Message:  fmt.Sprintf("function %q has multiple eBPF program sections", decl.Name),
 			Primary:  decl.Span,
-			Suggest:  `use exactly one section attribute such as @tracepoint(...), @xdp, @tc("ingress"), @cgroup("connect4"), @lsm("file_open"), @kprobe(...), or @kretprobe(...)`,
+			Suggest:  `use exactly one section attribute such as @tracepoint(...), @xdp, @tc("ingress"), @cgroup("connect4"), @lsm("file_open"), @kprobe(...), @kretprobe(...), @uprobe("path:sym"), @uretprobe("path:sym"), @fentry("symbol"), @fexit("symbol"), @raw_tp("event"), @sockops, or @struct_ops("op_name")`,
 		})
 	}
 	for _, attr := range decl.Attrs {
@@ -1093,6 +1234,139 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 					Suggest:  `use a non-empty kernel symbol such as @kretprobe("do_sys_openat2")`,
 				})
 			}
+		case "uprobe":
+			if !attrHasStringArg(attr) {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1327",
+					Severity: diag.SeverityError,
+					Message:  `@uprobe requires one "binaryPath:symbol" string argument`,
+					Primary:  attr.Span,
+				})
+				break
+			}
+			attach := attrStringArg(attr)
+			if !validUprobeAttach(attach) {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1328",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("@uprobe attach %q must use binaryPath:symbol form", attach),
+					Primary:  attr.Span,
+					Suggest:  `use a path:symbol pair such as @uprobe("/usr/bin/ls:main")`,
+				})
+			}
+		case "uretprobe":
+			if !attrHasStringArg(attr) {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1329",
+					Severity: diag.SeverityError,
+					Message:  `@uretprobe requires one "binaryPath:symbol" string argument`,
+					Primary:  attr.Span,
+				})
+				break
+			}
+			attach := attrStringArg(attr)
+			if !validUprobeAttach(attach) {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1330",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("@uretprobe attach %q must use binaryPath:symbol form", attach),
+					Primary:  attr.Span,
+					Suggest:  `use a path:symbol pair such as @uretprobe("/usr/bin/ls:main")`,
+				})
+			}
+		case "fentry":
+			if !attrHasStringArg(attr) {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1331",
+					Severity: diag.SeverityError,
+					Message:  `@fentry requires one kernel symbol string argument`,
+					Primary:  attr.Span,
+					Suggest:  `use a kernel symbol such as @fentry("do_filp_open")`,
+				})
+				break
+			}
+			symbol := attrStringArg(attr)
+			if !validAttachToken(symbol) {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1332",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("@fentry symbol %q is not a valid kernel symbol", symbol),
+					Primary:  attr.Span,
+					Suggest:  `use a non-empty kernel symbol such as @fentry("do_filp_open")`,
+				})
+			}
+		case "fexit":
+			if !attrHasStringArg(attr) {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1333",
+					Severity: diag.SeverityError,
+					Message:  `@fexit requires one kernel symbol string argument`,
+					Primary:  attr.Span,
+					Suggest:  `use a kernel symbol such as @fexit("do_filp_open")`,
+				})
+				break
+			}
+			symbol := attrStringArg(attr)
+			if !validAttachToken(symbol) {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1334",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("@fexit symbol %q is not a valid kernel symbol", symbol),
+					Primary:  attr.Span,
+					Suggest:  `use a non-empty kernel symbol such as @fexit("do_filp_open")`,
+				})
+			}
+		case "raw_tp":
+			if !attrHasStringArg(attr) {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1335",
+					Severity: diag.SeverityError,
+					Message:  `@raw_tp requires one tracepoint event string argument`,
+					Primary:  attr.Span,
+					Suggest:  `use a raw tracepoint event such as @raw_tp("sched_process_exec")`,
+				})
+				break
+			}
+			event := attrStringArg(attr)
+			if !validAttachToken(event) {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1335",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("@raw_tp event %q is not a valid tracepoint event name", event),
+					Primary:  attr.Span,
+					Suggest:  `use a non-empty event name such as @raw_tp("sched_process_exec")`,
+				})
+			}
+		case "sockops":
+			if len(attr.Args) != 0 {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1336",
+					Severity: diag.SeverityError,
+					Message:  "@sockops does not take arguments; the cgroup path is provided at attach time",
+					Primary:  attr.Span,
+				})
+			}
+		case "struct_ops":
+			if !attrHasStringArg(attr) {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1337",
+					Severity: diag.SeverityError,
+					Message:  `@struct_ops requires one op-name string argument`,
+					Primary:  attr.Span,
+					Suggest:  `use an op name such as @struct_ops("tcp_init")`,
+				})
+				break
+			}
+			op := attrStringArg(attr)
+			if !validAttachToken(op) {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1337",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("@struct_ops op name %q is not a valid identifier", op),
+					Primary:  attr.Span,
+					Suggest:  `use a non-empty op name such as @struct_ops("tcp_init")`,
+				})
+			}
 		case "capability":
 			diags = append(diags, validateCapabilityAttr(attr, capabilities)...)
 			if isHelper {
@@ -1106,10 +1380,11 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 			}
 		default:
 			diags = append(diags, diag.Diagnostic{
-				Code:     "HZN1303",
+				Code:     "HZN1338",
 				Severity: diag.SeverityError,
-				Message:  fmt.Sprintf("unsupported attribute @%s", attr.Name),
+				Message:  fmt.Sprintf("unknown attach surface or attribute @%s", attr.Name),
 				Primary:  attr.Span,
+				Suggest:  "use a recognized attach surface: @tracepoint, @xdp, @tc, @cgroup, @lsm, @kprobe, @kretprobe, @uprobe, @uretprobe, @fentry, @fexit, @raw_tp, @sockops, or @struct_ops",
 			})
 		}
 	}
@@ -1117,7 +1392,11 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 		diags = append(diags, validateSectionSignature(decl, sections[0])...)
 	}
 	for _, param := range decl.Params {
-		diags = append(diags, validateTypeRef(param.Type, known)...)
+		if isHelper {
+			diags = append(diags, validateHelperParamTypeRef(param.Type, known)...)
+		} else {
+			diags = append(diags, validateTypeRef(param.Type, known)...)
+		}
 	}
 	diags = append(diags, validateTypeRef(decl.Return, known)...)
 	if isHelper {
@@ -1146,31 +1425,39 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 func validateCapabilityDecl(decl ast.CapabilityDecl) []diag.Diagnostic {
 	var diags []diag.Diagnostic
 	if decl.Value != "" {
-		if decl.Danger != "" && !validCapabilityDanger(decl.Danger) {
-			diags = append(diags, diag.Diagnostic{
-				Code:     "HZN1323",
-				Severity: diag.SeverityError,
-				Message:  fmt.Sprintf("capability alias %q declares unsupported danger %q", decl.Name, decl.Danger),
-				Primary:  decl.Span,
-				Suggest:  "use one of observe, mutate, drop, block, or privileged",
-			})
-		} else if floor := capabilityNameDanger(decl.Value); decl.Danger != "" && floor != "" && dangerLess(DangerLevel(decl.Danger), floor) {
-			diags = append(diags, diag.Diagnostic{
-				Code:     "HZN1324",
-				Severity: diag.SeverityError,
-				Message:  fmt.Sprintf("capability alias %q declares danger %q but capability name implies %q", decl.Name, decl.Danger, floor),
-				Primary:  decl.Span,
-				Suggest:  fmt.Sprintf("declare danger %s or choose a capability name that matches the intended impact", floor),
-			})
+		if decl.Danger != "" {
+			if strings.ContainsRune(decl.Danger, ',') {
+				// Explicit triple form "mode,scope,reversibility" — validate via ParseDangerAxes.
+				if _, err := ParseDangerAxes(decl.Danger); err != nil {
+					diags = append(diags, diag.Diagnostic{
+						Code:     "HZN1323",
+						Severity: diag.SeverityError,
+						Message:  fmt.Sprintf("capability alias %q declares invalid danger axes %q: %v", decl.Name, decl.Danger, err),
+						Primary:  decl.Span,
+						Suggest:  "use mode,scope,reversibility where mode∈{observe,mutate,control}, scope∈{event,process,network,filesystem,system}, reversibility∈{none,restart,persistent}",
+					})
+				}
+			} else if !validCapabilityDanger(decl.Danger) {
+				// Legacy flat form — validate against the v0 enum.
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1323",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("capability alias %q declares unsupported danger %q", decl.Name, decl.Danger),
+					Primary:  decl.Span,
+					Suggest:  "use one of observe, mutate, drop, block, or privileged",
+				})
+			} else if floor := capabilityNameDanger(decl.Value); floor != "" && dangerLess(DangerLevel(decl.Danger), floor) {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1324",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("capability alias %q declares danger %q but capability name implies %q", decl.Name, decl.Danger, floor),
+					Primary:  decl.Span,
+					Suggest:  fmt.Sprintf("declare danger %s or choose a capability name that matches the intended impact", floor),
+				})
+			}
 		}
-		if strings.HasPrefix(decl.Value, "kernel.") && !recognizedCapabilityLeaf(decl.Value) {
-			diags = append(diags, diag.Diagnostic{
-				Code:     "HZN1326",
-				Severity: diag.SeverityError,
-				Message:  fmt.Sprintf("capability %q uses an unrecognized leaf in the reserved kernel.* namespace", decl.Value),
-				Primary:  decl.Span,
-				Suggest:  "use a recognized leaf word: observe, mutate, drop, block, privileged, deny, or allow",
-			})
+		if strings.HasPrefix(decl.Value, "kernel.") {
+			diags = append(diags, validateCapabilityNamespaceLeaf(decl)...)
 		}
 		return diags
 	}
@@ -1184,9 +1471,90 @@ func validateCapabilityDecl(decl ast.CapabilityDecl) []diag.Diagnostic {
 	return diags
 }
 
+// validateCapabilityNamespaceLeaf checks that the namespace prefix of a
+// kernel.* capability value is registered in the canonical registry, and that
+// the leaf word is in the allowed_danger_leaves for that namespace.
+//
+//   - HZN1339: namespace prefix is not in the registry at all.
+//   - HZN1326: namespace is registered but the leaf is not allowed.
+func validateCapabilityNamespaceLeaf(decl ast.CapabilityDecl) []diag.Diagnostic {
+	// Split "kernel.process.exec.observe" into prefix "kernel.process.exec"
+	// and leaf "observe".
+	lastDot := strings.LastIndex(decl.Value, ".")
+	if lastDot < 0 {
+		// No dot at all — malformed; let HZN1322 handle it elsewhere.
+		return nil
+	}
+	prefix := decl.Value[:lastDot]
+	leaf := decl.Value[lastDot+1:]
+
+	reg := registry.MustLoad()
+
+	// Collect all allowed leaves for this namespace prefix across all entries.
+	var allowedLeaves []string
+	for _, ns := range reg.Namespaces {
+		if ns.Namespace == prefix {
+			allowedLeaves = append(allowedLeaves, ns.AllowedDangerLeaves...)
+		}
+	}
+
+	if len(allowedLeaves) == 0 {
+		// Namespace prefix not found in the registry.
+		return []diag.Diagnostic{{
+			Code:     "HZN1339",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("capability %q uses an unregistered namespace prefix %q in the reserved kernel.* namespace", decl.Value, prefix),
+			Primary:  decl.Span,
+			Suggest:  "use a canonical capability namespace registered in the Horizon capability-namespaces registry",
+		}}
+	}
+
+	// Check that the leaf is allowed for at least one registry entry for this namespace.
+	for _, allowed := range allowedLeaves {
+		if leaf == allowed {
+			return nil
+		}
+	}
+
+	// Deduplicate allowed leaves for the error message.
+	seen := map[string]bool{}
+	unique := allowedLeaves[:0]
+	for _, l := range allowedLeaves {
+		if !seen[l] {
+			seen[l] = true
+			unique = append(unique, l)
+		}
+	}
+	return []diag.Diagnostic{{
+		Code:     "HZN1326",
+		Severity: diag.SeverityError,
+		Message:  fmt.Sprintf("capability %q uses leaf %q not allowed in namespace %q (allowed: %s)", decl.Value, leaf, prefix, strings.Join(unique, ", ")),
+		Primary:  decl.Span,
+		Suggest:  fmt.Sprintf("use one of the allowed leaves for namespace %q: %s", prefix, strings.Join(unique, ", ")),
+	}}
+}
+
 func validTracepointAttach(attach string) bool {
 	category, event, ok := strings.Cut(attach, ":")
 	return ok && validAttachToken(category) && validAttachToken(event)
+}
+
+// validUprobeAttach validates an uprobe/uretprobe attach string of the form
+// "binaryPath:symbol". The binary path may contain slashes; the symbol must be
+// a non-empty, non-whitespace token without colons.
+func validUprobeAttach(attach string) bool {
+	colon := strings.LastIndex(attach, ":")
+	if colon <= 0 {
+		return false
+	}
+	binaryPath := attach[:colon]
+	symbol := attach[colon+1:]
+	if binaryPath == "" || symbol == "" {
+		return false
+	}
+	return !strings.ContainsFunc(symbol, func(r rune) bool {
+		return r == 0 || r == '"' || r == '\'' || r == '\\' || r == '`' || r <= ' '
+	})
 }
 
 func validAttachToken(token string) bool {
@@ -1224,26 +1592,6 @@ func capabilityNameDanger(name string) DangerLevel {
 	}
 }
 
-// recognizedCapabilityLeaf reports whether name's final dotted segment is a
-// recognized danger or action leaf word. Used to gate kernel.* capabilities
-// against the false-acceptance hole described in
-// spec.horizon-continuum-integration.v1 §A.1.
-func recognizedCapabilityLeaf(name string) bool {
-	leaf := name
-	for {
-		_, suffix, ok := strings.Cut(leaf, ".")
-		if !ok {
-			break
-		}
-		leaf = suffix
-	}
-	switch leaf {
-	case "observe", "mutate", "drop", "block", "privileged", "deny", "allow":
-		return true
-	default:
-		return false
-	}
-}
 
 func dangerLess(left DangerLevel, right DangerLevel) bool {
 	return dangerRank(left) < dangerRank(right)
@@ -1298,6 +1646,32 @@ func validateCapabilityAttr(attr ast.Attr, capabilities map[string]ast.Capabilit
 			Primary:  value.Span,
 			Suggest:  fmt.Sprintf("declare it with capability %s = \"...\" or use a string literal", value.Name),
 		}}
+	case ast.SelectorExpr:
+		// Qualified reference `<alias>.<CapabilityName>` from an imported
+		// package (roadmap #20 — Phase 2 Subtask 3c). The CheckPackages
+		// path registers imported capabilities under their qualified key,
+		// so the lookup succeeds when the alias is bound and the capability
+		// is declared.
+		alias, name, ok := selectorAliasAndField(value)
+		if !ok {
+			return []diag.Diagnostic{{
+				Code:     "HZN1302",
+				Severity: diag.SeverityError,
+				Message:  "@capability requires one string argument or capability alias",
+				Primary:  attr.Span,
+			}}
+		}
+		qualified := alias + "." + name
+		if _, ok := capabilities[qualified]; ok {
+			return nil
+		}
+		return []diag.Diagnostic{{
+			Code:     "HZN1321",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("unknown capability alias %q", qualified),
+			Primary:  value.Span,
+			Suggest:  fmt.Sprintf("declare capability %s in the imported package %q, or import the package that declares it", name, alias),
+		}}
 	default:
 		return []diag.Diagnostic{{
 			Code:     "HZN1302",
@@ -1308,18 +1682,30 @@ func validateCapabilityAttr(attr ast.Attr, capabilities map[string]ast.Capabilit
 	}
 }
 
+// selectorAliasAndField unwraps a SelectorExpr of the form `ident.Field`
+// into (alias, field, true). Nested selectors (a.b.c) are out of v0.2
+// scope and return ok=false.
+func selectorAliasAndField(sel ast.SelectorExpr) (string, string, bool) {
+	ident, ok := sel.Operand.(ast.IdentExpr)
+	if !ok || ident.Name == "" || sel.Field == "" {
+		return "", "", false
+	}
+	return ident.Name, sel.Field, true
+}
+
 func validateHelperSignature(decl ast.FuncDecl) []diag.Diagnostic {
 	var diags []diag.Diagnostic
 	for _, param := range decl.Params {
-		if !helperScalarType(param.Type) {
-			diags = append(diags, diag.Diagnostic{
-				Code:     "HZN1319",
-				Severity: diag.SeverityError,
-				Message:  fmt.Sprintf("helper function %q parameter %q must be a scalar or bool value", decl.Name, param.Name),
-				Primary:  param.Type.Span,
-				Suggest:  "keep reusable helpers scalar-only in v0; pass resources through compiler-known helpers inside an eBPF entrypoint",
-			})
+		if helperScalarType(param.Type) || helperResourceParamType(param.Type) {
+			continue
 		}
+		diags = append(diags, diag.Diagnostic{
+			Code:     "HZN1319",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("helper function %q parameter %q must be a scalar, bool, or nullable resource handle", decl.Name, param.Name),
+			Primary:  param.Type.Span,
+			Suggest:  "keep reusable helpers scalar, bool, or pointer-to-named-struct in v0; fixed-size arrays and aggregate value params remain unsupported",
+		})
 	}
 	if decl.Return.IsZero() {
 		return append(diags, diag.Diagnostic{
@@ -1344,6 +1730,28 @@ func validateHelperSignature(decl ast.FuncDecl) []diag.Diagnostic {
 
 func helperScalarType(ref ast.TypeRef) bool {
 	return !ref.IsZero() && !ref.Ptr && ref.Elem == nil && len(ref.Args) == 0 && isScalar(ref.Name)
+}
+
+// helperResourceParamType reports whether a helper-function parameter type ref
+// names a tracked nullable resource handle (e.g. *Event, *Counter, *xdp.Eth).
+// This predicate is the ast.TypeRef counterpart of ir.isResourceParamType in
+// ir/build.go and must classify the same set of params as resources. Keep the
+// two predicates in lockstep when extending or constraining the resource shape.
+// The ast/build.go pointer_type builder copies the inner elem.Name onto ref.Name
+// (ast/build.go:550), so a `*Event` param presents as Ptr=true / Name="Event";
+// ref.Elem is non-nil in that case and intentionally not inspected here, mirroring
+// ir.isResourceParamType which also keys off Ptr, Len, and Name only.
+func helperResourceParamType(ref ast.TypeRef) bool {
+	if ref.IsZero() || !ref.Ptr {
+		return false
+	}
+	if ref.Len != "" {
+		return false
+	}
+	if ref.Name == "" || isScalar(ref.Name) || ref.Name == "bool" {
+		return false
+	}
+	return true
 }
 
 func validateFunctionCallGraph(funcs map[string]ast.FuncDecl) map[string][]diag.Diagnostic {
@@ -1518,6 +1926,35 @@ func validateTypeRef(ref ast.TypeRef, known map[string]bool) []diag.Diagnostic {
 	})
 }
 
+// validateHelperParamTypeRef validates a type ref appearing in helper-function
+// parameter position. It mirrors validateTypeRef everywhere except for the
+// narrow HZN1106 carve-out: a `*<NamedStruct>` shape (Ptr=true, non-scalar
+// Name, no Len, non-nil Elem) — i.e. a resource pointer that matches
+// helperResourceParamType — is admitted without emitting HZN1106. All other
+// `*T` source forms (locals, struct fields, return types, non-helper params)
+// continue to flow through validateTypeRef and emit HZN1106 unchanged. The
+// suppression is scoped to the OUTER ref: the inner elem still passes through
+// validateTypeRef so unknown-name (HZN1102) and any deeper *T (nested
+// pointer-to-pointer) keep firing.
+func validateHelperParamTypeRef(ref ast.TypeRef, known map[string]bool) []diag.Diagnostic {
+	if !helperResourceParamType(ref) {
+		return validateTypeRef(ref, known)
+	}
+	var diags []diag.Diagnostic
+	if ref.Elem != nil {
+		diags = append(diags, validateTypeRef(*ref.Elem, known)...)
+	}
+	if ref.Name != "" && !known[ref.Name] {
+		diags = append(diags, diag.Diagnostic{
+			Code:     "HZN1102",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("unknown type %q", ref.Name),
+			Primary:  ref.Span,
+		})
+	}
+	return diags
+}
+
 type sectionSpec struct {
 	Attr    ast.Attr
 	Context string
@@ -1541,6 +1978,20 @@ func sectionAttrs(attrs []ast.Attr) []sectionSpec {
 			out = append(out, sectionSpec{Attr: attr, Context: "kprobe.Context"})
 		case "kretprobe":
 			out = append(out, sectionSpec{Attr: attr, Context: "kretprobe.Context"})
+		case "uprobe":
+			out = append(out, sectionSpec{Attr: attr, Context: "uprobe.Context"})
+		case "uretprobe":
+			out = append(out, sectionSpec{Attr: attr, Context: "uretprobe.Context"})
+		case "fentry":
+			out = append(out, sectionSpec{Attr: attr, Context: "fentry.Context"})
+		case "fexit":
+			out = append(out, sectionSpec{Attr: attr, Context: "fexit.Context"})
+		case "raw_tp":
+			out = append(out, sectionSpec{Attr: attr, Context: "raw_tp.Context"})
+		case "sockops":
+			out = append(out, sectionSpec{Attr: attr, Context: "sockops.Context"})
+		case "struct_ops":
+			out = append(out, sectionSpec{Attr: attr, Context: "struct_ops.Context"})
 		}
 	}
 	return out
@@ -1634,7 +2085,22 @@ func initialFuncLocals(decl ast.FuncDecl, consts map[string]ast.ConstDecl) map[s
 		if param.Name == "" {
 			continue
 		}
-		locals[param.Name] = valueType{Name: param.Type.Name, Ref: param.Type, Ptr: param.Type.Ptr}
+		vt := valueType{Name: param.Type.Name, Ref: param.Type, Ptr: param.Type.Ptr}
+		if helperResourceParamType(param.Type) {
+			// Phase 2 #13: a helper that accepts a resource pointer (e.g.
+			// *Event, *Counter, *xdp.Eth) receives a value that the caller
+			// produced from a tracked source (ringbuf reserve, map lookup,
+			// packet helper). The validator's cross-call effect summary will
+			// later observe `submit`/`discard`/deref operations on the param;
+			// for the param to flow into `<Map>.submit(ev)` (which gates on
+			// arg.Resource at the HZN1412 emit site, line ~3594), we must
+			// stamp the resource bit at the param binding. MaybeNil is also
+			// set: the caller's nil-check pre-guards the value, but inside
+			// the helper body the value is still nullable in principle.
+			vt.Resource = true
+			vt.MaybeNil = true
+		}
+		locals[param.Name] = vt
 	}
 	return locals
 }
@@ -1839,13 +2305,309 @@ func (c *funcBodyChecker) localNameDiagnostic(name string, primary span.Span, lo
 	return diag.Diagnostic{}, false
 }
 
+// reverseGraphIndex builds a dir → []filePath index used to identify which
+// directory a given ast.Package belongs to. Packages don't carry their own
+// directory field, so we match by the file paths registered on each
+// package's files (each ast.File's Span.File is the source path the parser
+// loaded). The first match wins.
+func reverseGraphIndex(graph ImportGraph) map[string]string {
+	out := map[string]string{}
+	for dir, pkg := range graph.Packages {
+		for _, file := range pkg.Files {
+			out[string(file.Span.File)] = dir
+		}
+	}
+	return out
+}
+
+// lookupPackageDir returns the directory key for pkg using the reverse
+// index, or filepath.Dir of the first file as a fallback when the graph
+// does not register the package (e.g. a synthetic test root).
+func lookupPackageDir(pkg ast.Package, byFile map[string]string) string {
+	for _, file := range pkg.Files {
+		if dir, ok := byFile[string(file.Span.File)]; ok {
+			return dir
+		}
+	}
+	if len(pkg.Files) > 0 {
+		return filepath.Dir(string(pkg.Files[0].Span.File))
+	}
+	return ""
+}
+
+// packageAliasSet returns the set of import aliases bound inside the
+// package rooted at dir, including builtin aliases. Builtin aliases are
+// included so that top-level declarations cannot shadow a builtin import
+// (`import bpf "…/kernel"; type bpf struct {…}` is still rejected via the
+// HZN1004 path because compilerNamespace already returns true for bpf).
+func packageAliasSet(graph ImportGraph, dir string) map[string]bool {
+	if graph.Edges == nil {
+		return nil
+	}
+	edges := graph.Edges[dir]
+	if len(edges) == 0 {
+		return nil
+	}
+	aliases := make(map[string]bool, len(edges))
+	for alias := range edges {
+		aliases[alias] = true
+	}
+	return aliases
+}
+
+// importedPackagesByAlias indexes the import graph by local alias for the
+// package at dir, returning only non-builtin imports. Each entry is the
+// resolved dependency ast.Package as parsed by the resolver — callers walk
+// its files to derive both the simple declaration index and the resolved
+// struct decls.
+func importedPackagesByAlias(graph ImportGraph, dir string) map[string]ast.Package {
+	if graph.Edges == nil || graph.Packages == nil {
+		return nil
+	}
+	edges := graph.Edges[dir]
+	if len(edges) == 0 {
+		return nil
+	}
+	out := map[string]ast.Package{}
+	for alias, depDir := range edges {
+		if graph.BuiltinAliases[alias] {
+			continue
+		}
+		depPkg, ok := graph.Packages[depDir]
+		if !ok {
+			continue
+		}
+		out[alias] = depPkg
+	}
+	return out
+}
+
+// buildImportedDecls runs collectPackageFileDecls over every file of every
+// imported package, producing one packageDeclIndex per alias. The per-
+// import collection runs without alias context — qualified-type resolution
+// only needs the top-level declarations of the imported package, not its
+// own import edges.
+func buildImportedDecls(importedPkgs map[string]ast.Package) map[string]*packageDeclIndex {
+	if len(importedPkgs) == 0 {
+		return nil
+	}
+	out := map[string]*packageDeclIndex{}
+	for alias, pkg := range importedPkgs {
+		idx := newPackageDeclIndex()
+		env := NewEnv()
+		var sink []diag.Diagnostic
+		for _, file := range pkg.Files {
+			collectPackageFileDecls(file, &idx, env, &sink, nil)
+		}
+		out[alias] = &idx
+	}
+	return out
+}
+
+// registerQualifiedResolvedDecls re-exposes each imported package's struct
+// and capability declarations under their qualified `<alias>.<Name>` form
+// so that validators expecting a resolvedDeclIndex (validateMapDecl,
+// validateCapabilityAttr, validateStoredTypeRef,
+// ringbufValueNeedsStructDiagnostic) accept imported decls as first-class
+// users of the current package. The qualified key is the same string that
+// IR lowering looks up when resolving a SelectorExpr in attribute_value
+// (roadmap #20 — Phase 2 Subtask 3c).
+func registerQualifiedResolvedDecls(resolved *resolvedDeclIndex, importedPkgs map[string]ast.Package) {
+	for alias, pkg := range importedPkgs {
+		for _, file := range pkg.Files {
+			for _, decl := range file.Decls {
+				switch d := decl.(type) {
+				case ast.TypeDecl:
+					if d.IsAlias() || d.Name == "" {
+						continue
+					}
+					qualified := alias + "." + d.Name
+					resolved.structs[qualified] = d
+					resolved.userStructs[qualified] = d
+				case ast.TypeGroupDecl:
+					for _, typ := range d.Types {
+						if typ.IsAlias() || typ.Name == "" {
+							continue
+						}
+						qualified := alias + "." + typ.Name
+						resolved.structs[qualified] = typ
+						resolved.userStructs[qualified] = typ
+					}
+				case ast.CapabilityDecl:
+					if d.Name == "" {
+						continue
+					}
+					qualified := alias + "." + d.Name
+					resolved.capabilities[qualified] = d
+				}
+			}
+		}
+	}
+}
+
+// registerQualifiedKnownTypes makes every imported package's struct type
+// visible to the local package's validateTypeRef path under its qualified
+// `<alias>.<TypeName>` form. Without this, validateTypeRef would emit
+// HZN1102 ("unknown type") for any selector-typed field. The qualified
+// names go into the same knownTypes map that builtin types live in.
+func registerQualifiedKnownTypes(index *packageDeclIndex, importedDecls map[string]*packageDeclIndex) {
+	for alias, depIdx := range importedDecls {
+		if depIdx == nil {
+			continue
+		}
+		for name := range depIdx.knownTypes {
+			if isScalar(name) || strings.Contains(name, ".") {
+				// Scalars and pre-qualified builtins (e.g. xdp.Eth) are
+				// never re-exposed under an importer's alias prefix.
+				continue
+			}
+			qualified := alias + "." + name
+			index.knownTypes[qualified] = true
+		}
+	}
+}
+
+// validateQualifiedSelectorRefs walks every type reference in a file and
+// emits HZN1557 / HZN1558 for malformed qualified selector types. HZN1557
+// fires when the qualifier is not a known import alias; HZN1558 fires when
+// the qualifier is known but the named type is not declared in the
+// imported package. The function operates after the local type-check pass
+// so that all existing diagnostics still surface — the qualified-selector
+// checks only add specificity where validateTypeRef would otherwise emit a
+// generic HZN1102.
+func validateQualifiedSelectorRefs(file ast.File, importAliases map[string]bool, importedDecls map[string]*packageDeclIndex) []diag.Diagnostic {
+	if len(importAliases) == 0 && len(importedDecls) == 0 {
+		return nil
+	}
+	var diags []diag.Diagnostic
+	var walk func(ref ast.TypeRef)
+	walk = func(ref ast.TypeRef) {
+		if ref.Elem != nil {
+			walk(*ref.Elem)
+		}
+		for _, arg := range ref.Args {
+			walk(arg)
+		}
+		name := ref.Name
+		if name == "" || !strings.Contains(name, ".") {
+			return
+		}
+		alias, typeName, ok := splitQualifiedTypeName(name)
+		if !ok {
+			return
+		}
+		// Skip references that resolve via the hardcoded compilerNamespace
+		// path (tracepoint.Exec, xdp.Eth, etc.). The local knownTypes
+		// already covers those; only the user-package selector case needs
+		// new diagnostics.
+		if compilerNamespace(alias) && !importAliases[alias] {
+			return
+		}
+		if !importAliases[alias] {
+			diags = append(diags, diag.Diagnostic{
+				Code:     "HZN1557",
+				Severity: diag.SeverityError,
+				Message:  fmt.Sprintf("unknown import alias %q in qualified type %q", alias, name),
+				Primary:  ref.Span,
+				Suggest:  fmt.Sprintf("declare an import like `import %s \"<path>\"` before referencing %s.%s", alias, alias, typeName),
+			})
+			return
+		}
+		depIdx, ok := importedDecls[alias]
+		if !ok || depIdx == nil {
+			// Alias resolves to a builtin namespace; nothing to do.
+			return
+		}
+		if depIdx.knownTypes[typeName] {
+			return
+		}
+		diags = append(diags, diag.Diagnostic{
+			Code:     "HZN1558",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("type %q is not declared in imported package %q", typeName, alias),
+			Primary:  ref.Span,
+			Suggest:  fmt.Sprintf("check the spelling of %s, or add `type %s struct { … }` to the imported package", typeName, typeName),
+		})
+	}
+	for _, decl := range file.Decls {
+		walkDeclTypeRefs(decl, walk)
+	}
+	return diags
+}
+
+// walkDeclTypeRefs invokes visit on every TypeRef reachable from a
+// top-level declaration. The walk covers struct fields, map key/value
+// types, function parameter / return types, const types, and type-alias
+// targets — i.e. every place buildTypeRef can land a node in the AST.
+func walkDeclTypeRefs(decl ast.Decl, visit func(ast.TypeRef)) {
+	switch d := decl.(type) {
+	case ast.TypeDecl:
+		if d.IsAlias() {
+			visit(d.Alias)
+		}
+		for _, field := range d.Fields {
+			visit(field.Type)
+		}
+	case ast.TypeGroupDecl:
+		for _, typ := range d.Types {
+			if typ.IsAlias() {
+				visit(typ.Alias)
+			}
+			for _, field := range typ.Fields {
+				visit(field.Type)
+			}
+		}
+	case ast.MapDecl:
+		visit(d.Key)
+		visit(d.Val)
+	case ast.FuncDecl:
+		for _, param := range d.Params {
+			visit(param.Type)
+		}
+		visit(d.Return)
+	case ast.ConstDecl:
+		visit(d.Type)
+	case ast.ConstGroupDecl:
+		for _, c := range d.Consts {
+			visit(c.Type)
+		}
+	}
+}
+
+// splitQualifiedTypeName splits "alias.TypeName" into ("alias", "TypeName",
+// true). Names without exactly one dot return ok=false; nested selectors
+// (e.g. "a.b.c") are not v0.2 syntax and are left alone.
+func splitQualifiedTypeName(name string) (string, string, bool) {
+	idx := strings.Index(name, ".")
+	if idx <= 0 || idx == len(name)-1 {
+		return "", "", false
+	}
+	rest := name[idx+1:]
+	if strings.Contains(rest, ".") {
+		return "", "", false
+	}
+	return name[:idx], rest, true
+}
+
 func compilerNamespace(name string) bool {
+	return compilerNamespaceWithAliases(name, nil)
+}
+
+// compilerNamespaceWithAliases reports whether name names a hardcoded
+// compiler namespace OR a user-package import alias. The hardcoded set is
+// the bare compilerNamespace check; the importAliases set, if non-nil, is
+// the per-package alias registry threaded through CheckPackages. (roadmap
+// #20 — Phase 2 Subtask 3a.) Callers that operate inside a single-package
+// build pass nil and get today's behavior.
+func compilerNamespaceWithAliases(name string, importAliases map[string]bool) bool {
 	switch name {
 	case "bpf", "xdp", "tc", "cgroup", "lsm", "kprobe", "kretprobe", "tracepoint":
 		return true
-	default:
-		return false
 	}
+	if importAliases[name] {
+		return true
+	}
+	return false
 }
 
 func (c *funcBodyChecker) checkAssign(s ast.AssignStmt, locals map[string]valueType) {

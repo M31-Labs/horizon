@@ -1,0 +1,24 @@
+[
+  {
+    "code": "HZN3111",
+    "severity": "error",
+    "message": "Scalar value used where pointer is expected",
+    "primary": {
+      "start": {
+        "line": 0,
+        "column": 0
+      },
+      "end": {
+        "line": 0,
+        "column": 0
+      }
+    },
+    "notes": [
+      "verifier-catalog: VC0002",
+      "cause: The verifier saw a register with type 'inv' (an inferred scalar of unknown provenance) used in a memory access. This usually means a value was synthesized through arithmetic that lost its pointer type, or an uninitialized register was dereferenced. Unlike VC0001, the verifier did not even see a candidate pointer here.",
+      "capture: register=3",
+      "0: R1=ctx() R10=fp0\n1: R2_w=inv0\n; let value = some_scalar + 4;\n2: (07) r2 += 4\n3: (79) r3 = *(u64 *)(r2 +0)\nR3 invalid mem access 'inv'"
+    ],
+    "suggest": "Avoid raw pointer arithmetic in .hzn. Use compiler-known helpers (packet helpers, map accessors) that preserve verifier-safe types, and ensure every value used as a pointer is bound from a typed helper return."
+  }
+]

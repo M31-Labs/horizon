@@ -1,0 +1,7 @@
+package root
+
+import sub "./sub"
+
+type Wrapper struct {
+    inner sub.Inner
+}

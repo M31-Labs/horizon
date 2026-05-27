@@ -1,0 +1,116 @@
+{
+  "capabilities": [
+    {
+      "danger": "observe",
+      "emits": "FexitOpenEvent",
+      "kind": "source",
+      "maps": {
+        "events": [
+          "FexitOpenEvents"
+        ],
+        "read": [],
+        "write": []
+      },
+      "name": "kernel.file.open.observe",
+      "program": "OnFileOpenReturn",
+      "requirements": {
+        "features": [
+          "btf"
+        ],
+        "helpers": [
+          {
+            "min_kernel": "5.8",
+            "name": "bpf_ringbuf_reserve"
+          },
+          {
+            "min_kernel": "5.8",
+            "name": "bpf_ringbuf_submit"
+          }
+        ],
+        "maps": [
+          {
+            "min_kernel": "5.8",
+            "name": "ringbuf"
+          }
+        ],
+        "min_kernel": "5.8",
+        "permissions": [
+          "bpf_program_load"
+        ],
+        "programs": [
+          {
+            "min_kernel": "5.5",
+            "name": "fexit"
+          }
+        ]
+      },
+      "section": "fexit/do_filp_open"
+    }
+  ],
+  "maps": [
+    {
+      "kind": "ringbuf",
+      "name": "FexitOpenEvents",
+      "value": "FexitOpenEvent"
+    }
+  ],
+  "package": "probes",
+  "programs": [
+    {
+      "attach": "do_filp_open",
+      "capabilities": [
+        "kernel.file.open.observe"
+      ],
+      "kind": "fexit",
+      "name": "OnFileOpenReturn",
+      "section": "fexit/do_filp_open"
+    }
+  ],
+  "requirements": {
+    "features": [
+      "btf"
+    ],
+    "helpers": [
+      {
+        "min_kernel": "5.8",
+        "name": "bpf_ringbuf_reserve"
+      },
+      {
+        "min_kernel": "5.8",
+        "name": "bpf_ringbuf_submit"
+      }
+    ],
+    "maps": [
+      {
+        "min_kernel": "5.8",
+        "name": "ringbuf"
+      }
+    ],
+    "min_kernel": "5.8",
+    "permissions": [
+      "bpf_program_load"
+    ],
+    "programs": [
+      {
+        "min_kernel": "5.5",
+        "name": "fexit"
+      }
+    ]
+  },
+  "schema": "m31labs.dev/horizon/capability/v0",
+  "types": [
+    {
+      "align": 4,
+      "fields": [
+        {
+          "name": "pid",
+          "offset": 0,
+          "type": "u32"
+        }
+      ],
+      "kind": "struct",
+      "name": "FexitOpenEvent",
+      "size": 4
+    }
+  ]
+}

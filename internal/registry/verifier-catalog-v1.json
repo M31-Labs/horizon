@@ -1,0 +1,190 @@
+{
+  "schema": "m31labs.dev/horizon/verifier-catalog/v1",
+  "version": "1",
+  "entries": [
+    {
+      "id": "VC0001",
+      "summary": "Helper return dereferenced without a nil check",
+      "match": {
+        "kind": "regex",
+        "patterns": [
+          "R\\d+ invalid mem access 'scalar'",
+          "invalid mem access 'scalar'"
+        ],
+        "captures": {
+          "register": "R(?P<reg>\\d+) "
+        }
+      },
+      "hzn_code": "HZN3110",
+      "common_cause": "The verifier rejects a load through a pointer whose nullability has not been proven. This typically means a helper return (bpf_map_lookup_elem, bpf_ringbuf_reserve, bpf_sk_lookup_tcp, etc.) was dereferenced before a nil check on every path. The verifier tracks the helper return as a scalar until it is compared against NULL.",
+      "remediation": "Insert a nil guard ({{if .Captures.register}}for {{.Captures.register}}{{end}}) before dereferencing the helper's return: in .hzn, use a `match` arm or `if x != nil { ... }` and reference the checked local. If the Horizon validator did not flag this in source, the alias graph (Phase 1 #1) missed the binding — file a bug.",
+      "see_also": ["HZN2500", "HZN2600"],
+      "introduced": "v0.2.0",
+      "kernel_min": "5.10"
+    },
+    {
+      "id": "VC0002",
+      "summary": "Scalar value used where pointer is expected",
+      "match": {
+        "kind": "regex",
+        "patterns": [
+          "R\\d+ invalid mem access 'inv'",
+          "invalid mem access 'inv'"
+        ],
+        "captures": {
+          "register": "R(?P<reg>\\d+) "
+        }
+      },
+      "hzn_code": "HZN3111",
+      "common_cause": "The verifier saw a register with type 'inv' (an inferred scalar of unknown provenance) used in a memory access. This usually means a value was synthesized through arithmetic that lost its pointer type, or an uninitialized register was dereferenced. Unlike VC0001, the verifier did not even see a candidate pointer here.",
+      "remediation": "Avoid raw pointer arithmetic in .hzn. Use compiler-known helpers (packet helpers, map accessors) that preserve verifier-safe types, and ensure every value used as a pointer is bound from a typed helper return.",
+      "see_also": ["HZN2500"],
+      "introduced": "v0.2.0",
+      "kernel_min": "5.10"
+    },
+    {
+      "id": "VC0003",
+      "summary": "Out-of-bounds access on map value, packet, or stack pointer",
+      "match": {
+        "kind": "regex",
+        "patterns": [
+          "invalid access to (?:map_value|packet|stack)",
+          "R\\d+ unbounded memory access",
+          "min_value is outside of the (?:array range|allowed memory range)"
+        ],
+        "captures": {
+          "register": "R(?P<reg>\\d+) "
+        }
+      },
+      "hzn_code": "HZN3112",
+      "common_cause": "The verifier proved an access could exceed the bounds of the underlying region — a map_value, packet payload, or stack frame. The offset or index was either a runtime scalar with no upper bound the verifier could prove, or a constant that already exceeds the region's size.",
+      "remediation": "Use Horizon packet helpers (`bpf.packet.read_*`) and bounded index operations so the verifier can prove the access stays in-region. For map values, prefer typed accessors that carry size proofs; for stack data, keep the index a literal or a value derived from a verifier-known bound.",
+      "see_also": ["HZN2600"],
+      "introduced": "v0.2.0",
+      "kernel_min": "5.10"
+    },
+    {
+      "id": "VC0004",
+      "summary": "Unreleased reference (ringbuf reserve or sk_lookup leak)",
+      "match": {
+        "kind": "regex",
+        "patterns": [
+          "[Uu]nreleased reference id=\\d+",
+          "reference has not been released"
+        ]
+      },
+      "hzn_code": "HZN3120",
+      "common_cause": "The verifier tracks reference-counted helper returns (bpf_ringbuf_reserve, bpf_sk_lookup_tcp, bpf_skc_lookup_tcp) and rejects programs that return without calling the matching release helper on every control-flow path. The leaked reference id in the message identifies which acquisition was not paired.",
+      "remediation": "Submit or discard every ringbuf reservation (`bpf.ringbuf.submit` / `bpf.ringbuf.discard`) on all return paths; release every `bpf_sk_lookup_tcp` result with `bpf_sk_release`. In .hzn, prefer the scoped-resource helpers that release automatically on scope exit.",
+      "see_also": ["HZN2700"],
+      "introduced": "v0.2.0",
+      "kernel_min": "5.10"
+    },
+    {
+      "id": "VC0005",
+      "summary": "Unbounded loop (no upper bound the verifier can prove)",
+      "match": {
+        "kind": "regex",
+        "patterns": [
+          "back-edge from insn \\d+ to \\d+",
+          "unbounded loop",
+          "infinite loop detected"
+        ]
+      },
+      "hzn_code": "HZN3130",
+      "common_cause": "The verifier rejected a back-edge in the control-flow graph because it could not prove the loop terminates within the insn budget. Either the loop bound is a runtime scalar with no known upper bound, or the loop variable is mutated in a way that breaks the verifier's monotonicity proof.",
+      "remediation": "Use a counted `for` loop with a literal or integer-constant upper bound, or wrap iteration in `bpf_loop` with an explicit max-iterations argument. Keep the loop variable monotonic in a verifier-friendly way (`i = i + 1`, never branch-dependent mutations).",
+      "see_also": ["HZN2800"],
+      "introduced": "v0.2.0",
+      "kernel_min": "5.10"
+    },
+    {
+      "id": "VC0006",
+      "summary": "BPF program exceeds verifier instruction budget",
+      "match": {
+        "kind": "regex",
+        "patterns": [
+          "BPF program is too large\\. Processed \\d+ insn",
+          "BPF program is too large"
+        ]
+      },
+      "hzn_code": "HZN3131",
+      "common_cause": "The verifier walks all reachable paths in the program and gives up after one million insns (the kernel default). The program either has too much straight-line code, too many branches expanding the path count, or a loop that the verifier is unrolling instead of bounding via bpf_loop.",
+      "remediation": "Factor the program into smaller pieces using tail-calls or `bpf_loop` to fold repeated work into a bounded iteration. Avoid macro-expanded unrolled loops; prefer explicit bounded loops the verifier can analyze structurally.",
+      "see_also": [],
+      "introduced": "v0.2.0",
+      "kernel_min": "5.10"
+    },
+    {
+      "id": "VC0007",
+      "summary": "Helper not available for this program type",
+      "match": {
+        "kind": "regex",
+        "patterns": [
+          "program of this type cannot use helper bpf_\\w+",
+          "helper call is not allowed in probe",
+          "unknown func bpf_\\w+",
+          "unknown func\\b"
+        ],
+        "captures": {
+          "helper": "bpf_(?P<helper>\\w+)"
+        }
+      },
+      "hzn_code": "HZN3140",
+      "common_cause": "Each BPF program type has an allowlist of helpers; the verifier rejects calls outside that allowlist. {{if .Captures.helper}}The offending helper is bpf_{{.Captures.helper}}.{{end}} The most common cause is calling a tracing-only helper from a network program or vice versa.",
+      "remediation": "Use only Horizon compiler-known helpers for this program kind. If you need a helper that is technically available but not yet wrapped, add a typed helper wrapper to the Horizon stdlib before calling it from .hzn so the validator catches the kind mismatch up front.",
+      "see_also": ["HZN2400"],
+      "introduced": "v0.2.0",
+      "kernel_min": "5.10"
+    },
+    {
+      "id": "VC0008",
+      "summary": "Uninitialized return value (R0 not set on all paths)",
+      "match": {
+        "kind": "regex",
+        "patterns": [
+          "R0 !read_ok"
+        ]
+      },
+      "hzn_code": "HZN3141",
+      "common_cause": "The verifier reached the end of the program (or a function) on a control-flow path that did not assign R0, the BPF return-value register. Every return path must produce an explicit value — falling off the end is not allowed.",
+      "remediation": "Return an explicit i32 action or value on every control-flow path. In .hzn, use `return` with a value (or an exhaustive `match` that yields one) at the end of every branch.",
+      "see_also": [],
+      "introduced": "v0.2.0",
+      "kernel_min": "5.10"
+    },
+    {
+      "id": "VC0009",
+      "summary": "Stack overflow (combined frame size exceeds BPF stack limit)",
+      "match": {
+        "kind": "regex",
+        "patterns": [
+          "combined stack size of \\d+ calls is \\d+\\. Too large",
+          "stack size \\d+ is too large"
+        ]
+      },
+      "hzn_code": "HZN3150",
+      "common_cause": "BPF stack frames are limited to 512 bytes total (across all called functions in a tail-call-free call chain). The verifier rejects programs whose summed stack usage exceeds this limit. The cause is usually a large local struct or array that should live in a map or ringbuf reservation instead.",
+      "remediation": "Move large local records into maps (`BPF_MAP_TYPE_PERCPU_ARRAY` keyed by 0 is the canonical scratch-pad) or ringbuf reservations. Avoid recursive helpers; prefer flat call graphs so the verifier's combined-stack accounting stays bounded.",
+      "see_also": [],
+      "introduced": "v0.2.0",
+      "kernel_min": "5.10"
+    },
+    {
+      "id": "VC0010",
+      "summary": "Misaligned memory access on stack, packet, or value pointer",
+      "match": {
+        "kind": "regex",
+        "patterns": [
+          "misaligned (?:stack|packet|value) access"
+        ]
+      },
+      "hzn_code": "HZN3160",
+      "common_cause": "On architectures that require natural alignment (and on architectures where the kernel was built with `CONFIG_EFFICIENT_UNALIGNED_ACCESS=n`), the verifier rejects loads or stores whose effective address is not aligned to the access width. The verifier sees this statically from the offset and the access size.",
+      "remediation": "Use the access width that matches the field's natural alignment (load a u32 from a 4-byte-aligned offset, etc.). For packet data, prefer Horizon packet helpers that perform aligned reads with explicit width arguments.",
+      "see_also": [],
+      "introduced": "v0.2.0",
+      "kernel_min": "5.10"
+    }
+  ]
+}

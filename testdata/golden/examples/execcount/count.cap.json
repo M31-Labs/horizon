@@ -1,7 +1,33 @@
 {
   "capabilities": [
     {
-      "danger": "observe",
+      "danger": {
+        "mode": "observe",
+        "reversibility": "none",
+        "scope": "event"
+      },
+      "helper_effects": [
+        {
+          "name": "bpf.current_pid",
+          "observes": [
+            "task.tgid"
+          ]
+        },
+        {
+          "name": "map.lookup",
+          "observes": [
+            "map:ExecCounts"
+          ],
+          "resource": "lookup"
+        },
+        {
+          "mutates": [
+            "map:ExecCounts"
+          ],
+          "name": "map.update",
+          "resource": "update"
+        }
+      ],
       "kind": "source",
       "maps": {
         "events": [],
@@ -12,7 +38,7 @@
           "ExecCounts"
         ]
       },
-      "name": "kernel.process.exec.count.observe",
+      "name": "kernel.process.exec.observe",
       "program": "OnExec",
       "requirements": {
         "features": [
@@ -55,9 +81,11 @@
   ],
   "maps": [
     {
+      "access_freq": "high",
       "key": "u32",
       "kind": "hash",
       "name": "ExecCounts",
+      "steady_state_entries": "1024",
       "value": "Count"
     }
   ],
@@ -66,7 +94,7 @@
     {
       "attach": "sched:sched_process_exec",
       "capabilities": [
-        "kernel.process.exec.count.observe"
+        "kernel.process.exec.observe"
       ],
       "kind": "tracepoint",
       "name": "OnExec",
@@ -109,7 +137,7 @@
       }
     ]
   },
-  "schema": "m31labs.dev/horizon/capability/v0",
+  "schema": "m31labs.dev/horizon/capability/v1",
   "types": [
     {
       "align": 8,

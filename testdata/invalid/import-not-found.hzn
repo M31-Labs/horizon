@@ -1,0 +1,8 @@
+package probes
+
+import missing "./does-not-exist"
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    return 0
+}

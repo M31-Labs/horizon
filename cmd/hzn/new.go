@@ -90,7 +90,7 @@ var newTemplates = map[string]newTemplate{
 	},
 	"execcount": {
 		File:       "count.hzn",
-		Capability: "kernel.process.exec.count.observe",
+		Capability: "kernel.process.exec.observe",
 		Summary:    "tracepoint hash map process exec counter",
 		Source:     execcountStarterSource,
 	},

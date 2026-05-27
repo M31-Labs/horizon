@@ -1,0 +1,9 @@
+package events
+
+capability ExecObserveDep danger observe = "kernel.process.exec.observe"
+
+@capability(ExecObserveDep)
+@tracepoint("sched:sched_process_exec")
+func OnExecDep(ctx tracepoint.Exec) i32 {
+    return 0
+}

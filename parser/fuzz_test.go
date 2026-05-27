@@ -12,11 +12,15 @@ import (
 func FuzzParse(f *testing.F) {
 	// Seed corpus from examples and from testdata fixtures (including hand-crafted
 	// invalid sources which are great fuzz seeds — they're already near parser
-	// boundaries).
+	// boundaries). The parser/testdata/fuzz/seeds/*.hzn pattern picks up
+	// hand-curated seeds for parser surfaces that aren't naturally exercised
+	// by the example or invalid-fixture corpora — currently the cross-package
+	// import shapes introduced by roadmap #20.
 	patterns := []string{
 		"../examples/*/*.hzn",
 		"../testdata/invalid/*.hzn",
 		"../testdata/golden/*/*.hzn",
+		"testdata/fuzz/seeds/*.hzn",
 	}
 	for _, pat := range patterns {
 		matches, err := filepath.Glob(pat)

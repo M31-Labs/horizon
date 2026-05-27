@@ -1,8 +1,59 @@
 {
   "capabilities": [
     {
-      "danger": "observe",
+      "danger": {
+        "mode": "observe",
+        "reversibility": "none",
+        "scope": "event"
+      },
       "emits": "OpenEvent",
+      "helper_effects": [
+        {
+          "name": "bpf.current_comm",
+          "observes": [
+            "task.comm"
+          ]
+        },
+        {
+          "name": "bpf.current_pid",
+          "observes": [
+            "task.tgid"
+          ]
+        },
+        {
+          "name": "bpf.current_uid",
+          "observes": [
+            "task.uid"
+          ]
+        },
+        {
+          "name": "bpf.probe_read_user_str",
+          "observes": [
+            "userspace.string"
+          ]
+        },
+        {
+          "mutates": [
+            "ringbuf:OpenEvents"
+          ],
+          "name": "ringbuf.discard",
+          "resource": "discard"
+        },
+        {
+          "mutates": [
+            "ringbuf:OpenEvents"
+          ],
+          "name": "ringbuf.reserve",
+          "resource": "reserve"
+        },
+        {
+          "mutates": [
+            "ringbuf:OpenEvents"
+          ],
+          "name": "ringbuf.submit",
+          "resource": "submit"
+        }
+      ],
       "kind": "source",
       "maps": {
         "events": [
@@ -71,6 +122,7 @@
   ],
   "maps": [
     {
+      "access_freq": "high",
       "kind": "ringbuf",
       "name": "OpenEvents",
       "value": "OpenEvent"
@@ -141,7 +193,7 @@
       }
     ]
   },
-  "schema": "m31labs.dev/horizon/capability/v0",
+  "schema": "m31labs.dev/horizon/capability/v1",
   "types": [
     {
       "align": 4,

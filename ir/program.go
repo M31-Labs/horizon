@@ -16,6 +16,10 @@ type Const struct {
 	Type  Type
 	Value Expr
 	Span  span.Span
+	// Origin records the import alias of the dependency package this
+	// constant was lowered from (roadmap #20 Phase 2 Subtask 4a). Root-
+	// package constants have Origin == "".
+	Origin string `json:",omitempty"`
 }
 
 // SourceMap describes the mapping from .hzn source spans to generated C

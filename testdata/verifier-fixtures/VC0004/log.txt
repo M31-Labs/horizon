@@ -1,0 +1,10 @@
+0: R1=ctx() R10=fp0
+1: (85) call bpf_ringbuf_reserve#131
+2: R0_w=ringbuf_mem_or_null(id=2,ref_obj_id=2,off=0,imm=0)
+; if reservation == nil { return; }
+3: (15) if r0 == 0x0 goto pc+5
+; commit(reservation, payload);
+4: (b7) r0 = 0
+5: (95) exit
+Unreleased reference id=2 alloc_insn=1
+processed 6 insns (limit 1000000) max_states_per_insn 0 total_states 0 peak_states 0 mark_read 0

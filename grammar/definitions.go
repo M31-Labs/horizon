@@ -223,6 +223,7 @@ func defineFunctions(g *grammargen.Grammar) {
 	g.Define("attribute_value", grammargen.Choice(
 		grammargen.Sym("string_literal"),
 		grammargen.Sym("number_literal"),
+		grammargen.Sym("selector_expression"),
 		grammargen.Sym("identifier"),
 	))
 

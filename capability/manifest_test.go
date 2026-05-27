@@ -1,16 +1,57 @@
 package capability
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"m31labs.dev/horizon/compiler/diag"
 	"m31labs.dev/horizon/ir"
 )
 
+// TestNewManifestEmitsV1Schema verifies that NewManifest produces a manifest
+// with the SchemaV1 identifier in the schema field.
+func TestNewManifestEmitsV1Schema(t *testing.T) {
+	m := NewManifest("probes")
+	if m.Schema != SchemaV1 {
+		t.Fatalf("NewManifest schema = %q, want %q", m.Schema, SchemaV1)
+	}
+}
+
+// TestFromIREmitsDangerAxes verifies that FromIR produces manifests where the
+// capability Danger field is a DangerAxes triple, not a flat string.
+func TestFromIREmitsDangerAxes(t *testing.T) {
+	m := FromIR(ir.Program{
+		Package: "probes",
+		Functions: []ir.Function{{
+			Name: "OnExec",
+			Section: ir.Section{
+				Kind:   ir.ProgramTracepoint,
+				Name:   "tracepoint/sched/sched_process_exec",
+				Attach: "sched:sched_process_exec",
+			},
+		}},
+		Capabilities: []ir.Capability{{
+			Name:    "kernel.process.exec.observe",
+			Kind:    ir.CapabilitySource,
+			Danger:  ir.DangerObserve,
+			Program: "OnExec",
+			Section: "tracepoint/sched:sched_process_exec",
+		}},
+	})
+	if len(m.Capabilities) != 1 {
+		t.Fatalf("FromIR produced %d capabilities, want 1", len(m.Capabilities))
+	}
+	want := DangerAxes{Mode: "observe", Scope: "event", Reversibility: "none"}
+	if m.Capabilities[0].Danger != want {
+		t.Fatalf("Danger = %+v, want %+v", m.Capabilities[0].Danger, want)
+	}
+}
+
 func TestValidateManifest(t *testing.T) {
 	m := NewManifest("probes")
 	m.Programs = append(m.Programs, Program{Name: "OnExec", Kind: "tracepoint", Attach: "sched:sched_process_exec", Section: "tracepoint/sched:sched_process_exec", Capabilities: []string{"kernel.process.exec.observe"}})
-	m.Capabilities = append(m.Capabilities, Capability{Name: "kernel.process.exec.observe", Kind: "source", Danger: "observe", Program: "OnExec", Section: "tracepoint/sched:sched_process_exec"})
+	m.Capabilities = append(m.Capabilities, Capability{Name: "kernel.process.exec.observe", Kind: "source", Danger: DangerAxes{Mode: "observe", Scope: "event", Reversibility: "none"}, Program: "OnExec", Section: "tracepoint/sched:sched_process_exec"})
 	if err := Validate(m); err != nil {
 		t.Fatalf("Validate: %v", err)
 	}
@@ -22,7 +63,7 @@ func TestValidateAllowsLegacyManifestWithoutTypeSchemas(t *testing.T) {
 	m.Capabilities = append(m.Capabilities, Capability{
 		Name:    "kernel.process.exec.observe",
 		Kind:    "source",
-		Danger:  "observe",
+		Danger:  DangerAxes{Mode: "observe", Scope: "event", Reversibility: "none"},
 		Program: "OnExec",
 		Section: "tracepoint/sched:sched_process_exec",
 		Emits:   "Event",
@@ -101,6 +142,53 @@ func TestFromIRIncludesTypedEventSchemas(t *testing.T) {
 	}
 	if len(m.Maps) != 1 || m.Maps[0].Value != "ExecEvent" {
 		t.Fatalf("maps = %#v, want ExecEvents value ExecEvent", m.Maps)
+	}
+}
+
+func TestFromIRForwardsSteadyStateEntriesAndAccessFreq(t *testing.T) {
+	m := FromIR(ir.Program{
+		Package: "probes",
+		Functions: []ir.Function{{
+			Name: "OnExec",
+			Section: ir.Section{
+				Kind:   ir.ProgramTracepoint,
+				Name:   "tracepoint/sched/sched_process_exec",
+				Attach: "sched:sched_process_exec",
+			},
+		}},
+		Maps: []ir.Map{{
+			Name:               "Counts",
+			Kind:               ir.MapKindHash,
+			Key:                ir.Type{Name: "u32"},
+			Val:                ir.Type{Name: "u64"},
+			MaxEntries:         "4096",
+			SteadyStateEntries: "512",
+			AccessFreq:         "high",
+		}},
+		Capabilities: []ir.Capability{{
+			Name:    "kernel.process.exec.observe",
+			Kind:    ir.CapabilitySource,
+			Danger:  ir.DangerObserve,
+			Program: "OnExec",
+			Section: "tracepoint/sched:sched_process_exec",
+			Maps: ir.CapabilityMapAccess{
+				Read:  []string{"Counts"},
+				Write: []string{"Counts"},
+			},
+		}},
+	})
+	if len(m.Maps) != 1 {
+		t.Fatalf("maps = %d, want 1", len(m.Maps))
+	}
+	got := m.Maps[0]
+	if got.SteadyStateEntries != "512" {
+		t.Fatalf("steady_state_entries = %q, want 512", got.SteadyStateEntries)
+	}
+	if got.AccessFreq != "high" {
+		t.Fatalf("access_freq = %q, want high", got.AccessFreq)
+	}
+	if err := Validate(m); err != nil {
+		t.Fatalf("Validate: %v", err)
 	}
 }
 
@@ -386,19 +474,19 @@ func TestValidateRejectsInvalidTypeLayoutMetadata(t *testing.T) {
 	tooLargeOffset := 12
 	tests := map[string]Manifest{
 		"negative size": {
-			Schema:       SchemaV0,
+			Schema:       SchemaV1,
 			Package:      "probes",
 			Capabilities: []Capability{},
 			Types:        []TypeSchema{{Name: "Event", Kind: "struct", Size: &negativeSize}},
 		},
 		"zero align": {
-			Schema:       SchemaV0,
+			Schema:       SchemaV1,
 			Package:      "probes",
 			Capabilities: []Capability{},
 			Types:        []TypeSchema{{Name: "Event", Kind: "struct", Align: &zeroAlign}},
 		},
 		"negative offset": {
-			Schema:       SchemaV0,
+			Schema:       SchemaV1,
 			Package:      "probes",
 			Capabilities: []Capability{},
 			Types: []TypeSchema{{
@@ -408,7 +496,7 @@ func TestValidateRejectsInvalidTypeLayoutMetadata(t *testing.T) {
 			}},
 		},
 		"offset exceeds size": {
-			Schema:       SchemaV0,
+			Schema:       SchemaV1,
 			Package:      "probes",
 			Capabilities: []Capability{},
 			Types: []TypeSchema{{
@@ -431,7 +519,7 @@ func TestValidateRejectsInvalidTypeLayoutMetadata(t *testing.T) {
 func TestValidateRejectsDuplicateManifestIdentities(t *testing.T) {
 	tests := map[string]Manifest{
 		"program": {
-			Schema:  SchemaV0,
+			Schema:  SchemaV1,
 			Package: "probes",
 			Programs: []Program{
 				{Name: "OnExec", Kind: "tracepoint", Section: "tracepoint/sched:sched_process_exec"},
@@ -440,7 +528,7 @@ func TestValidateRejectsDuplicateManifestIdentities(t *testing.T) {
 			Capabilities: []Capability{},
 		},
 		"map": {
-			Schema:  SchemaV0,
+			Schema:  SchemaV1,
 			Package: "probes",
 			Maps: []Map{
 				{Name: "Events", Kind: "ringbuf", Value: "Event"},
@@ -449,7 +537,7 @@ func TestValidateRejectsDuplicateManifestIdentities(t *testing.T) {
 			Capabilities: []Capability{},
 		},
 		"type": {
-			Schema:  SchemaV0,
+			Schema:  SchemaV1,
 			Package: "probes",
 			Types: []TypeSchema{
 				{Name: "Event", Kind: "struct"},
@@ -458,7 +546,7 @@ func TestValidateRejectsDuplicateManifestIdentities(t *testing.T) {
 			Capabilities: []Capability{},
 		},
 		"type field": {
-			Schema:       SchemaV0,
+			Schema:       SchemaV1,
 			Package:      "probes",
 			Types:        []TypeSchema{{Name: "Event", Kind: "struct", Fields: []FieldSchema{{Name: "pid", Type: "u32"}, {Name: "pid", Type: "u32"}}}},
 			Capabilities: []Capability{},
@@ -475,60 +563,65 @@ func TestValidateRejectsDuplicateManifestIdentities(t *testing.T) {
 
 func TestValidateRejectsUnsupportedEnumValues(t *testing.T) {
 	tests := map[string]Manifest{
-		"program kind": {
+		"wrong schema": {
 			Schema:       SchemaV0,
 			Package:      "probes",
-			Programs:     []Program{{Name: "OnExec", Kind: "sockops", Section: "sockops"}},
+			Capabilities: []Capability{},
+		},
+		"program kind": {
+			Schema:       SchemaV1,
+			Package:      "probes",
+			Programs:     []Program{{Name: "OnExec", Kind: "definitely_not_a_program_kind_xyz", Section: "sockops"}},
 			Capabilities: []Capability{},
 		},
 		"map kind": {
-			Schema:       SchemaV0,
+			Schema:       SchemaV1,
 			Package:      "probes",
 			Maps:         []Map{{Name: "Events", Kind: "queue", Value: "u32"}},
 			Capabilities: []Capability{},
 		},
 		"map max entries": {
-			Schema:       SchemaV0,
+			Schema:       SchemaV1,
 			Package:      "probes",
 			Maps:         []Map{{Name: "Events", Kind: "ringbuf", Value: "u32", MaxEntries: "0"}},
 			Capabilities: []Capability{},
 		},
 		"ringbuf max entries": {
-			Schema:       SchemaV0,
+			Schema:       SchemaV1,
 			Package:      "probes",
 			Maps:         []Map{{Name: "Events", Kind: "ringbuf", Value: "u32", MaxEntries: "3000"}},
 			Capabilities: []Capability{},
 		},
 		"type kind": {
-			Schema:       SchemaV0,
+			Schema:       SchemaV1,
 			Package:      "probes",
 			Types:        []TypeSchema{{Name: "Event", Kind: "union"}},
 			Capabilities: []Capability{},
 		},
 		"capability kind": {
-			Schema:       SchemaV0,
+			Schema:       SchemaV1,
 			Package:      "probes",
-			Capabilities: []Capability{{Name: "kernel.process.exec.observe", Kind: "sink", Danger: "observe", Program: "OnExec", Section: "tracepoint/sched/sched_process_exec"}},
+			Capabilities: []Capability{{Name: "kernel.process.exec.observe", Kind: "sink", Danger: DangerAxes{Mode: "observe", Scope: "event", Reversibility: "none"}, Program: "OnExec", Section: "tracepoint/sched/sched_process_exec"}},
 		},
 		"danger": {
-			Schema:       SchemaV0,
+			Schema:       SchemaV1,
 			Package:      "probes",
-			Capabilities: []Capability{{Name: "kernel.process.exec.observe", Kind: "source", Danger: "destroy", Program: "OnExec", Section: "tracepoint/sched/sched_process_exec"}},
+			Capabilities: []Capability{{Name: "kernel.process.exec.observe", Kind: "source", Danger: DangerAxes{Mode: "destroy", Scope: "event", Reversibility: "none"}, Program: "OnExec", Section: "tracepoint/sched/sched_process_exec"}},
 		},
 		"capability namespace": {
-			Schema:   SchemaV0,
+			Schema:   SchemaV1,
 			Package:  "probes",
 			Programs: []Program{{Name: "Drop", Kind: "xdp", Section: "xdp"}},
 			Capabilities: []Capability{{
 				Name:    "kernel.process.exec.observe",
 				Kind:    "source",
-				Danger:  "observe",
+				Danger:  DangerAxes{Mode: "observe", Scope: "event", Reversibility: "none"},
 				Program: "Drop",
 				Section: "xdp",
 			}},
 		},
 		"unknown helper requirement": {
-			Schema:       SchemaV0,
+			Schema:       SchemaV1,
 			Package:      "probes",
 			Capabilities: []Capability{},
 			Requirements: &Requirements{
@@ -537,7 +630,7 @@ func TestValidateRejectsUnsupportedEnumValues(t *testing.T) {
 			},
 		},
 		"invalid requirement version": {
-			Schema:       SchemaV0,
+			Schema:       SchemaV1,
 			Package:      "probes",
 			Capabilities: []Capability{},
 			Requirements: &Requirements{
@@ -546,7 +639,7 @@ func TestValidateRejectsUnsupportedEnumValues(t *testing.T) {
 			},
 		},
 		"aggregate lower than feature": {
-			Schema:       SchemaV0,
+			Schema:       SchemaV1,
 			Package:      "probes",
 			Capabilities: []Capability{},
 			Requirements: &Requirements{
@@ -555,7 +648,7 @@ func TestValidateRejectsUnsupportedEnumValues(t *testing.T) {
 			},
 		},
 		"unknown permission requirement": {
-			Schema:       SchemaV0,
+			Schema:       SchemaV1,
 			Package:      "probes",
 			Capabilities: []Capability{},
 			Requirements: &Requirements{
@@ -563,7 +656,7 @@ func TestValidateRejectsUnsupportedEnumValues(t *testing.T) {
 			},
 		},
 		"duplicate permission requirement": {
-			Schema:       SchemaV0,
+			Schema:       SchemaV1,
 			Package:      "probes",
 			Capabilities: []Capability{},
 			Requirements: &Requirements{
@@ -571,7 +664,7 @@ func TestValidateRejectsUnsupportedEnumValues(t *testing.T) {
 			},
 		},
 		"unknown feature requirement": {
-			Schema:       SchemaV0,
+			Schema:       SchemaV1,
 			Package:      "probes",
 			Capabilities: []Capability{},
 			Requirements: &Requirements{
@@ -579,7 +672,7 @@ func TestValidateRejectsUnsupportedEnumValues(t *testing.T) {
 			},
 		},
 		"duplicate feature requirement": {
-			Schema:       SchemaV0,
+			Schema:       SchemaV1,
 			Package:      "probes",
 			Capabilities: []Capability{},
 			Requirements: &Requirements{
@@ -587,12 +680,12 @@ func TestValidateRejectsUnsupportedEnumValues(t *testing.T) {
 			},
 		},
 		"capability requirement": {
-			Schema:  SchemaV0,
+			Schema:  SchemaV1,
 			Package: "probes",
 			Capabilities: []Capability{{
 				Name:    "kernel.process.exec.observe",
 				Kind:    "source",
-				Danger:  "observe",
+				Danger:  DangerAxes{Mode: "observe", Scope: "event", Reversibility: "none"},
 				Program: "OnExec",
 				Section: "tracepoint/sched/sched_process_exec",
 				Requirements: &Requirements{
@@ -620,30 +713,30 @@ func TestValidateRejectsUnsupportedEnumValues(t *testing.T) {
 }
 
 func TestValidateRejectsProgramCapabilityIndexMismatches(t *testing.T) {
-	execCap := Capability{Name: "kernel.process.exec.observe", Kind: "source", Danger: "observe", Program: "OnExec", Section: "tracepoint/sched:sched_process_exec"}
-	countCap := Capability{Name: "kernel.process.exec.count", Kind: "source", Danger: "observe", Program: "OnExec", Section: "tracepoint/sched:sched_process_exec"}
-	dropCap := Capability{Name: "kernel.network.xdp.drop", Kind: "source", Danger: "drop", Program: "Drop", Section: "xdp"}
+	execCap := Capability{Name: "kernel.process.exec.observe", Kind: "source", Danger: DangerAxes{Mode: "observe", Scope: "event", Reversibility: "none"}, Program: "OnExec", Section: "tracepoint/sched:sched_process_exec"}
+	countCap := Capability{Name: "kernel.process.exec.count", Kind: "source", Danger: DangerAxes{Mode: "observe", Scope: "event", Reversibility: "none"}, Program: "OnExec", Section: "tracepoint/sched:sched_process_exec"}
+	dropCap := Capability{Name: "kernel.network.xdp.drop", Kind: "source", Danger: DangerAxes{Mode: "control", Scope: "network", Reversibility: "restart"}, Program: "Drop", Section: "xdp"}
 	tests := map[string]Manifest{
 		"missing program capability list": {
-			Schema:       SchemaV0,
+			Schema:       SchemaV1,
 			Package:      "probes",
 			Programs:     []Program{{Name: "OnExec", Kind: "tracepoint", Section: "tracepoint/sched:sched_process_exec"}},
 			Capabilities: []Capability{execCap},
 		},
 		"unknown listed capability": {
-			Schema:       SchemaV0,
+			Schema:       SchemaV1,
 			Package:      "probes",
 			Programs:     []Program{{Name: "OnExec", Kind: "tracepoint", Section: "tracepoint/sched:sched_process_exec", Capabilities: []string{"kernel.process.exec.observe"}}},
 			Capabilities: []Capability{},
 		},
 		"duplicate listed capability": {
-			Schema:       SchemaV0,
+			Schema:       SchemaV1,
 			Package:      "probes",
 			Programs:     []Program{{Name: "OnExec", Kind: "tracepoint", Section: "tracepoint/sched:sched_process_exec", Capabilities: []string{"kernel.process.exec.observe", "kernel.process.exec.observe"}}},
 			Capabilities: []Capability{execCap},
 		},
 		"wrong owner": {
-			Schema:  SchemaV0,
+			Schema:  SchemaV1,
 			Package: "probes",
 			Programs: []Program{
 				{Name: "OnExec", Kind: "tracepoint", Section: "tracepoint/sched:sched_process_exec", Capabilities: []string{"kernel.network.xdp.drop"}},
@@ -652,19 +745,19 @@ func TestValidateRejectsProgramCapabilityIndexMismatches(t *testing.T) {
 			Capabilities: []Capability{dropCap},
 		},
 		"top-level capability missing from program list": {
-			Schema:       SchemaV0,
+			Schema:       SchemaV1,
 			Package:      "probes",
 			Programs:     []Program{{Name: "OnExec", Kind: "tracepoint", Section: "tracepoint/sched:sched_process_exec", Capabilities: []string{"kernel.process.exec.observe"}}},
 			Capabilities: []Capability{execCap, countCap},
 		},
 		"duplicate top-level capability": {
-			Schema:       SchemaV0,
+			Schema:       SchemaV1,
 			Package:      "probes",
 			Programs:     []Program{{Name: "OnExec", Kind: "tracepoint", Section: "tracepoint/sched:sched_process_exec", Capabilities: []string{"kernel.process.exec.observe"}}},
 			Capabilities: []Capability{execCap, execCap},
 		},
 		"empty listed capability": {
-			Schema:       SchemaV0,
+			Schema:       SchemaV1,
 			Package:      "probes",
 			Programs:     []Program{{Name: "OnExec", Kind: "tracepoint", Section: "tracepoint/sched:sched_process_exec", Capabilities: []string{""}}},
 			Capabilities: []Capability{execCap},
@@ -691,13 +784,92 @@ func TestValidateAllowsPerCPUAndLRUMapKinds(t *testing.T) {
 	m.Capabilities = append(m.Capabilities, Capability{
 		Name:    "kernel.process.exec.count",
 		Kind:    "source",
-		Danger:  "observe",
+		Danger:  DangerAxes{Mode: "observe", Scope: "event", Reversibility: "none"},
 		Program: "OnExec",
 		Section: "tracepoint/sched:sched_process_exec",
 		Maps:    MapAccess{Read: []string{"Counts", "Recent"}, Write: []string{"Counts", "Slots", "Recent", "RecentByCPU"}},
 	})
 	if err := Validate(m); err != nil {
 		t.Fatalf("Validate: %v", err)
+	}
+}
+
+// TestCapabilityHelperEffectsJSONOmitemptyWhenAbsent pins the additive
+// nature of the new HelperEffects field on Capability: a manifest whose
+// capability calls no annotated helpers must NOT serialize a
+// "helper_effects" key at all (neither "helper_effects":[] nor
+// "helper_effects":null). The `omitempty` tag is load-bearing — without
+// it every pre-Phase-2 golden snapshot would gain an empty array on the
+// next regen, defeating the additive-schema promise.
+func TestCapabilityHelperEffectsJSONOmitemptyWhenAbsent(t *testing.T) {
+	cap := Capability{
+		Name:    "kernel.process.exec.observe",
+		Kind:    "source",
+		Danger:  DangerAxes{Mode: "observe", Scope: "event", Reversibility: "none"},
+		Program: "OnExec",
+		Section: "tracepoint/sched:sched_process_exec",
+	}
+	encoded, err := json.Marshal(cap)
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+	if strings.Contains(string(encoded), "helper_effects") {
+		t.Fatalf("encoded capability contains helper_effects when empty: %s", encoded)
+	}
+}
+
+// TestCapabilityHelperEffectsJSONPresentWhenPopulated verifies the
+// emission shape: when HelperEffects is non-empty, the JSON carries
+// `"helper_effects":[...]` keyed by snake-case, with each entry's
+// observe / mutate / requires / resource fields routed through their own
+// `omitempty` tags. Order is whatever the caller hands in — the walker
+// guarantees sorted-by-Name input upstream.
+func TestCapabilityHelperEffectsJSONPresentWhenPopulated(t *testing.T) {
+	cap := Capability{
+		Name:    "kernel.file.open.observe",
+		Kind:    "source",
+		Danger:  DangerAxes{Mode: "observe", Scope: "filesystem", Reversibility: "none"},
+		Program: "OnOpen",
+		Section: "kprobe/do_sys_openat2",
+		HelperEffects: []HelperEffect{
+			{Name: "bpf.current_pid", Observes: []string{"task.tgid"}},
+			{Name: "ringbuf.reserve", Mutates: []string{"ringbuf:OpenEvents"}, Resource: "reserve"},
+		},
+	}
+	encoded, err := json.Marshal(cap)
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+	got := string(encoded)
+	if !strings.Contains(got, `"helper_effects":[`) {
+		t.Fatalf("encoded capability missing helper_effects array: %s", got)
+	}
+	if !strings.Contains(got, `"name":"bpf.current_pid"`) {
+		t.Fatalf("encoded capability missing bpf.current_pid entry: %s", got)
+	}
+	if !strings.Contains(got, `"observes":["task.tgid"]`) {
+		t.Fatalf("encoded capability missing observes for bpf.current_pid: %s", got)
+	}
+	if !strings.Contains(got, `"mutates":["ringbuf:OpenEvents"]`) {
+		t.Fatalf("encoded capability missing mutates for ringbuf.reserve: %s", got)
+	}
+	if !strings.Contains(got, `"resource":"reserve"`) {
+		t.Fatalf("encoded capability missing resource verb: %s", got)
+	}
+
+	// Round-trip — decoded shape must match the input.
+	var decoded Capability
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	if len(decoded.HelperEffects) != 2 {
+		t.Fatalf("decoded HelperEffects length = %d, want 2", len(decoded.HelperEffects))
+	}
+	if decoded.HelperEffects[0].Name != "bpf.current_pid" {
+		t.Fatalf("decoded[0].Name = %q, want bpf.current_pid", decoded.HelperEffects[0].Name)
+	}
+	if decoded.HelperEffects[1].Resource != "reserve" {
+		t.Fatalf("decoded[1].Resource = %q, want reserve", decoded.HelperEffects[1].Resource)
 	}
 }
 
@@ -709,7 +881,7 @@ func TestValidateRejectsMissingTypeSchema(t *testing.T) {
 	m.Capabilities = append(m.Capabilities, Capability{
 		Name:    "kernel.process.exec.observe",
 		Kind:    "source",
-		Danger:  "observe",
+		Danger:  DangerAxes{Mode: "observe", Scope: "event", Reversibility: "none"},
 		Program: "OnExec",
 		Section: "tracepoint/sched:sched_process_exec",
 		Emits:   "Event",
@@ -717,5 +889,122 @@ func TestValidateRejectsMissingTypeSchema(t *testing.T) {
 	})
 	if err := Validate(m); err == nil {
 		t.Fatal("Validate succeeded, want missing type schema error")
+	}
+}
+
+// helperEffectsManifest returns a minimal-but-valid manifest with one
+// capability whose HelperEffects slice is supplied by the caller. Used
+// to drive the per-field rejection table below without each subtest
+// re-spelling the boilerplate programs / capabilities / sections.
+func helperEffectsManifest(effects []HelperEffect) Manifest {
+	return Manifest{
+		Schema:  SchemaV1,
+		Package: "probes",
+		Programs: []Program{{
+			Name:         "OnExec",
+			Kind:         "tracepoint",
+			Attach:       "sched:sched_process_exec",
+			Section:      "tracepoint/sched:sched_process_exec",
+			Capabilities: []string{"kernel.process.exec.observe"},
+		}},
+		Capabilities: []Capability{{
+			Name:          "kernel.process.exec.observe",
+			Kind:          "source",
+			Danger:        DangerAxes{Mode: "observe", Scope: "event", Reversibility: "none"},
+			Program:       "OnExec",
+			Section:       "tracepoint/sched:sched_process_exec",
+			HelperEffects: effects,
+		}},
+	}
+}
+
+// TestValidateRejectsHelperEffectsWithEmptyName asserts an entry whose
+// Name is empty fails validation. Names are the registry key — an empty
+// name is structurally meaningless and would defeat dedup on the
+// downstream consumer side.
+func TestValidateRejectsHelperEffectsWithEmptyName(t *testing.T) {
+	m := helperEffectsManifest([]HelperEffect{
+		{Name: "", Observes: []string{"task.tgid"}},
+	})
+	if err := Validate(m); err == nil {
+		t.Fatal("Validate succeeded, want empty helper-effect name error")
+	}
+}
+
+// TestValidateRejectsHelperEffectsWithDuplicateName asserts the same
+// helper Name appearing twice fails validation. The Phase 2 emit
+// pipeline dedupes by Name (see ComputeHelperEffectsForFunction); a
+// duplicate in a hand-authored manifest is a structural error.
+func TestValidateRejectsHelperEffectsWithDuplicateName(t *testing.T) {
+	m := helperEffectsManifest([]HelperEffect{
+		{Name: "bpf.current_pid", Observes: []string{"task.tgid"}},
+		{Name: "bpf.current_pid", Observes: []string{"task.tgid"}},
+	})
+	if err := Validate(m); err == nil {
+		t.Fatal("Validate succeeded, want duplicate helper-effect name error")
+	}
+}
+
+// TestValidateRejectsHelperEffectsWithUnknownResourceVerb asserts a
+// Resource value outside the closed set
+// {lookup, update, delete, reserve, submit, discard, ""} fails.
+func TestValidateRejectsHelperEffectsWithUnknownResourceVerb(t *testing.T) {
+	m := helperEffectsManifest([]HelperEffect{
+		{Name: "ringbuf.reserve", Mutates: []string{"ringbuf:OpenEvents"}, Resource: "bogus_verb"},
+	})
+	if err := Validate(m); err == nil {
+		t.Fatal("Validate succeeded, want unknown resource verb error")
+	}
+}
+
+// TestValidateRejectsHelperEffectsWithBogusObserveToken asserts an
+// observes / mutates token outside the closed vocabulary fails. The
+// vocabulary is the same closed set documented in
+// internal/registry/helpers.go (task.* / kernel.time.* / userspace.*)
+// plus resolved map: / ringbuf: tokens.
+func TestValidateRejectsHelperEffectsWithBogusObserveToken(t *testing.T) {
+	m := helperEffectsManifest([]HelperEffect{
+		{Name: "bpf.current_pid", Observes: []string{"task.bogus_field"}},
+	})
+	if err := Validate(m); err == nil {
+		t.Fatal("Validate succeeded, want bogus observe token error")
+	}
+}
+
+// TestValidateAcceptsHelperEffectsWithMapPlaceholderResolved asserts a
+// well-formed entry whose map: / ringbuf: tokens are already resolved
+// to concrete map names (the post-substitution shape emitted by
+// ComputeHelperEffectsForFunction) passes validation cleanly.
+func TestValidateAcceptsHelperEffectsWithMapPlaceholderResolved(t *testing.T) {
+	m := helperEffectsManifest([]HelperEffect{
+		{Name: "ringbuf.reserve", Mutates: []string{"ringbuf:OpenEvents"}, Resource: "reserve"},
+		{Name: "map.lookup", Observes: []string{"map:Counts"}, Resource: "lookup"},
+	})
+	if err := Validate(m); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+}
+
+// TestValidateRejectsHelperEffectsWithUnresolvedPlaceholder asserts
+// that a map:$ / ringbuf:$ sentinel surviving into the emitted manifest
+// is rejected. The substitution must have happened upstream in
+// ComputeHelperEffectsForFunction; a sentinel reaching the manifest
+// indicates a bug in the emit pipeline.
+func TestValidateRejectsHelperEffectsWithUnresolvedPlaceholder(t *testing.T) {
+	cases := map[string][]HelperEffect{
+		"ringbuf placeholder": {
+			{Name: "ringbuf.reserve", Mutates: []string{"ringbuf:$"}, Resource: "reserve"},
+		},
+		"map placeholder": {
+			{Name: "map.lookup", Observes: []string{"map:$"}, Resource: "lookup"},
+		},
+	}
+	for name, effects := range cases {
+		t.Run(name, func(t *testing.T) {
+			m := helperEffectsManifest(effects)
+			if err := Validate(m); err == nil {
+				t.Fatal("Validate succeeded, want unresolved-placeholder error")
+			}
+		})
 	}
 }

@@ -3,6 +3,7 @@ package capability
 import (
 	"errors"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -78,8 +79,8 @@ func validateManifestHeader(m Manifest) error {
 	if m.Schema == "" {
 		return validationErrorf("capability manifest schema is required")
 	}
-	if m.Schema != SchemaV0 {
-		return validationErrorf("unsupported capability manifest schema %q", m.Schema)
+	if m.Schema != SchemaV1 {
+		return validationErrorf("unsupported capability manifest schema %q (want %s)", m.Schema, SchemaV1)
 	}
 	if m.Package == "" {
 		return validationErrorf("capability manifest package is required")
@@ -132,6 +133,25 @@ func indexManifestMaps(mapSpecs []Map) (map[string]Map, error) {
 			}
 			if mapSpec.Kind == "ringbuf" && value&(value-1) != 0 {
 				return nil, validationErrorf("capability manifest ringbuf map %q max_entries must be a power of two", mapSpec.Name)
+			}
+		}
+		if mapSpec.SteadyStateEntries != "" {
+			sse, err := strconv.ParseUint(mapSpec.SteadyStateEntries, 0, 32)
+			if err != nil || sse == 0 {
+				return nil, validationErrorf("capability manifest map %q steady_state_entries must be a positive integer literal", mapSpec.Name)
+			}
+			if mapSpec.MaxEntries != "" {
+				maxE, err := strconv.ParseUint(mapSpec.MaxEntries, 0, 32)
+				if err == nil && sse > maxE {
+					return nil, validationErrorf("capability manifest map %q steady_state_entries (%d) must not exceed max_entries (%d)", mapSpec.Name, sse, maxE)
+				}
+			}
+		}
+		if mapSpec.AccessFreq != "" {
+			switch mapSpec.AccessFreq {
+			case "low", "medium", "high":
+			default:
+				return nil, validationErrorf(`capability manifest map %q access_freq must be "low", "medium", or "high"`, mapSpec.Name)
 			}
 		}
 		if _, exists := maps[mapSpec.Name]; exists {
@@ -233,11 +253,11 @@ func validateManifestCapabilities(caps []Capability, programs map[string]Program
 		if cap.Kind != "source" {
 			return validationErrorf("capability %q kind %q is not supported", cap.Name, cap.Kind)
 		}
-		if cap.Danger == "" {
+		if cap.Danger.IsZero() {
 			return validationErrorf("capability %q danger is required", cap.Name)
 		}
-		if !validDangerLevel(cap.Danger) {
-			return validationErrorf("capability %q danger %q is not supported", cap.Name, cap.Danger)
+		if err := validateDangerAxes(cap.Danger); err != nil {
+			return validationErrorf("capability %q danger: %v", cap.Name, err)
 		}
 		if cap.Program == "" {
 			return validationErrorf("capability %q program is required", cap.Name)
@@ -256,6 +276,9 @@ func validateManifestCapabilities(caps []Capability, programs map[string]Program
 		}
 		if err := validateRequirements(cap.Requirements); err != nil {
 			return validationErrorf("capability %q requirements: %v", cap.Name, err)
+		}
+		if err := validateHelperEffects(cap.Name, cap.HelperEffects); err != nil {
+			return err
 		}
 		if validateSchemaRefs && cap.Emits != "" {
 			if err := validateTypeRefs(cap.Emits, types); err != nil {
@@ -321,7 +344,7 @@ func validationErrorf(format string, args ...any) error {
 
 func validProgramKind(kind string) bool {
 	switch kind {
-	case "tracepoint", "xdp", "tc", "cgroup", "lsm", "kprobe", "kretprobe":
+	case "tracepoint", "xdp", "tc", "cgroup", "lsm", "kprobe", "kretprobe", "uprobe", "uretprobe", "fentry", "fexit", "raw_tp", "sockops", "struct_ops":
 		return true
 	default:
 		return false
@@ -337,13 +360,27 @@ func validMapKind(kind string) bool {
 	}
 }
 
-func validDangerLevel(danger string) bool {
-	switch danger {
-	case "observe", "mutate", "drop", "block", "privileged":
-		return true
+// validateDangerAxes validates that the axes triple is well-formed.
+// Valid mode values: observe, mutate, control.
+// Valid scope values: event, process, network, filesystem, system.
+// Valid reversibility values: none, restart, persistent.
+func validateDangerAxes(d DangerAxes) error {
+	switch d.Mode {
+	case "observe", "mutate", "control":
 	default:
-		return false
+		return fmt.Errorf("unsupported mode %q (want observe|mutate|control)", d.Mode)
 	}
+	switch d.Scope {
+	case "event", "process", "network", "filesystem", "system":
+	default:
+		return fmt.Errorf("unsupported scope %q (want event|process|network|filesystem|system)", d.Scope)
+	}
+	switch d.Reversibility {
+	case "none", "restart", "persistent":
+	default:
+		return fmt.Errorf("unsupported reversibility %q (want none|restart|persistent)", d.Reversibility)
+	}
+	return nil
 }
 
 func validateRequirements(reqs *Requirements) error {
@@ -444,7 +481,7 @@ func validPermissionRequirement(name string) bool {
 
 func validHostFeatureRequirement(name string) bool {
 	switch name {
-	case "bpf_lsm", "cgroup_v2", "kprobes", "netdev_xdp", "tc_clsact", "tracefs":
+	case "bpf_lsm", "btf", "cgroup_v2", "kprobes", "netdev_xdp", "struct_ops", "tc_clsact", "tracefs", "uprobes":
 		return true
 	default:
 		return false
@@ -486,4 +523,104 @@ func isBuiltinType(name string) bool {
 	default:
 		return false
 	}
+}
+
+// observeVocabulary is the closed v0.2 vocabulary of dotted observe /
+// mutate tokens accepted on an emitted Capability.HelperEffects entry.
+// It mirrors the same set the registry loader enforces in
+// internal/registry/helpers.go on the *source-of-truth* side; here we
+// re-check it against *emitted* manifest values, which may have arrived
+// via a hand-crafted manifest the registry never saw.
+//
+// Resource tokens (map:<ident> / ringbuf:<ident>) are validated
+// separately by helperEffectResourceTokenPattern. The bare "$" sentinel
+// is deliberately NOT accepted — it must have been substituted to a
+// concrete identifier by ComputeHelperEffectsForFunction before reaching
+// the manifest.
+var observeVocabulary = map[string]bool{
+	"task.tgid":             true,
+	"task.pid":              true,
+	"task.uid":              true,
+	"task.gid":              true,
+	"task.comm":             true,
+	"task.real_parent.tgid": true,
+	"kernel.time.monotonic": true,
+	"userspace.string":      true,
+	"userspace.bytes":       true,
+}
+
+// helperEffectResourceTokenPattern matches a fully-resolved resource
+// token: "map:<Ident>" or "ringbuf:<Ident>". The "$" placeholder is
+// excluded by construction — its presence here would mean the emit
+// pipeline failed to substitute it, which is a structural bug.
+var helperEffectResourceTokenPattern = regexp.MustCompile(`^(map|ringbuf):[A-Za-z_][A-Za-z0-9_]*$`)
+
+// helperEffectResourceVerbs enumerates the closed set of Resource
+// verbs accepted on an emitted HelperEffect. Matches
+// capability/requirements.go::mapMethodHelper one-to-one, plus the
+// empty string for non-resource helpers. NB: the registry's separate
+// "none" sentinel is intentionally NOT accepted here — emitted
+// manifests should carry "" for non-resource helpers, never "none".
+var helperEffectResourceVerbs = map[string]bool{
+	"":        true,
+	"lookup":  true,
+	"update":  true,
+	"delete":  true,
+	"reserve": true,
+	"submit":  true,
+	"discard": true,
+}
+
+// validateHelperEffects checks the shape of an emitted
+// Capability.HelperEffects slice. Registry-shape validation (entry
+// well-formedness on disk) lives in internal/registry/helpers.go; this
+// function validates only what surfaces in a manifest — names,
+// duplicates, vocabulary tokens, resource verbs, and the absence of any
+// unresolved "$" placeholder. Hand-written manifests that bypass the
+// emit pipeline are the primary motivation for re-checking the
+// vocabulary here.
+func validateHelperEffects(capName string, effects []HelperEffect) error {
+	seen := make(map[string]bool, len(effects))
+	for _, eff := range effects {
+		if eff.Name == "" {
+			return validationErrorf("capability %q helper_effects entry name is required", capName)
+		}
+		if seen[eff.Name] {
+			return validationErrorf("capability %q helper_effects entry %q is declared more than once", capName, eff.Name)
+		}
+		seen[eff.Name] = true
+		if !helperEffectResourceVerbs[eff.Resource] {
+			return validationErrorf("capability %q helper_effects entry %q has unsupported resource %q", capName, eff.Name, eff.Resource)
+		}
+		for _, tok := range eff.Observes {
+			if err := validateHelperEffectToken(capName, eff.Name, "observes", tok); err != nil {
+				return err
+			}
+		}
+		for _, tok := range eff.Mutates {
+			if err := validateHelperEffectToken(capName, eff.Name, "mutates", tok); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// validateHelperEffectToken accepts a single observe / mutate token.
+// A token is valid when it is in observeVocabulary OR matches the
+// resolved-resource pattern (map:<ident> / ringbuf:<ident>). An
+// unresolved "$" sentinel is explicitly rejected with a targeted
+// diagnostic — it signals a substitution bug rather than a
+// vocabulary error.
+func validateHelperEffectToken(capName, helperName, field, tok string) error {
+	if observeVocabulary[tok] {
+		return nil
+	}
+	if helperEffectResourceTokenPattern.MatchString(tok) {
+		return nil
+	}
+	if tok == "map:$" || tok == "ringbuf:$" {
+		return validationErrorf("capability %q helper_effects entry %q %s token %q is an unresolved placeholder", capName, helperName, field, tok)
+	}
+	return validationErrorf("capability %q helper_effects entry %q %s token %q is not in the v0.2 vocabulary", capName, helperName, field, tok)
 }

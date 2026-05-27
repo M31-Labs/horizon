@@ -1449,6 +1449,28 @@ func cContext(fn ir.Function) string {
 		return "void *" + name
 	case ir.ProgramKprobe, ir.ProgramKretprobe:
 		return "struct pt_regs *" + name
+	case ir.ProgramUprobe, ir.ProgramUretprobe:
+		return "struct pt_regs *" + name
+	case ir.ProgramFentry, ir.ProgramFexit:
+		// fentry/fexit receive the arguments of the traced kernel function via
+		// BTF-described context; use pt_regs pointer as a portable opaque handle.
+		return "struct pt_regs *" + name
+	case ir.ProgramRawTP:
+		// raw_tp programs receive a bpf_raw_tracepoint_args pointer which carries
+		// the raw tracepoint arguments as an opaque u64 array.
+		return "struct bpf_raw_tracepoint_args *" + name
+	case ir.ProgramSockOps:
+		// sockops programs receive a bpf_sock_ops pointer which exposes socket
+		// state and allows rewriting socket options.
+		return "struct bpf_sock_ops *" + name
+	case ir.ProgramStructOps:
+		// struct_ops programs replace kernel function pointers in a struct_ops map.
+		// For TCP congestion control (tcp_congestion_ops) the representative ops
+		// typically receive a struct sock pointer. We use void * as a portable
+		// opaque handle because the exact type varies per op and is resolved at
+		// BTF-verification time; libbpf rewrites the context type based on the
+		// struct_ops map definition.
+		return "void *" + name
 	default:
 		return "void *" + name
 	}

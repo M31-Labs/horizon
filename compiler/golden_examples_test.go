@@ -16,6 +16,13 @@ var updateGolden = flag.Bool("update-golden", false, "regenerate testdata/golden
 var examples = []string{
 	"cgroupconnect", "execwatch", "execcount", "execdeny",
 	"killwatch", "lsmfile", "openwatch", "tcpconnect", "tcpass", "xdpdrop",
+	"uprobeexec", "uretprobeexec",
+	"fentryopen", "fexitopen",
+	"rawtpenter",
+	"sockopstrack",
+	"structopstcp",
+	"multifile-execcount",
+	"imported-execcount",
 }
 
 // Fields stripped before comparison because they vary per-run.

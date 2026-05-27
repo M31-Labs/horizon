@@ -3,10 +3,150 @@ package capability
 import (
 	"fmt"
 
+	"m31labs.dev/horizon/compiler/diag"
 	"m31labs.dev/horizon/ir"
 )
 
 func FromIR(program ir.Program) Manifest {
+	// If the program has declarations spanning multiple Origin tags (the
+	// cross-package build path landed in Phase 2 Subtask 4b), route through
+	// the aggregator so manifest names are qualified consistently. Single-
+	// package builds (every Origin == "") continue through the legacy
+	// emission path unchanged so existing goldens are bit-stable.
+	// (roadmap #21 Phase 2 Subtask 5b.)
+	if programHasMixedOrigins(program) {
+		m, _ := fromIRAggregated(program)
+		return m
+	}
+	return emitManifest(program, "")
+}
+
+// FromIRWithDiagnostics is FromIR's diagnostic-surfacing twin: it returns both
+// the aggregated manifest and the diagnostics produced by AggregateManifests
+// (HZN1553 advisory, HZN1560 capability conflict, HZN1564 map conflict,
+// HZN1565 type conflict). Callers that want the legacy lossy behavior keep
+// using FromIR; callers that want aggregation collisions surfaced through
+// their own diagnostic channel (compiler.AnalyzePath wires this for the
+// cross-package build path) call FromIRWithDiagnostics. Single-origin
+// programs return an empty diagnostic slice. (roadmap #21 Phase 2 Task 6c.)
+func FromIRWithDiagnostics(program ir.Program) (Manifest, []diag.Diagnostic) {
+	if programHasMixedOrigins(program) {
+		return fromIRAggregated(program)
+	}
+	return emitManifest(program, ""), nil
+}
+
+// programHasMixedOrigins reports whether any declaration in the program
+// carries a non-empty Origin tag. The check is cheap (a single linear pass
+// over each declaration slice) so the single-package hot path pays only
+// a constant per-build cost.
+func programHasMixedOrigins(program ir.Program) bool {
+	for _, fn := range program.Functions {
+		if fn.Origin != "" {
+			return true
+		}
+	}
+	for _, m := range program.Maps {
+		if m.Origin != "" {
+			return true
+		}
+	}
+	for _, c := range program.Capabilities {
+		if c.Origin != "" {
+			return true
+		}
+	}
+	for _, s := range program.Structs {
+		if s.Origin != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// fromIRAggregated splits the merged IR Program into one partial manifest
+// per origin (root + each dep alias), then runs AggregateManifests to
+// produce the qualified-name output. Splitting first keeps emitManifest's
+// per-declaration logic identical between single- and multi-package builds;
+// AggregateManifests owns all qualified-name composition and conflict
+// detection.
+func fromIRAggregated(program ir.Program) (Manifest, []diag.Diagnostic) {
+	originSet := map[string]bool{"": true}
+	for _, fn := range program.Functions {
+		originSet[fn.Origin] = true
+	}
+	for _, m := range program.Maps {
+		originSet[m.Origin] = true
+	}
+	for _, c := range program.Capabilities {
+		originSet[c.Origin] = true
+	}
+	for _, s := range program.Structs {
+		originSet[s.Origin] = true
+	}
+
+	manifests := make([]Manifest, 0, len(originSet))
+	// Emit the root first so its (unqualified) capability ordering wins
+	// the section-owner check inside AggregateManifests.
+	manifests = append(manifests, emitManifest(filterByOrigin(program, ""), ""))
+	for origin := range originSet {
+		if origin == "" {
+			continue
+		}
+		manifests = append(manifests, emitManifest(filterByOrigin(program, origin), origin))
+	}
+	out, diags := AggregateManifests(manifests, program.Package)
+	// Task 6c wires aggregator diagnostics through FromIRWithDiagnostics
+	// for callers that want HZN1553/HZN1560/HZN1564/HZN1565 surfaced. The
+	// legacy FromIR entrypoint still returns just the manifest so existing
+	// callers (workbench, bindgen) keep their lossy-diagnostic behavior
+	// until their own wiring upgrades.
+	return out, diags
+}
+
+// filterByOrigin returns a copy of program restricted to declarations whose
+// Origin matches the requested value. emitManifest then runs on this
+// shrunk view so each partial manifest only sees its own package's decls.
+// The view shares slice elements with program — we never mutate them, so
+// the copy stays cheap.
+func filterByOrigin(program ir.Program, origin string) ir.Program {
+	out := ir.Program{
+		Package: program.Package,
+	}
+	for _, fn := range program.Functions {
+		if fn.Origin == origin {
+			out.Functions = append(out.Functions, fn)
+		}
+	}
+	for _, m := range program.Maps {
+		if m.Origin == origin {
+			out.Maps = append(out.Maps, m)
+		}
+	}
+	for _, c := range program.Capabilities {
+		if c.Origin == origin {
+			out.Capabilities = append(out.Capabilities, c)
+		}
+	}
+	for _, s := range program.Structs {
+		if s.Origin == origin {
+			out.Structs = append(out.Structs, s)
+		}
+	}
+	for _, c := range program.Constants {
+		if c.Origin == origin {
+			out.Constants = append(out.Constants, c)
+		}
+	}
+	return out
+}
+
+// emitManifest is the single-origin emission core extracted from the legacy
+// FromIR body. The origin parameter, when non-empty, is stamped onto every
+// emitted Capability / Map so the aggregator can compose qualified names
+// downstream. Single-package callers pass origin == "" and get the same
+// manifest shape they always had.
+func emitManifest(program ir.Program, origin string) Manifest {
 	manifest := NewManifest(program.Package)
 	requirements := requirementsFromIR(program)
 	if requirements.MinKernel != "" {
@@ -27,15 +167,30 @@ func FromIR(program ir.Program) Manifest {
 			Name:         fn.Name,
 			Kind:         string(fn.Section.Kind),
 			Attach:       fn.Section.Attach,
-			Section:      manifestSection(fn.Section),
+			Section:      fn.Section.ManifestName(),
 			Capabilities: caps,
 		})
 	}
 	for _, cap := range program.Capabilities {
+		axes := cap.Axes
+		if axes.Mode == "" && axes.Scope == "" && axes.Reversibility == "" {
+			// Fall back to deriving axes from the flat DangerLevel for
+			// callers that haven't yet set Axes explicitly.
+			irAxes := cap.Danger.Axes()
+			axes = ir.DangerAxes{
+				Mode:          irAxes.Mode,
+				Scope:         irAxes.Scope,
+				Reversibility: irAxes.Reversibility,
+			}
+		}
 		out := Capability{
-			Name:    cap.Name,
-			Kind:    string(cap.Kind),
-			Danger:  string(cap.Danger),
+			Name: cap.Name,
+			Kind: string(cap.Kind),
+			Danger: DangerAxes{
+				Mode:          axes.Mode,
+				Scope:         axes.Scope,
+				Reversibility: axes.Reversibility,
+			},
 			Program: cap.Program,
 			Section: cap.Section,
 			Emits:   cap.Emits,
@@ -44,27 +199,32 @@ func FromIR(program ir.Program) Manifest {
 				Write:  cap.Maps.Write,
 				Events: cap.Maps.Events,
 			},
+			Origin: origin,
 		}
 		if fn, ok := functions[cap.Program]; ok {
 			requirements := requirementsForCapability(program, cap, fn)
 			if requirements.MinKernel != "" {
 				out.Requirements = &requirements
 			}
+			out.HelperEffects = ComputeHelperEffectsForFunction(program, fn)
 		}
 		manifest.Capabilities = append(manifest.Capabilities, out)
 	}
 	for _, m := range program.Maps {
 		manifest.Maps = append(manifest.Maps, Map{
-			Name:       m.Name,
-			Kind:       string(m.Kind),
-			Key:        manifestType(m.Key),
-			Value:      manifestType(m.Val),
-			MaxEntries: m.MaxEntries,
+			Name:               m.Name,
+			Kind:               string(m.Kind),
+			Key:                manifestType(m.Key),
+			Value:              manifestType(m.Val),
+			MaxEntries:         m.MaxEntries,
+			SteadyStateEntries: m.SteadyStateEntries,
+			AccessFreq:         m.AccessFreq,
+			Origin:             origin,
 		})
 	}
 	structs := ir.StructsByName(program.Structs)
 	for _, typ := range program.Structs {
-		schema := TypeSchema{Name: typ.Name, Kind: "struct"}
+		schema := TypeSchema{Name: typ.Name, Kind: "struct", Origin: origin}
 		offsets := map[string]int{}
 		if layout, ok := ir.StructLayout(typ, structs); ok {
 			schema.Size = intPtr(layout.Size)
@@ -96,27 +256,6 @@ func functionsByName(functions []ir.Function) map[string]ir.Function {
 	return out
 }
 
-func manifestSection(section ir.Section) string {
-	if section.Kind == ir.ProgramTracepoint && section.Attach != "" {
-		return "tracepoint/" + section.Attach
-	}
-	if section.Kind == ir.ProgramXDP {
-		return "xdp"
-	}
-	if section.Kind == ir.ProgramTC {
-		return "tc/" + section.Attach
-	}
-	if section.Kind == ir.ProgramCgroup {
-		return "cgroup/" + section.Attach
-	}
-	if section.Kind == ir.ProgramLSM {
-		return "lsm/" + section.Attach
-	}
-	if (section.Kind == ir.ProgramKprobe || section.Kind == ir.ProgramKretprobe) && section.Attach != "" {
-		return string(section.Kind) + "/" + section.Attach
-	}
-	return section.Name
-}
 
 func manifestType(typ ir.Type) string {
 	if typ.Ptr {

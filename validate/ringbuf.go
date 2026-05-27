@@ -2,19 +2,10 @@ package validate
 
 import (
 	"fmt"
-	"regexp"
-	"strings"
 
 	"m31labs.dev/horizon/compiler/diag"
 	"m31labs.dev/horizon/compiler/span"
 	"m31labs.dev/horizon/ir"
-)
-
-var (
-	ringReserveRE  = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\s*:=\s*([A-Za-z_][A-Za-z0-9_]*)\.reserve\(\)\s*$`)
-	ringNilCheckRE = regexp.MustCompile(`\bif\s+(?:([A-Za-z_][A-Za-z0-9_]*)\s*==\s*nil|nil\s*==\s*([A-Za-z_][A-Za-z0-9_]*))\b`)
-	ringConsumeRE  = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\.(submit|discard)\(([A-Za-z_][A-Za-z0-9_]*)\)\s*$`)
-	ringWriteRE    = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\.[A-Za-z_][A-Za-z0-9_]*\s*=`)
 )
 
 // AnalyzeRingbuf runs the ringbuf validator's rule logic over pre-collected sites.
@@ -23,11 +14,15 @@ var (
 // is the load-bearing index of functions that hold reserve sites; the state
 // machine re-walk (validateTypedRingbuf) is run only for those functions. Typed
 // functions that contain no ringbuf reserves are skipped entirely — they cannot
-// produce ringbuf diagnostics. Legacy text-path functions (hasTypedStatements
-// == false) are still walked via bodyLines regardless of the Sites index, because
-// Collect skips non-typed functions; they remain reachable until the regex
-// fallback is removed in roadmap Task 3 (v0.3).
-func AnalyzeRingbuf(program ir.Program, sites Sites) []diag.Diagnostic {
+// produce ringbuf diagnostics.
+//
+// effects is the program-level user-helper effect summary built once by
+// validate.Program (Phase 2 #13). When a tracked reservation is passed to a
+// user helper, applyHelperEffectRingbuf consults this summary to transition
+// the caller's state precisely instead of falling back to "escaped". For
+// programs that contain no user helpers (or for sites whose callee summary
+// is Unknown/Escapes), the behavior matches Phase 1 verbatim.
+func AnalyzeRingbuf(program ir.Program, sites Sites, effects HelperEffects) []diag.Diagnostic {
 	ringMaps := map[string]ir.Map{}
 	for _, m := range program.Maps {
 		if m.Kind == ir.MapKindRingbuf {
@@ -38,114 +33,14 @@ func AnalyzeRingbuf(program ir.Program, sites Sites) []diag.Diagnostic {
 		return nil
 	}
 
-	// Build the set of functions that contain at least one ringbuf reserve site.
-	// This is the index that drives the typed-path analysis.
-	interesting := make(map[*ir.Function]struct{}, len(sites.RingbufReserve))
-	for _, s := range sites.RingbufReserve {
-		interesting[s.Function] = struct{}{}
-	}
-
+	seen := map[*ir.Function]bool{}
 	var diags []diag.Diagnostic
-	for i := range program.Functions {
-		fn := &program.Functions[i]
-		if hasTypedStatements(*fn) {
-			if _, ok := interesting[fn]; !ok {
-				// Typed function with no ringbuf reserves: cannot produce any
-				// ringbuf diagnostic. Skip to avoid unnecessary re-walks.
-				continue
-			}
-			diags = append(diags, validateTypedRingbuf(*fn, ringMaps)...)
+	for _, site := range sites.RingbufReserve {
+		if seen[site.Function] {
 			continue
 		}
-		states := map[string]reserveState{}
-		reportedMissingNil := map[string]bool{}
-		for _, line := range bodyLines(*fn) {
-			if match := ringReserveRE.FindStringSubmatch(line); len(match) == 3 {
-				varName, mapName := match[1], match[2]
-				if _, ok := ringMaps[mapName]; ok {
-					states[varName] = reserveState{Map: mapName, State: "maybe_nil"}
-				}
-				continue
-			}
-			if match := ringNilCheckRE.FindStringSubmatch(line); len(match) == 3 {
-				varName := match[1]
-				if varName == "" {
-					varName = match[2]
-				}
-				if state, ok := states[varName]; ok && state.State == "maybe_nil" {
-					state.State = "live"
-					states[varName] = state
-				}
-				continue
-			}
-			if match := ringConsumeRE.FindStringSubmatch(line); len(match) == 4 {
-				mapName, op, varName := match[1], match[2], match[3]
-				if _, ok := ringMaps[mapName]; !ok {
-					continue
-				}
-				state, ok := states[varName]
-				if !ok {
-					diags = append(diags, diag.Diagnostic{
-						Code:     "HZN2101",
-						Severity: diag.SeverityError,
-						Message:  fmt.Sprintf("%s consumes unknown ringbuf reservation %q", op, varName),
-						Primary:  fn.Span,
-					})
-					continue
-				}
-				switch state.State {
-				case "maybe_nil":
-					if !reportedMissingNil[varName] {
-						diags = append(diags, missingNilCheck(*fn, varName))
-						reportedMissingNil[varName] = true
-					}
-					state.State = "consumed"
-				case "consumed":
-					diags = append(diags, diag.Diagnostic{
-						Code:     "HZN2102",
-						Severity: diag.SeverityError,
-						Message:  fmt.Sprintf("ringbuf reservation %q is submitted or discarded more than once", varName),
-						Primary:  fn.Span,
-					})
-				default:
-					state.State = "consumed"
-				}
-				states[varName] = state
-				continue
-			}
-			if match := ringWriteRE.FindStringSubmatch(line); len(match) == 2 {
-				varName := match[1]
-				state, ok := states[varName]
-				if !ok {
-					continue
-				}
-				switch state.State {
-				case "maybe_nil":
-					if !reportedMissingNil[varName] {
-						diags = append(diags, missingNilCheck(*fn, varName))
-						reportedMissingNil[varName] = true
-					}
-				case "consumed":
-					diags = append(diags, diag.Diagnostic{
-						Code:     "HZN2103",
-						Severity: diag.SeverityError,
-						Message:  fmt.Sprintf("write to ringbuf reservation %q after submit or discard", varName),
-						Primary:  fn.Span,
-					})
-				}
-			}
-		}
-		for varName, state := range states {
-			if state.State == "consumed" {
-				continue
-			}
-			diags = append(diags, diag.Diagnostic{
-				Code:     "HZN2104",
-				Severity: diag.SeverityError,
-				Message:  fmt.Sprintf("ringbuf reservation %q may return without submit or discard", varName),
-				Primary:  fn.Span,
-			})
-		}
+		seen[site.Function] = true
+		diags = append(diags, validateTypedRingbuf(*site.Function, ringMaps, effects)...)
 	}
 	return diags
 }
@@ -155,36 +50,47 @@ type reserveState struct {
 	State string
 }
 
-func validateTypedRingbuf(fn ir.Function, ringMaps map[string]ir.Map) []diag.Diagnostic {
+func validateTypedRingbuf(fn ir.Function, ringMaps map[string]ir.Map, effects HelperEffects) []diag.Diagnostic {
 	states := map[string]reserveState{}
+	aliases := newAliasGraph()
 	reportedMissingNil := map[string]bool{}
 	reportedLive := map[string]bool{}
+	// reportedAt deduplicates HZN2102/HZN2103/HZN2105 diagnostics across the
+	// bounded 2-iteration loop-carry walk. The same (code, span) pair may be
+	// visited twice — once per iteration — so we suppress the second emission.
+	reportedAt := map[string]bool{}
 	var diags []diag.Diagnostic
 	reportLive := func(varName string, primary span.Span) {
-		if reportedLive[varName] {
+		root := aliases.root(varName)
+		if reportedLive[root] {
 			return
 		}
-		diags = append(diags, liveOnReturnAt(fn, varName, primary))
-		reportedLive[varName] = true
+		diags = append(diags, liveOnReturnAt(fn, root, primary))
+		reportedLive[root] = true
 	}
 	checkWrite := func(varName string, primary span.Span) {
-		state, ok := states[varName]
+		root := aliases.root(varName)
+		state, ok := states[root]
 		if !ok {
 			return
 		}
 		switch state.State {
 		case "maybe_nil":
-			if !reportedMissingNil[varName] {
-				diags = append(diags, missingNilCheckAt(fn, varName, primary))
-				reportedMissingNil[varName] = true
+			if !reportedMissingNil[root] {
+				diags = append(diags, missingNilCheckAt(fn, root, primary))
+				reportedMissingNil[root] = true
 			}
 		case "consumed", "maybe_consumed":
-			diags = append(diags, diag.Diagnostic{
-				Code:     "HZN2103",
-				Severity: diag.SeverityError,
-				Message:  fmt.Sprintf("write to ringbuf reservation %q after submit or discard", varName),
-				Primary:  primary,
-			})
+			key := fmt.Sprintf("HZN2103:%s:%d:%d", root, primary.Start.Line, primary.Start.Column)
+			if !reportedAt[key] {
+				reportedAt[key] = true
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN2103",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("write to ringbuf reservation %q after submit or discard", root),
+					Primary:  primary,
+				})
+			}
 		}
 	}
 	var walk func([]ir.Statement)
@@ -193,6 +99,12 @@ func validateTypedRingbuf(fn ir.Function, ringMaps map[string]ir.Map) []diag.Dia
 			switch stmt.Kind {
 			case "short_var":
 				trackReserveStatement(stmt, ringMaps, states)
+				// Register alias if the RHS is a plain ident of an already-tracked name.
+				if src := aliasOf(stmt); src != "" {
+					if _, ok := states[aliases.root(src)]; ok {
+						aliases.register(stmt.Name, src)
+					}
+				}
 			case "var_decl":
 				checkExprHelperWrites(stmt.Value, checkWrite)
 			case "assign":
@@ -204,7 +116,8 @@ func validateTypedRingbuf(fn ir.Function, ringMaps map[string]ir.Map) []diag.Dia
 					if _, ok := ringMaps[mapName]; !ok {
 						break
 					}
-					state, ok := states[varName]
+					root := aliases.root(varName)
+					state, ok := states[root]
 					if !ok {
 						diags = append(diags, diag.Diagnostic{
 							Code:     "HZN2101",
@@ -216,34 +129,51 @@ func validateTypedRingbuf(fn ir.Function, ringMaps map[string]ir.Map) []diag.Dia
 					}
 					switch state.State {
 					case "maybe_nil":
-						if !reportedMissingNil[varName] {
-							diags = append(diags, missingNilCheckAt(fn, varName, stmt.Span))
-							reportedMissingNil[varName] = true
+						if !reportedMissingNil[root] {
+							diags = append(diags, missingNilCheckAt(fn, root, stmt.Span))
+							reportedMissingNil[root] = true
 						}
 						state.State = "consumed"
 					case "consumed", "maybe_consumed":
-						diags = append(diags, diag.Diagnostic{
-							Code:     "HZN2102",
-							Severity: diag.SeverityError,
-							Message:  fmt.Sprintf("ringbuf reservation %q is submitted or discarded more than once", varName),
-							Primary:  stmt.Span,
-						})
+						key := fmt.Sprintf("HZN2102:%s:%d:%d", root, stmt.Span.Start.Line, stmt.Span.Start.Column)
+						if !reportedAt[key] {
+							reportedAt[key] = true
+							diags = append(diags, diag.Diagnostic{
+								Code:     "HZN2102",
+								Severity: diag.SeverityError,
+								Message:  fmt.Sprintf("ringbuf reservation %q is submitted or discarded more than once", root),
+								Primary:  stmt.Span,
+							})
+						}
 					case "nil":
-						diags = append(diags, diag.Diagnostic{
-							Code:     "HZN2105",
-							Severity: diag.SeverityError,
-							Message:  fmt.Sprintf("nil ringbuf reservation %q cannot be submitted or discarded", varName),
-							Primary:  stmt.Span,
-						})
+						key := fmt.Sprintf("HZN2105:%s:%d:%d", root, stmt.Span.Start.Line, stmt.Span.Start.Column)
+						if !reportedAt[key] {
+							reportedAt[key] = true
+							diags = append(diags, diag.Diagnostic{
+								Code:     "HZN2105",
+								Severity: diag.SeverityError,
+								Message:  fmt.Sprintf("nil ringbuf reservation %q cannot be submitted or discarded", root),
+								Primary:  stmt.Span,
+							})
+						}
+					case "escaped":
+						// escaped: call already received the resource; treat as consumed.
+						state.State = "consumed"
 					default:
 						state.State = "consumed"
 					}
-					states[varName] = state
+					states[root] = state
 					break
 				}
 				if varName, ok := helperWriteBase(stmt.Expr); ok {
 					checkWrite(varName, stmt.Span)
 				}
+				// Apply the user-helper effect summary to the call's args. For
+				// known user helpers, transitions are precise (Consumes →
+				// consumed, Preserves → unchanged, Mixed → maybe_consumed).
+				// For Unknown / Escapes / non-user-helper call sites, the
+				// fallback is Phase 1's "escaped" suppression.
+				applyHelperEffectRingbuf(stmt.Expr, states, aliases, effects)
 			case "if":
 				outerStates := states
 				scoped := stmt.Init != nil
@@ -253,11 +183,14 @@ func validateTypedRingbuf(fn ir.Function, ringMaps map[string]ir.Map) []diag.Dia
 				}
 				func() {
 					checkExprHelperWrites(stmt.Cond, checkWrite)
-					if varName, ok := nilCheckedVar(stmt.Cond); ok {
+					if eqVars := nilCheckedVars(stmt.Cond); len(eqVars) > 0 {
 						branchStates := cloneReserveStates(states)
-						if state, ok := branchStates[varName]; ok && state.State == "maybe_nil" {
-							state.State = "nil"
-							branchStates[varName] = state
+						for _, varName := range eqVars {
+							root := aliases.root(varName)
+							if state, ok := branchStates[root]; ok && state.State == "maybe_nil" {
+								state.State = "nil"
+								branchStates[root] = state
+							}
 						}
 						oldStates := states
 						states = branchStates
@@ -266,9 +199,12 @@ func validateTypedRingbuf(fn ir.Function, ringMaps map[string]ir.Map) []diag.Dia
 						states = oldStates
 						if len(stmt.Else) > 0 {
 							elseStates := cloneReserveStates(oldStates)
-							if state, ok := elseStates[varName]; ok && state.State == "maybe_nil" {
-								state.State = "live"
-								elseStates[varName] = state
+							for _, varName := range eqVars {
+								root := aliases.root(varName)
+								if state, ok := elseStates[root]; ok && state.State == "maybe_nil" {
+									state.State = "live"
+									elseStates[root] = state
+								}
 							}
 							states = elseStates
 							walk(stmt.Else)
@@ -277,18 +213,24 @@ func validateTypedRingbuf(fn ir.Function, ringMaps map[string]ir.Map) []diag.Dia
 							return
 						}
 						if branchAlwaysReturns(stmt.Then) {
-							if state, ok := states[varName]; ok && state.State == "maybe_nil" {
-								state.State = "live"
-								states[varName] = state
+							for _, varName := range eqVars {
+								root := aliases.root(varName)
+								if state, ok := states[root]; ok && state.State == "maybe_nil" {
+									state.State = "live"
+									states[root] = state
+								}
 							}
 						}
 						return
 					}
-					if varName, ok := nilComparedVar(stmt.Cond, "!="); ok {
+					if neqVars := nilComparedVars(stmt.Cond, "!="); len(neqVars) > 0 {
 						branchStates := cloneReserveStates(states)
-						if state, ok := branchStates[varName]; ok && state.State == "maybe_nil" {
-							state.State = "live"
-							branchStates[varName] = state
+						for _, varName := range neqVars {
+							root := aliases.root(varName)
+							if state, ok := branchStates[root]; ok && state.State == "maybe_nil" {
+								state.State = "live"
+								branchStates[root] = state
+							}
 						}
 						oldStates := states
 						states = branchStates
@@ -297,9 +239,12 @@ func validateTypedRingbuf(fn ir.Function, ringMaps map[string]ir.Map) []diag.Dia
 						states = oldStates
 						if len(stmt.Else) > 0 {
 							elseStates := cloneReserveStates(oldStates)
-							if state, ok := elseStates[varName]; ok && state.State == "maybe_nil" {
-								state.State = "nil"
-								elseStates[varName] = state
+							for _, varName := range neqVars {
+								root := aliases.root(varName)
+								if state, ok := elseStates[root]; ok && state.State == "maybe_nil" {
+									state.State = "nil"
+									elseStates[root] = state
+								}
 							}
 							states = elseStates
 							walk(stmt.Else)
@@ -329,7 +274,42 @@ func validateTypedRingbuf(fn ir.Function, ringMaps map[string]ir.Map) []diag.Dia
 			case "switch":
 				walkReserveSwitch(stmt, &states, checkWrite, walk)
 			case "for":
+				// Bounded 2-iteration fixpoint for loop-carry state soundness (#5).
+				// Walking the body once misses patterns like submit(event) inside a
+				// loop where event was reserved outside — iteration 2 catches it.
+				//
+				// Walk init/post as flat statements so loop variables (e.g. i := 0)
+				// are registered in states; they are not resource-carrying so no
+				// ringbuf state changes, but skipping them is consistent with maps.go.
+				if stmt.Init != nil {
+					walk([]ir.Statement{*stmt.Init})
+				}
+				checkExprHelperWrites(stmt.Cond, checkWrite)
+				if stmt.Post != nil {
+					walk([]ir.Statement{*stmt.Post})
+				}
+				// Iteration 1: snapshot pre-loop state, walk body.
+				savedStates := cloneReserveStates(states)
 				walk(stmt.Body)
+				afterIter1 := cloneReserveStates(states)
+				// Merge pre-loop + post-iter-1 → may-have-iterated state.
+				// This models the case where the body executed 0 or 1 times already.
+				mayHaveIterated := mergeReserveBranchStates(savedStates, afterIter1, false, false)
+				// Bounded 2-iteration walk. For the resource-state lattice values reachable
+				// from v0.2 grammar (maybe_nil, live, consumed, maybe_consumed, nil, escaped),
+				// two iterations suffice to detect cross-iteration regressions like
+				// double-submit and write-after-submit. The lattice is finite and merge is
+				// idempotent for these specific transitions in practice, but we do NOT
+				// prove a general fixpoint theorem — if a future state value or transition
+				// causes iter-3 to differ from iter-2, the fixpoint is unsound and should
+				// be revisited (roadmap entry will track if it ever happens).
+				// Range-over and for {} are not modeled here; HZN2200 rejects
+				// unbounded for {} at AnalyzeLoops. (roadmap: v0.3+)
+				states = mayHaveIterated
+				walk(stmt.Body)
+				afterIter2 := cloneReserveStates(states)
+				// Post-loop state: merge iter-1 and iter-2 outcomes.
+				states = mergeReserveBranchStates(afterIter1, afterIter2, false, false)
 			case "return":
 				for varName, state := range states {
 					if state.State == "live" || state.State == "maybe_nil" || state.State == "maybe_consumed" {
@@ -341,12 +321,105 @@ func validateTypedRingbuf(fn ir.Function, ringMaps map[string]ir.Map) []diag.Dia
 	}
 	walk(functionStatements(fn))
 	for varName, state := range states {
-		if state.State == "consumed" || state.State == "nil" {
+		if state.State == "consumed" || state.State == "nil" || state.State == "escaped" {
 			continue
 		}
 		reportLive(varName, fn.Span)
 	}
 	return diags
+}
+
+// applyHelperEffectRingbuf transitions caller-side ringbuf reservation state
+// at every call site, consulting the program-level HelperEffects summary.
+//
+// Three classes of call site:
+//
+//  1. Compiler-known ringbuf consume (Events.submit / Events.discard): NOT
+//     handled here — consumeCall above intercepts these before the dispatcher
+//     reaches applyHelperEffectRingbuf, and the consume-state transitions are
+//     applied there. We early-return so the arg-ident is not double-processed
+//     here.
+//
+//  2. User-helper call (bare-ident callee): per arg, consult
+//     effects.EffectFor(name, i):
+//     - Consumes → live | maybe_nil → consumed
+//     - Preserves → state unchanged
+//     - Mixed → live → maybe_consumed (lattice already supports this)
+//     - Escapes / Unknown → fall back to Phase 1 behavior: live → escaped
+//
+//  3. Any other call (selector-form non-consume call like a future xdp helper
+//     that doesn't exist today): fall back to Phase 1 escape, conservative.
+//
+// The function recurses into Args so nested calls (f(g(event))) are processed
+// in lexical order — g's effect on event applies before f's. It also recurses
+// into Operand/Left/Right/Func to catch calls inside binary expressions and
+// the like.
+//
+// NOTE: ringbuf preserves the Phase 1 asymmetry vs maps/packet — the escaped
+// fallback is gated on state == "live" so a `maybe_nil` reservation passed to
+// an unanalyzable helper still fires HZN2100 on the next use. Maps/packet
+// (Task 5/6) widen this gate; ringbuf does not.
+func applyHelperEffectRingbuf(expr *ir.Expr, states map[string]reserveState, aliases *aliasGraph, effects HelperEffects) {
+	if expr == nil {
+		return
+	}
+	if expr.Kind == "call" {
+		// Compiler-known consume calls are intercepted by consumeCall in the
+		// dispatcher above; do not double-process their arg here.
+		if _, _, _, ok := consumeCall(expr); !ok {
+			helperName := userHelperName(expr.Func)
+			for i := range expr.Args {
+				arg := &expr.Args[i]
+				// Recurse into the arg FIRST so nested calls like
+				// outer(inner(event)) classify inner's effect on event
+				// before outer's. This matches lexical evaluation order.
+				applyHelperEffectRingbuf(arg, states, aliases, effects)
+				if arg.Kind != "ident" {
+					continue
+				}
+				root := aliases.root(arg.Name)
+				state, ok := states[root]
+				if !ok {
+					continue
+				}
+				if helperName != "" {
+					switch effects.EffectFor(helperName, i) {
+					case HelperEffectConsumes:
+						if state.State == "live" || state.State == "maybe_nil" {
+							state.State = "consumed"
+							states[root] = state
+						}
+					case HelperEffectPreserves:
+						// State unchanged — helper provably does not consume.
+					case HelperEffectMixed:
+						if state.State == "live" {
+							state.State = "maybe_consumed"
+							states[root] = state
+						}
+					default:
+						// HelperEffectEscapes or HelperEffectUnknown: fall
+						// back to Phase 1 escape behavior.
+						if state.State == "live" {
+							state.State = "escaped"
+							states[root] = state
+						}
+					}
+					continue
+				}
+				// Non-user-helper call site (selector form that wasn't a
+				// known consume): Phase 1 fallback.
+				if state.State == "live" {
+					state.State = "escaped"
+					states[root] = state
+				}
+			}
+		}
+	}
+	// Recurse into non-arg sub-expressions (func selector, operands, etc.).
+	applyHelperEffectRingbuf(expr.Operand, states, aliases, effects)
+	applyHelperEffectRingbuf(expr.Left, states, aliases, effects)
+	applyHelperEffectRingbuf(expr.Right, states, aliases, effects)
+	applyHelperEffectRingbuf(expr.Func, states, aliases, effects)
 }
 
 func missingNilCheck(fn ir.Function, varName string) diag.Diagnostic {
@@ -372,31 +445,19 @@ func liveOnReturnAt(fn ir.Function, varName string, primary span.Span) diag.Diag
 	}
 }
 
-func bodyLines(fn ir.Function) []string {
-	text := fn.BodyText
-	if text == "" {
-		for _, block := range fn.Body {
-			for _, stmt := range block.Statements {
-				if stmt.Value != nil && stmt.Value.Kind == "raw" {
-					text += "\n" + stmt.Value.Value
-				}
-			}
-		}
+func functionStatements(fn ir.Function) []ir.Statement {
+	var out []ir.Statement
+	for _, block := range fn.Body {
+		out = append(out, block.Statements...)
 	}
-	text = strings.ReplaceAll(text, "{", "{\n")
-	text = strings.ReplaceAll(text, "}", "\n}")
-	raw := strings.Split(text, "\n")
-	lines := make([]string, 0, len(raw))
-	for _, line := range raw {
-		line = strings.TrimSpace(line)
-		if line == "" || line == "{" || line == "}" {
-			continue
-		}
-		lines = append(lines, strings.TrimSuffix(line, ";"))
-	}
-	return lines
+	return out
 }
 
+// hasTypedStatements reports whether fn contains at least one typed IR statement
+// (i.e. a statement whose Kind is not "raw", "unknown", or ""). Functions that
+// return false have no typed-IR coverage and are skipped by Collect and the
+// stack estimator; once all IR-build paths emit typed statements this guard
+// becomes vacuously true everywhere and can be removed.
 func hasTypedStatements(fn ir.Function) bool {
 	for _, stmt := range functionStatements(fn) {
 		switch stmt.Kind {
@@ -407,14 +468,6 @@ func hasTypedStatements(fn ir.Function) bool {
 		}
 	}
 	return false
-}
-
-func functionStatements(fn ir.Function) []ir.Statement {
-	var out []ir.Statement
-	for _, block := range fn.Body {
-		out = append(out, block.Statements...)
-	}
-	return out
 }
 
 func cloneReserveStates(in map[string]reserveState) map[string]reserveState {
@@ -443,6 +496,8 @@ func reportScopedLiveReservations(states map[string]reserveState, outer map[stri
 		if state.State == "live" || state.State == "maybe_nil" || state.State == "maybe_consumed" {
 			report(name, primary)
 		}
+		// "escaped" is not reported — the resource may have been consumed by
+		// the callee; reporting would be a false positive.
 	}
 }
 
@@ -530,6 +585,12 @@ func mergeReserveState(a reserveState, b reserveState) reserveState {
 func mergeReserveStateName(a string, b string) string {
 	if a == b {
 		return a
+	}
+	// "escaped" merges with anything → "escaped": we can never know whether
+	// the callee consumed the resource, so we conservatively suppress
+	// HZN2104. Escaped overrides even "live" to prevent false positives.
+	if a == "escaped" || b == "escaped" {
+		return "escaped"
 	}
 	if a == "maybe_nil" || b == "maybe_nil" {
 		return "maybe_nil"
@@ -641,18 +702,6 @@ func selectorBase(expr *ir.Expr) (string, bool) {
 	}
 }
 
-func nilCheckedVar(expr *ir.Expr) (string, bool) {
-	if expr == nil || expr.Kind != "binary" || expr.Op != "==" {
-		return "", false
-	}
-	if expr.Left != nil && expr.Left.Kind == "ident" && expr.Right != nil && expr.Right.Kind == "nil" {
-		return expr.Left.Name, true
-	}
-	if expr.Right != nil && expr.Right.Kind == "ident" && expr.Left != nil && expr.Left.Kind == "nil" {
-		return expr.Right.Name, true
-	}
-	return "", false
-}
 
 func branchAlwaysReturns(stmts []ir.Statement) bool {
 	if len(stmts) == 0 {

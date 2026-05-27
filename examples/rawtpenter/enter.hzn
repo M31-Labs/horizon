@@ -1,0 +1,22 @@
+package probes
+
+type RawTPEnterEvent struct {
+    pid u32
+}
+
+map RawTPEnterEvents ringbuf[RawTPEnterEvent]
+
+capability RawTPEnterObserve danger observe = "kernel.process.exec.observe"
+
+@capability(RawTPEnterObserve)
+@raw_tp("sched_process_exec")
+func OnExecEnter(ctx raw_tp.Context) i32 {
+    event := RawTPEnterEvents.reserve()
+    if event == nil {
+        return 0
+    }
+    // pid hardcoded to 0 until bpf.* helpers are wired for raw_tp context (Track A coordination).
+    event.pid = 0
+    RawTPEnterEvents.submit(event)
+    return 0
+}

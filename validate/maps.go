@@ -15,7 +15,17 @@ import (
 // validateTypedMapLookups) re-walks per-function but uses sites.MapLookup as the
 // index to avoid iterating all program functions — only functions with at least
 // one map lookup site are analyzed.
-func AnalyzeMaps(program ir.Program, sites Sites) []diag.Diagnostic {
+//
+// effects is the program-level user-helper effect summary built once by
+// validate.Program (Phase 2 #13). When a tracked lookup result is passed to a
+// user helper, applyHelperEffectLookup consults this summary to decide whether
+// to widen the caller's state to `escaped`. For maps the load-bearing case is
+// Preserves: a helper that does not consume the lookup pointer should NOT
+// suppress the caller's deref check. Consumes/Mixed at the caller side are
+// indistinguishable from Preserves for the lookup state machine — the caller
+// still has to nil-check before its own deref because lookup pointers are
+// not "owned" the way ringbuf reservations are.
+func AnalyzeMaps(program ir.Program, sites Sites, effects HelperEffects) []diag.Diagnostic {
 	var diags []diag.Diagnostic
 	for _, m := range program.Maps {
 		switch m.Kind {
@@ -61,7 +71,7 @@ func AnalyzeMaps(program ir.Program, sites Sites) []diag.Diagnostic {
 				continue
 			}
 			seen[site.Function] = true
-			diags = append(diags, validateTypedMapLookups(*site.Function, lookupMaps)...)
+			diags = append(diags, validateTypedMapLookups(*site.Function, lookupMaps, effects)...)
 		}
 	}
 	return diags
@@ -97,8 +107,9 @@ type lookupState struct {
 	State  string
 }
 
-func validateTypedMapLookups(fn ir.Function, lookupMaps map[string]ir.Map) []diag.Diagnostic {
+func validateTypedMapLookups(fn ir.Function, lookupMaps map[string]ir.Map, effects HelperEffects) []diag.Diagnostic {
 	states := map[string]lookupState{}
+	aliases := newAliasGraph()
 	reported := map[string]bool{}
 	var diags []diag.Diagnostic
 	reportDeref := func(varName string, state lookupState, primary span.Span) {
@@ -115,6 +126,9 @@ func validateTypedMapLookups(fn ir.Function, lookupMaps map[string]ir.Map) []dia
 				Message:  fmt.Sprintf("nil %s %q cannot be dereferenced", state.Label, varName),
 				Primary:  primary,
 			})
+		case "escaped":
+			// escaped: resource passed to unknown function; skip deref warning
+			// since we cannot determine its nil-status post-call.
 		default:
 			diags = append(diags, diag.Diagnostic{
 				Code:     "HZN2500",
@@ -132,8 +146,9 @@ func validateTypedMapLookups(fn ir.Function, lookupMaps map[string]ir.Map) []dia
 		}
 		if expr.Kind == "selector" {
 			if varName, ok := selectorBase(expr); ok {
-				if state, ok := states[varName]; ok && state.State != "live" {
-					reportDeref(varName, state, expr.Span)
+				root := aliases.root(varName)
+				if state, ok := states[root]; ok && state.State != "live" {
+					reportDeref(root, state, expr.Span)
 				}
 			}
 		}
@@ -160,12 +175,27 @@ func validateTypedMapLookups(fn ir.Function, lookupMaps map[string]ir.Map) []dia
 							states[stmt.Name] = lookupState{Source: mapName, Label: "map lookup result", State: "maybe_nil"}
 						}
 					}
+					// Register alias if the RHS is a plain ident of an already-tracked name.
+					if src := aliasOf(stmt); src != "" {
+						if _, ok := states[aliases.root(src)]; ok {
+							aliases.register(stmt.Name, src)
+						}
+					}
 				}
 			case "assign":
 				checkExpr(stmt.Target)
 				checkExpr(stmt.Value)
 			case "expr":
 				checkExpr(stmt.Expr)
+				// Apply the user-helper effect summary to the call's args.
+				// For maps, Preserves is the load-bearing case — it stops
+				// the Phase 1 over-suppression that turned `maybe_nil` →
+				// `escaped` on any call, silencing the caller's downstream
+				// deref check. Consumes / Mixed at the caller side do not
+				// change state for lookups (the caller still needs its own
+				// nil-check before its own deref). Escapes / Unknown fall
+				// back to Phase 1 behavior.
+				applyHelperEffectLookup(stmt.Expr, states, aliases, effects)
 			case "return":
 				checkExpr(stmt.Value)
 			case "if":
@@ -177,11 +207,14 @@ func validateTypedMapLookups(fn ir.Function, lookupMaps map[string]ir.Map) []dia
 				}
 				func() {
 					checkExpr(stmt.Cond)
-					if varName, ok := nilComparedVar(stmt.Cond, "=="); ok {
+					if eqVars := nilCheckedVars(stmt.Cond); len(eqVars) > 0 {
 						branchStates := cloneLookupStates(states)
-						if state, ok := branchStates[varName]; ok && state.State == "maybe_nil" {
-							state.State = "nil"
-							branchStates[varName] = state
+						for _, varName := range eqVars {
+							root := aliases.root(varName)
+							if state, ok := branchStates[root]; ok && state.State == "maybe_nil" {
+								state.State = "nil"
+								branchStates[root] = state
+							}
 						}
 						oldStates := states
 						states = branchStates
@@ -190,9 +223,12 @@ func validateTypedMapLookups(fn ir.Function, lookupMaps map[string]ir.Map) []dia
 						states = oldStates
 						if len(stmt.Else) > 0 {
 							elseStates := cloneLookupStates(oldStates)
-							if state, ok := elseStates[varName]; ok && state.State == "maybe_nil" {
-								state.State = "live"
-								elseStates[varName] = state
+							for _, varName := range eqVars {
+								root := aliases.root(varName)
+								if state, ok := elseStates[root]; ok && state.State == "maybe_nil" {
+									state.State = "live"
+									elseStates[root] = state
+								}
 							}
 							states = elseStates
 							walk(stmt.Else)
@@ -201,18 +237,24 @@ func validateTypedMapLookups(fn ir.Function, lookupMaps map[string]ir.Map) []dia
 							return
 						}
 						if branchAlwaysReturns(stmt.Then) {
-							if state, ok := states[varName]; ok && state.State == "maybe_nil" {
-								state.State = "live"
-								states[varName] = state
+							for _, varName := range eqVars {
+								root := aliases.root(varName)
+								if state, ok := states[root]; ok && state.State == "maybe_nil" {
+									state.State = "live"
+									states[root] = state
+								}
 							}
 						}
 						return
 					}
-					if varName, ok := nilComparedVar(stmt.Cond, "!="); ok {
+					if neqVars := nilComparedVars(stmt.Cond, "!="); len(neqVars) > 0 {
 						branchStates := cloneLookupStates(states)
-						if state, ok := branchStates[varName]; ok && state.State == "maybe_nil" {
-							state.State = "live"
-							branchStates[varName] = state
+						for _, varName := range neqVars {
+							root := aliases.root(varName)
+							if state, ok := branchStates[root]; ok && state.State == "maybe_nil" {
+								state.State = "live"
+								branchStates[root] = state
+							}
 						}
 						oldStates := states
 						states = branchStates
@@ -221,9 +263,12 @@ func validateTypedMapLookups(fn ir.Function, lookupMaps map[string]ir.Map) []dia
 						states = oldStates
 						if len(stmt.Else) > 0 {
 							elseStates := cloneLookupStates(oldStates)
-							if state, ok := elseStates[varName]; ok && state.State == "maybe_nil" {
-								state.State = "nil"
-								elseStates[varName] = state
+							for _, varName := range neqVars {
+								root := aliases.root(varName)
+								if state, ok := elseStates[root]; ok && state.State == "maybe_nil" {
+									state.State = "nil"
+									elseStates[root] = state
+								}
 							}
 							states = elseStates
 							walk(stmt.Else)
@@ -281,6 +326,13 @@ func validateTypedMapLookups(fn ir.Function, lookupMaps map[string]ir.Map) []dia
 				}
 				states = mergedStates
 			case "for":
+				// Bounded 2-iteration walk for loop-carry state soundness (#5).
+				// The lookup-state lattice (nil → maybe_nil → guarded) has height 2
+				// and a provably monotone join (lub), so two iterations are sufficient
+				// — iter-3 is always identical to iter-2 for any reachable transition.
+				// Walking the body once misses unguarded derefs on iteration 2+ when a
+				// lookup state is already maybe_nil.
+				// Range-over and for {} not modeled; HZN2200 rejects for {}.
 				if stmt.Init != nil {
 					walk([]ir.Statement{*stmt.Init})
 				}
@@ -288,12 +340,106 @@ func validateTypedMapLookups(fn ir.Function, lookupMaps map[string]ir.Map) []dia
 				if stmt.Post != nil {
 					walk([]ir.Statement{*stmt.Post})
 				}
+				// Iteration 1: snapshot pre-loop state, walk body.
+				savedStates := cloneLookupStates(states)
 				walk(stmt.Body)
+				afterIter1 := cloneLookupStates(states)
+				// Merge pre-loop + post-iter-1 → may-have-iterated state.
+				mayHaveIterated := mergeLookupBranchStates(savedStates, afterIter1, false, false)
+				// Iteration 2: walk body again; diagnostics here catch cross-iteration issues.
+				states = mayHaveIterated
+				walk(stmt.Body)
+				afterIter2 := cloneLookupStates(states)
+				// Post-loop state: merge iter-1 and iter-2 outcomes.
+				states = mergeLookupBranchStates(afterIter1, afterIter2, false, false)
 			}
 		}
 	}
 	walk(functionStatements(fn))
 	return diags
+}
+
+// applyHelperEffectLookup transitions caller-side map-lookup state at every
+// call site, consulting the program-level HelperEffects summary.
+//
+// For maps, the Phase 1 rule was: any non-live lookup state passed to ANY
+// call widens to "escaped" — including `maybe_nil`, which over-suppressed
+// the caller's downstream deref check (HZN2500). This is the load-bearing
+// regression Task 5 fixes.
+//
+// Per-call-site behavior:
+//
+//  1. User-helper call (bare-ident callee): per arg, consult
+//     effects.EffectFor(name, i):
+//     - Preserves → state unchanged (the load-bearing case — stops over-
+//       suppression so the caller's deref check still fires).
+//     - Consumes  → state unchanged. Lookup pointers are not "owned" the
+//       way ringbuf reservations are; the helper's internal deref does not
+//       absolve the caller of its own nil-check. Indistinguishable from
+//       Preserves at the caller side today; the distinction is kept on
+//       the summary side because v0.3 may use it differently.
+//     - Mixed     → state unchanged. Same reasoning as Consumes.
+//     - Escapes / Unknown → Phase 1 fallback: any non-live state widens
+//       to "escaped".
+//
+//  2. Any other call (compiler-known map method like Counts.lookup, or a
+//     selector form that isn't a known helper): fall back to Phase 1
+//     escape — any non-live state widens to "escaped". This preserves the
+//     conservative behavior for call sites we cannot precisely classify.
+//
+// The function recurses into Args so nested calls (f(g(count))) are
+// processed in lexical order — g's effect on count applies before f's.
+//
+// NOTE: maps preserves the Phase 1 asymmetry vs ringbuf — escape applies to
+// ANY non-live state (including `maybe_nil`), not just `live`. The fallback
+// gate is `state.State != "live" && state.State != "escaped"`, matching
+// pre-Task-5 behavior for unanalyzable calls.
+func applyHelperEffectLookup(expr *ir.Expr, states map[string]lookupState, aliases *aliasGraph, effects HelperEffects) {
+	if expr == nil {
+		return
+	}
+	if expr.Kind == "call" {
+		helperName := userHelperName(expr.Func)
+		for i := range expr.Args {
+			arg := &expr.Args[i]
+			// Recurse into the arg FIRST so nested calls classify their
+			// effect on the arg before the outer call.
+			applyHelperEffectLookup(arg, states, aliases, effects)
+			if arg.Kind != "ident" {
+				continue
+			}
+			root := aliases.root(arg.Name)
+			state, ok := states[root]
+			if !ok {
+				continue
+			}
+			if helperName != "" {
+				switch effects.EffectFor(helperName, i) {
+				case HelperEffectPreserves, HelperEffectConsumes, HelperEffectMixed:
+					// State unchanged — for maps, the caller still owes a
+					// nil-check before its own deref regardless of what
+					// the helper did internally.
+				default:
+					// HelperEffectEscapes or HelperEffectUnknown: fall
+					// back to Phase 1 "any non-live → escaped".
+					if state.State != "live" && state.State != "escaped" {
+						state.State = "escaped"
+						states[root] = state
+					}
+				}
+				continue
+			}
+			// Non-user-helper call site (selector form): Phase 1 fallback.
+			if state.State != "live" && state.State != "escaped" {
+				state.State = "escaped"
+				states[root] = state
+			}
+		}
+	}
+	applyHelperEffectLookup(expr.Operand, states, aliases, effects)
+	applyHelperEffectLookup(expr.Left, states, aliases, effects)
+	applyHelperEffectLookup(expr.Right, states, aliases, effects)
+	applyHelperEffectLookup(expr.Func, states, aliases, effects)
 }
 
 func nilGuardSuggestion(fn ir.Function, varName string) string {
@@ -323,18 +469,6 @@ func mapLookupCall(expr *ir.Expr) (string, bool) {
 	return operand.Name, true
 }
 
-func nilComparedVar(expr *ir.Expr, op string) (string, bool) {
-	if expr == nil || expr.Kind != "binary" || expr.Op != op {
-		return "", false
-	}
-	if expr.Left != nil && expr.Left.Kind == "ident" && expr.Right != nil && expr.Right.Kind == "nil" {
-		return expr.Left.Name, true
-	}
-	if expr.Right != nil && expr.Right.Kind == "ident" && expr.Left != nil && expr.Left.Kind == "nil" {
-		return expr.Right.Name, true
-	}
-	return "", false
-}
 
 func cloneLookupStates(in map[string]lookupState) map[string]lookupState {
 	out := make(map[string]lookupState, len(in))
@@ -391,6 +525,12 @@ func mergeLookupState(a lookupState, b lookupState) lookupState {
 }
 
 func mergeNilPromotionState(a string, b string) string {
+	// "escaped" merges with anything → "escaped": we can never know whether
+	// the callee consumed the resource, so we conservatively suppress HZN2500/HZN2600.
+	// Escaped overrides even "live" to prevent false positives.
+	if a == "escaped" || b == "escaped" {
+		return "escaped"
+	}
 	if a == b {
 		return a
 	}
