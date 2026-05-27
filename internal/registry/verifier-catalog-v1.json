@@ -17,7 +17,7 @@
       },
       "hzn_code": "HZN3110",
       "common_cause": "The verifier rejects a load through a pointer whose nullability has not been proven. This typically means a helper return (bpf_map_lookup_elem, bpf_ringbuf_reserve, bpf_sk_lookup_tcp, etc.) was dereferenced before a nil check on every path. The verifier tracks the helper return as a scalar until it is compared against NULL.",
-      "remediation": "Insert a nil guard ({{if .Captures.register}}for {{.Captures.register}}{{end}}) before dereferencing the helper's return: in .hzn, use a `match` arm or `if x != nil { ... }` and reference the checked local. If the Horizon validator did not flag this in source, the alias graph (Phase 1 #1) missed the binding — file a bug.",
+      "remediation": "Insert a nil guard{{if .Captures.register}} (for {{.Captures.register}}){{end}} before dereferencing the helper's return: in .hzn, use a `match` arm or `if x != nil { ... }` and reference the checked local. If the Horizon validator did not flag this in source, the alias graph (Phase 1 #1) missed the binding — file a bug.",
       "see_also": ["HZN2500", "HZN2600"],
       "introduced": "v0.2.0",
       "kernel_min": "5.10"

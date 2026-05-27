@@ -156,6 +156,63 @@ func TestCollectFindsStackLocalSiteFromSyntheticFixture(t *testing.T) {
 	}
 }
 
+// TestCollectFindsStackLocalSiteFromInferredType verifies that Collect
+// detects a short_var whose RHS has an inferred aggregate type — e.g.
+// `event := makeEvent()` where makeEvent returns a struct/array by value.
+// Pre-v0.3 Phase 0 #4, the inferred-type case lived in the legacy
+// validate/stack.go pass and was never indexed in sites.StackLocals;
+// unification widens Collect to cover it.
+func TestCollectFindsStackLocalSiteFromInferredType(t *testing.T) {
+	prog := ir.Program{
+		Structs: []ir.Struct{{
+			Name: "MyEvent",
+			Fields: []ir.Field{
+				{Name: "pid", Type: ir.Type{Name: "u32"}},
+				{Name: "comm", Type: ir.Type{Len: "16", Elem: &ir.Type{Name: "u8"}}},
+			},
+		}},
+		Functions: []ir.Function{{
+			Name:   "makeEvent",
+			Return: ir.Type{Name: "MyEvent"},
+			Body: []ir.Block{{
+				Statements: []ir.Statement{{
+					Kind: "return",
+					Value: &ir.Expr{
+						Kind: "struct_lit",
+						Name: "MyEvent",
+					},
+				}},
+			}},
+		}, {
+			Name: "fnInferredAggregate",
+			Body: []ir.Block{{
+				Statements: []ir.Statement{{
+					Kind: "short_var",
+					Name: "evt",
+					Value: &ir.Expr{
+						Kind: "call",
+						Func: &ir.Expr{Kind: "ident", Name: "makeEvent"},
+					},
+				}},
+			}},
+		}},
+	}
+	sites := validate.Collect(prog)
+	var inferred []validate.StackLocalSite
+	for _, s := range sites.StackLocals {
+		if s.Function != nil && s.Function.Name == "fnInferredAggregate" {
+			inferred = append(inferred, s)
+		}
+	}
+	if len(inferred) != 1 {
+		t.Fatalf("want 1 inferred-type stack local site in fnInferredAggregate, got %d (total sites: %d)",
+			len(inferred), len(sites.StackLocals))
+	}
+	if got := inferred[0].Type.Name; got != "MyEvent" {
+		t.Fatalf("inferred stack local type: got %q, want %q", got, "MyEvent")
+	}
+}
+
 // TestCollectRecursesIntoIfInit verifies C1 (if.Init is traversed) and C2
 // (the Stmt pointer in RingbufReserveSite is the original Init pointer, not a
 // pointer into a temporary copy). It constructs an if-statement whose Init
