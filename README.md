@@ -953,8 +953,7 @@ deployment.
 
 The current manifest schema is `m31labs.dev/horizon/capability/v1`.
 v0 manifests remain loadable through `capability.LoadManifest()`
-(auto-migrated in memory) through v0.2.x; the v0 loader is scheduled
-for removal in v0.3.
+(auto-migrated in memory, emits an `HZN3303` deprecation warning).
 
 A manifest contains:
 
