@@ -21,12 +21,22 @@ import (
 //     section string ("kernel.process.exec.observe") produce an HZN1553
 //     advisory warning. Both qualified entries remain in the output.
 //   - Maps deduplicate by qualified Name. Conflicting shapes (different
-//     kind/key/value/max_entries) emit an HZN1564 error.
+//     kind/key/value/max_entries) emit an HZN1566 error (manifest-
+//     aggregation map shape conflict, post-IR-merge).
 //   - Type schemas deduplicate by Name. Conflicting layouts emit an
-//     HZN1565 error.
+//     HZN1567 error (manifest-aggregation type schema conflict).
 //   - Output is sorted lexicographically by qualified Name within each
 //     section (Capabilities, Maps, Types, Programs) so JSON marshalling
 //     is byte-stable across invocations.
+//
+// HZN156x code allocation across layers (v0.3 split, ADR-0003):
+//   - HZN1560: capability value conflict (aggregator)
+//   - HZN1562: function collision (IR merge, ir/qualified.go)
+//   - HZN1563: map collision (IR merge, ir/qualified.go)
+//   - HZN1564: struct layout collision (IR merge, ir/qualified.go)
+//   - HZN1565: capability collision (IR merge, ir/qualified.go)
+//   - HZN1566: map shape conflict (aggregator, this file)
+//   - HZN1567: type schema conflict (aggregator, this file)
 //
 // rootPackage names the resulting manifest. The function does NOT mutate
 // its input manifests; each Capability/Map is copied before any qualified-
@@ -115,13 +125,13 @@ func AggregateManifests(manifests []Manifest, rootPackage string) (Manifest, []d
 			if seen {
 				if !mapsEqual(prev, mp) {
 					diags = append(diags, diag.Diagnostic{
-						Code:     "HZN1564",
+						Code:     "HZN1566",
 						Severity: diag.SeverityError,
 						Message: fmt.Sprintf(
-							"map %q has conflicting shapes across packages",
+							"map %q has conflicting shapes across packages (detected at manifest aggregation)",
 							qname,
 						),
-						Suggest: "two packages contributed a map with the same qualified name but different kind / key / value / max_entries; rename one or move the shared definition to a single owning package",
+						Suggest: "manifest-aggregation map shape conflict: two packages contributed a map with the same qualified name but different kind / key / value / max_entries when their per-package manifests were folded into the root manifest; rename one or move the shared definition to a single owning package. (The IR-merge layer reports the analogous struct-layout conflict as HZN1564.)",
 					})
 				}
 				continue
@@ -132,12 +142,14 @@ func AggregateManifests(manifests []Manifest, rootPackage string) (Manifest, []d
 
 	// Types deduplicate by their bare Name. Type identity is anchored on the
 	// bare name because struct types form a flat namespace in the merged IR
-	// (cross-package layout collisions surface upstream as HZN1564 from
-	// ir.MergeWithDiagnostics). The TypeSchema.Origin field carries the
-	// import-alias provenance for downstream consumers that care; manifest
-	// map.value strings continue to reference the bare type name so the
-	// schema-level reference graph stays self-consistent without forcing
-	// every map.value rewrite during aggregation.
+	// (cross-package struct-layout collisions surface upstream as HZN1564
+	// from ir.MergeWithDiagnostics; the aggregator-layer twin for
+	// type-schema mismatches detected after IR merge is HZN1567 below).
+	// The TypeSchema.Origin field carries the import-alias provenance for
+	// downstream consumers that care; manifest map.value strings continue
+	// to reference the bare type name so the schema-level reference graph
+	// stays self-consistent without forcing every map.value rewrite during
+	// aggregation.
 	typesByName := map[string]TypeSchema{}
 	for _, m := range manifests {
 		for _, t := range m.Types {
@@ -145,13 +157,13 @@ func AggregateManifests(manifests []Manifest, rootPackage string) (Manifest, []d
 			if seen {
 				if !typeSchemasEqual(prev, t) {
 					diags = append(diags, diag.Diagnostic{
-						Code:     "HZN1565",
+						Code:     "HZN1567",
 						Severity: diag.SeverityError,
 						Message: fmt.Sprintf(
-							"type %q has conflicting layouts across packages",
+							"type %q has conflicting schemas across packages (detected at manifest aggregation)",
 							t.Name,
 						),
-						Suggest: "two packages contributed a struct with the same name but different fields; rename one or move the shared type to a single owning package",
+						Suggest: "manifest-aggregation type schema conflict: two packages contributed a type schema with the same bare name but different kind / size / fields when their per-package manifests were folded into the root manifest; rename one or move the shared type to a single owning package. (The IR-merge layer reports the analogous capability collision as HZN1565.)",
 					})
 				}
 				continue
@@ -162,11 +174,11 @@ func AggregateManifests(manifests []Manifest, rootPackage string) (Manifest, []d
 
 	// Programs deduplicate by qualified Name. Programs are dispatched by
 	// their attach section/kind; if two manifests contributed the same
-	// program name with different attach points we surface that as an
-	// HZN1565-class issue but keep the first definition. (Today's pipeline
-	// doesn't produce two programs with the same name across packages, so
-	// we don't allocate a fresh HZN code for this — collision detection
-	// is left to IR merge HZN1562.)
+	// program name with different attach points we keep the first
+	// definition without re-emitting a diagnostic — today's pipeline
+	// doesn't produce two programs with the same name across packages,
+	// and any such case would already have surfaced upstream as HZN1562
+	// (function collision) at IR merge.
 	programsByName := map[string]Program{}
 	for _, m := range manifests {
 		for _, p := range m.Programs {

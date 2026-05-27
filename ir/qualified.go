@@ -269,6 +269,13 @@ func isUnderDir(path, dir string) bool {
 //   - HZN1564 cross-package Struct collision
 //   - HZN1565 cross-package Capability collision
 //
+// Note: the manifest aggregator (capability.AggregateManifests) emits
+// HZN1566 and HZN1567 for structurally-similar conflicts detected
+// post-IR-merge — HZN1566 for map shape conflicts and HZN1567 for type
+// schema conflicts at the manifest-aggregation layer. Those aggregator
+// twins are intentionally distinct from the IR-merge codes here so a
+// diagnostic identifies which layer detected the collision (ADR-0003).
+//
 // Same-package collisions (Origin == "" on both sides) remain the
 // responsibility of types.CheckPackage / HZN1002 — IR merge is the wrong
 // layer to catch them because by the time lowering runs the type checker
