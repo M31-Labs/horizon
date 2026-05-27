@@ -85,7 +85,7 @@ func flagNeedsValue(arg string) bool {
 	if len(arg) >= 2 && arg[0:2] == "--" {
 		arg = arg[1:]
 	}
-	for _, name := range []string{"-o", "-map", "-generated", "-package", "-capabilities", "-template", "-capability"} {
+	for _, name := range []string{"-o", "-map", "-generated", "-package", "-capabilities", "-template", "-capability", "-manifest-out"} {
 		if arg == name || len(arg) > len(name) && arg[:len(name)+1] == name+"=" {
 			return arg == name
 		}
