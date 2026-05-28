@@ -41,7 +41,16 @@ kver = ver(kernel)
 with open(results_path) as f:
     results = json.load(f)
 loaded = {r["object"]: bool(r["loaded"]) for r in results.get("results", [])}
-logs = {r["object"]: r.get("log", "") for r in results.get("results", [])}
+# Verifier logs for rejected loads live as raw files beside results.json
+# (logs/<object>.log), never embedded in JSON — see in-guest-load.sh.
+log_dir = os.path.join(os.path.dirname(os.path.abspath(results_path)), "logs")
+def read_log(stem):
+    p = os.path.join(log_dir, stem + ".log")
+    try:
+        with open(p) as lf:
+            return lf.read()
+    except OSError:
+        return ""
 
 reports = sorted(glob.glob(os.path.join(art_dir, "*.report.json")))
 if not reports:
@@ -66,9 +75,10 @@ for rp in reports:
           f"expected_load={expected} actual_load={actual}")
     if actual != expected:
         mismatches += 1
-        if logs.get(stem):
+        log = read_log(stem)
+        if log:
             print("    verifier log (first 600 chars):")
-            print("    " + logs[stem][:600].replace("\n", "\n    "))
+            print("    " + log[:600].replace("\n", "\n    "))
 
 print(f"--- kernel {kernel}: {checked} checked, {mismatches} mismatch(es) ---")
 sys.exit(1 if mismatches else 0)
