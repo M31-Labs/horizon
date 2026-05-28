@@ -123,6 +123,29 @@ All notable changes to Horizon are documented in this file. Format follows
   (roadmap: #13)
 
 ### Added
+- Remote imports + versioning + lockfile + checksum. Imports of the
+  form `github.com/<org>/<repo>@v1.2.3` (or `@<sha>`, with at least 7
+  hex chars) now resolve via git into a content-addressed cache at
+  `$XDG_CACHE_HOME/horizon/modules/` (or `$HOME/.cache/horizon/modules/`).
+  Pinning lives in `hzn.lock` at the build root and is committed to VCS;
+  every load verifies the cached content's sha256 against the pin. A new
+  `hzn get <repo>@<ref>` subcommand resolves a new dependency, fetches
+  it, and writes/updates the lockfile in one step. Vendoring still works
+  as before — the remote-fetch path is purely additive, so existing
+  projects keep building without changes. The `m31labs.dev/<org>/<repo>`
+  shape with HTTP meta-redirect discovery is defined in ADR-0009 as a
+  stub for now; production discovery iterates without breaking the URL
+  contract. `git+ssh://` paths are out of scope. New diagnostics
+  `HZN1700` (lockfile checksum mismatch), `HZN1701` (lockfile entry
+  missing — run `hzn get`), `HZN1702` (lockfile schema unknown),
+  `HZN1703` (fetch failed), and `HZN1704` (version syntax invalid;
+  `@latest` and `@HEAD` are rejected as non-reproducible). New example
+  `examples/remoteimport-execcount/` exercises the full flow against an
+  in-repo fixture under `testdata/remote-fixtures/`. The hermetic test
+  pattern is documented in `docs/internal/remote-imports-testing.md`;
+  real-network round-trip tests are gated behind `HORIZON_NETWORK_TESTS=1`
+  and default off. See `docs/migrations/v0.2-to-v0.3.md` for the user-
+  facing migration. (roadmap: #14 / D1+D2)
 - Packages may now re-export symbols from their imports via top-level
   `export <alias>.<Name>` declarations. Re-exports cover types and
   helper functions; capabilities, maps, and constants are unchanged
