@@ -7,6 +7,15 @@ All notable changes to Horizon are documented in this file. Format follows
 ## [Unreleased]
 
 ### Changed
+- **Breaking:** Horizon now enforces a Go-style capitalization rule for
+  cross-package symbol references. Identifiers whose first letter is
+  upper-case are exported and accessible to importers; lower-case
+  identifiers are package-private and cannot be referenced via a
+  qualified selector (`alias.name`) from another package. New
+  diagnostics `HZN1670` through `HZN1674` cover types, functions, maps,
+  capability attribute references, and constants respectively. Same-
+  package access to lower-case symbols remains legal. See
+  `docs/migrations/v0.2-to-v0.3.md` for the migration. (roadmap: #17 / D6)
 - `HZN1564` (struct shape conflict) and `HZN1565` (capability schema conflict)
   now fire only at the IR merge layer (`ir.MergeWithDiagnostics`). The
   manifest-aggregation layer (`capability.AggregateManifests`) now emits the
