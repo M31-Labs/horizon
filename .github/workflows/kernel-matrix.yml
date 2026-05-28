@@ -1,8 +1,15 @@
 name: kernel-matrix
 
-# IMPORTANT: trigger is `workflow_dispatch` only until canned qcow2 images
-# publish at M31-Labs/horizon-kernel-images. Once images exist, the follow-up
-# issue will add `pull_request` and `push` triggers.
+# Boots real kernels (5.10 / 5.15 / 6.1 / 6.6) via cilium little-vm-helper
+# and load-tests every example .bpf.o against each kernel's verifier. Kernel
+# images are the LVH "complexity-test" flavor (BTF + bpftool), pinned by
+# dated tag in scripts/kernel-matrix/images.json.
+#
+# Trigger is `workflow_dispatch` only while the matrix is being validated on
+# real runs. Once it is green end-to-end, add `pull_request` + `push` (with a
+# paths filter over examples/**, compiler/**, emitc/**, capability/**,
+# clang/**, bindgen/**, Makefile, scripts/kernel-matrix/**, go.{mod,sum}, and
+# this workflow) so it gates changes that can affect generated objects.
 on:
   workflow_dispatch:
 
@@ -25,11 +32,8 @@ jobs:
           sudo apt-get update -qq
           sudo env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a \
             apt-get install -y -qq --no-install-recommends clang llvm libbpf-dev
-      - name: Prepare vmlinux.h (stub for build-only, real images carry their own BTF)
+      - name: Prepare vmlinux.h (build-only stub; runtime kernels carry their own BTF)
         run: |
-          # Mirror the stub-vmlinux block from test.yml exactly. Keeping it
-          # duplicated avoids cross-workflow coupling; both can evolve
-          # independently as the build vs runtime kernels diverge.
           printf '%s\n' \
             '#define __VMLINUX_H__' \
             'typedef unsigned char __u8;' \
@@ -52,13 +56,13 @@ jobs:
             'struct xdp_md { __u32 data; __u32 data_end; };' \
             'struct trace_event_raw_sched_process_exec {};' |
             sudo tee /usr/local/include/vmlinux.h >/dev/null
-      - name: Build all .bpf.o
-        run: make build-examples OUT=/tmp/bpf-objs
+      - name: Build all examples (.bpf.o + reports co-located)
+        run: make build-examples OUT=kmatrix-artifacts
       - id: cache-key
-        run: echo "key=bpf-objs-${{ github.sha }}" >> $GITHUB_OUTPUT
+        run: echo "key=kmatrix-artifacts-${{ github.sha }}" >> $GITHUB_OUTPUT
       - uses: actions/cache/save@v4
         with:
-          path: /tmp/bpf-objs
+          path: kmatrix-artifacts
           key: ${{ steps.cache-key.outputs.key }}
 
   matrix:
@@ -71,29 +75,48 @@ jobs:
         kernel: ['5.10', '5.15', '6.1', '6.6']
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/cache/restore@v4
+      - name: Restore built objects + reports into the workspace
+        uses: actions/cache/restore@v4
         with:
-          path: /tmp/bpf-objs
+          # Restored under the checkout so it is visible at /host in the guest.
+          path: kmatrix-artifacts
           key: ${{ needs.build-objects.outputs.objects-cache-key }}
-      - name: Install qemu + jq
+          fail-on-cache-miss: true
+      - name: Install jq
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends jq
+      - name: Resolve LVH image version + gate for kernel ${{ matrix.kernel }}
+        id: img
         run: |
-          sudo apt-get update -qq
-          sudo env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a \
-            apt-get install -y -qq --no-install-recommends qemu-system-x86 qemu-utils jq
-      - name: Smoke under kernel ${{ matrix.kernel }}
-        id: smoke
+          v=$(jq -er --arg k "${{ matrix.kernel }}" '.images[] | select(.kernel==$k) | .version' scripts/kernel-matrix/images.json)
+          g=$(jq -er --arg k "${{ matrix.kernel }}" '.images[] | select(.kernel==$k) | .gate' scripts/kernel-matrix/images.json)
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "gate=$g"    >> "$GITHUB_OUTPUT"
+          echo "kernel ${{ matrix.kernel }} -> image-version=$v gate=$g"
+      - name: Boot kernel ${{ matrix.kernel }} and load objects
+        uses: cilium/little-vm-helper@206cee185ac5920a462d3d2cb4f369d2d3a542a7 # v0.0.30
+        with:
+          test-name: kmatrix-${{ matrix.kernel }}
+          image-repo: quay.io/lvh-images
+          image: complexity-test
+          image-version: ${{ steps.img.outputs.version }}
+          host-mount: .
+          install-dependencies: 'true'
+          cmd: |
+            set -e
+            cd /host
+            ./scripts/kernel-matrix/in-guest-load.sh /host/kmatrix-artifacts /host/kmatrix-artifacts/results.json
+      - name: Compare loads against declared minimum kernels
+        id: cmp
         continue-on-error: true
-        run: bash scripts/kernel-matrix/run.sh ${{ matrix.kernel }} /tmp/bpf-objs
+        run: bash scripts/kernel-matrix/check-results.sh ${{ matrix.kernel }} kmatrix-artifacts kmatrix-artifacts/results.json
       - name: Enforce gate
         run: |
-          gate=$(jq -er --arg k "${{ matrix.kernel }}" '.images[] | select(.kernel==$k) | .gate' scripts/kernel-matrix/images.json) \
-            || { echo "::error::kernel ${{ matrix.kernel }} missing from images.json"; exit 1; }
-          if [ "${{ steps.smoke.outcome }}" = "success" ]; then
-            echo "kernel ${{ matrix.kernel }} smoke passed"
+          if [ "${{ steps.cmp.outcome }}" = "success" ]; then
+            echo "kernel ${{ matrix.kernel }} matched all declared expectations"
             exit 0
           fi
-          if [ "$gate" = "required" ]; then
-            echo "::error::kernel ${{ matrix.kernel }} is required and failed smoke"
+          if [ "${{ steps.img.outputs.gate }}" = "required" ]; then
+            echo "::error::kernel ${{ matrix.kernel }} is required and had verifier-expectation mismatches"
             exit 1
           fi
-          echo "::warning::kernel ${{ matrix.kernel }} (best-effort) failed smoke"
+          echo "::warning::kernel ${{ matrix.kernel }} (best-effort) had mismatches"

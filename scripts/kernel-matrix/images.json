@@ -1,28 +1,31 @@
 {
-  "schema": "m31labs.dev/horizon/kernel-matrix/v0",
+  "schema": "m31labs.dev/horizon/kernel-matrix/v1",
+  "comment": "Kernel images are sourced from cilium little-vm-helper (LVH). The 'complexity-test' flavor is LVH's BPF-verifier test image: a BTF-enabled, bpftool-equipped rootfs bundled with the named kernel. CI boots these via the cilium/little-vm-helper action (image-repo + image + image-version). 'version' is the immutable dated tag the action consumes; 'digest' pins the same artifact for provenance/audit. Bump both together to roll the matrix forward.",
+  "image_repo": "quay.io/lvh-images",
+  "image": "complexity-test",
   "images": [
     {
       "kernel": "5.10",
-      "url": "https://github.com/M31-Labs/horizon-kernel-images/releases/download/v1/linux-5.10-btf.qcow2",
-      "sha256": "FILL_IN_AFTER_PUBLISHING_IMAGE",
+      "version": "5.10-20260525.014435",
+      "digest": "sha256:92fa42d08b76fe9609ab234862e52d212702572fa5f17291f54cf6fba691e175",
       "gate": "best_effort"
     },
     {
       "kernel": "5.15",
-      "url": "https://github.com/M31-Labs/horizon-kernel-images/releases/download/v1/linux-5.15-btf.qcow2",
-      "sha256": "FILL_IN_AFTER_PUBLISHING_IMAGE",
+      "version": "5.15-20260525.014435",
+      "digest": "sha256:3221446e481ca25d6e256f49c35d1c9a8108674dc82c5b153c5c5cfee1813a2e",
       "gate": "best_effort"
     },
     {
       "kernel": "6.1",
-      "url": "https://github.com/M31-Labs/horizon-kernel-images/releases/download/v1/linux-6.1-btf.qcow2",
-      "sha256": "FILL_IN_AFTER_PUBLISHING_IMAGE",
+      "version": "6.1-20260525.014435",
+      "digest": "sha256:50e81d52c1d111608d9d8ea8b6e7ab8412aad293870468ec74eea25e1e32a6d6",
       "gate": "required"
     },
     {
       "kernel": "6.6",
-      "url": "https://github.com/M31-Labs/horizon-kernel-images/releases/download/v1/linux-6.6-btf.qcow2",
-      "sha256": "FILL_IN_AFTER_PUBLISHING_IMAGE",
+      "version": "6.6-20260525.014435",
+      "digest": "sha256:96d9079b2c5c2f04dd04a2cf54872fb8bf6355bc87bdb27bfee94d46adbd4a9e",
       "gate": "required"
     }
   ]
