@@ -13,17 +13,39 @@ import (
 
 var updateGolden = flag.Bool("update-golden", false, "regenerate testdata/golden/examples baselines")
 
-var examples = []string{
-	"cgroupconnect", "eventbatch", "execwatch", "execcount", "execdeny",
-	"killwatch", "lsmfile", "openwatch", "tcpconnect", "tcpass", "xdpdrop",
-	"uprobeexec", "uretprobeexec",
-	"fentryopen", "fexitopen",
-	"rawtpenter",
-	"sockopstrack",
-	"structopstcp",
-	"multifile-execcount",
-	"imported-execcount",
-	"helperctor-execwatch",
+// exampleFixture describes one example registered with the golden
+// harness. Name is the directory under ./examples and is the only
+// required field. Env supplies optional per-example process
+// environment overrides — used by the multifile-buildtag fixture to
+// pin a deterministic BuildContext via HORIZON_BUILD_* env vars so
+// the golden output matches regardless of CI host OS/arch/kernel.
+type exampleFixture struct {
+	Name string
+	Env  []string
+}
+
+var examples = []exampleFixture{
+	{Name: "cgroupconnect"}, {Name: "eventbatch"}, {Name: "execwatch"},
+	{Name: "execcount"}, {Name: "execdeny"},
+	{Name: "killwatch"}, {Name: "lsmfile"}, {Name: "openwatch"},
+	{Name: "tcpconnect"}, {Name: "tcpass"}, {Name: "xdpdrop"},
+	{Name: "uprobeexec"}, {Name: "uretprobeexec"},
+	{Name: "fentryopen"}, {Name: "fexitopen"},
+	{Name: "rawtpenter"},
+	{Name: "sockopstrack"},
+	{Name: "structopstcp"},
+	{Name: "multifile-execcount"},
+	{Name: "imported-execcount"},
+	{Name: "helperctor-execwatch"},
+	{
+		Name: "multifile-buildtag",
+		Env: []string{
+			"HORIZON_BUILD_OS=linux",
+			"HORIZON_BUILD_ARCH=amd64",
+			"HORIZON_BUILD_KERNEL=5.15",
+			"HORIZON_BUILD_BTF=1",
+		},
+	},
 }
 
 // Fields stripped before comparison because they vary per-run.
@@ -36,18 +58,21 @@ var volatileReportFields = []string{
 }
 
 func TestGoldenExamplesWorkbench(t *testing.T) {
-	for _, name := range examples {
-		t.Run(name, func(t *testing.T) {
+	for _, ex := range examples {
+		t.Run(ex.Name, func(t *testing.T) {
 			tmp := t.TempDir()
 			cmd := exec.Command("go", "run", "./cmd/hzn", "workbench",
-				"./examples/"+name, "-o", tmp)
+				"./examples/"+ex.Name, "-o", tmp)
 			cmd.Dir = ".."
+			if len(ex.Env) > 0 {
+				cmd.Env = append(os.Environ(), ex.Env...)
+			}
 			var stderr bytes.Buffer
 			cmd.Stderr = &stderr
 			if err := cmd.Run(); err != nil {
 				t.Fatalf("workbench: %v\n%s", err, stderr.String())
 			}
-			compareGoldenExamplesDir(t, name, tmp)
+			compareGoldenExamplesDir(t, ex.Name, tmp)
 		})
 	}
 }

@@ -1,0 +1,41 @@
+{
+  "compile": false,
+  "diagnostic_count": 0,
+  "diagnostics": [],
+  "generator": "hzn workbench",
+  "package": "mfbt",
+  "schema": "m31labs.dev/horizon/report/v0",
+  "sources": [
+    {
+      "package": "mfbt",
+      "path": "examples/multifile-buildtag/linux.hzn",
+      "sha256": "626e456a0996351d0b925d2261a2d6509b1e825a891e13f7cd951222420aad46",
+      "size": 965
+    }
+  ],
+  "status": "generated",
+  "summary": {
+    "capability_count": 1,
+    "capability_dangers": [
+      "observe"
+    ],
+    "features": [
+      "tracefs"
+    ],
+    "map_count": 1,
+    "map_kinds": [
+      "ringbuf"
+    ],
+    "min_kernel": "5.8",
+    "permissions": [
+      "bpf_program_load",
+      "perf_event_open"
+    ],
+    "program_count": 1,
+    "program_kinds": [
+      "tracepoint"
+    ],
+    "source_count": 1,
+    "type_count": 1
+  }
+}

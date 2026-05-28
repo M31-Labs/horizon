@@ -83,7 +83,31 @@ func AnalyzePath(root string) (*Result, error) {
 	files := make([]ast.File, 0, len(paths))
 	fileIndexes := make([]int, 0, len(paths))
 	hadFrontEndError := false
+	ctx := DetectContext()
 	for _, path := range paths {
+		// Apply build-tag filter on the single-package path, mirroring
+		// loadPackage's behavior for the multi-package path. Tag-
+		// excluded files do not contribute decls and do not produce
+		// parse/AST diagnostics (roadmap #16). A read failure here is
+		// soft — the parser will re-encounter and report it.
+		var fileBuildTag string
+		if raw, rerr := os.ReadFile(path); rerr == nil {
+			tags := parser.ExtractBuildTags(raw)
+			include, joined, mderr := evaluateBuildTags(ctx, tags)
+			if mderr != nil {
+				result.Diagnostics = append(result.Diagnostics, diag.Diagnostic{
+					Code:     "HZN1680",
+					Severity: diag.SeverityWarning,
+					Message:  fmt.Sprintf("malformed //hzn:build directive in %s: %v", path, mderr),
+					Suggest:  "check the constraint expression (allowed dimensions: os, arch, kernel comparisons, btf)",
+				})
+				continue
+			}
+			if !include {
+				continue
+			}
+			fileBuildTag = joined
+		}
 		parsed, err := parser.ParsePath(path)
 		if err != nil {
 			hadFrontEndError = true
@@ -107,6 +131,7 @@ func AnalyzePath(root string) (*Result, error) {
 			result.Diagnostics = append(result.Diagnostics, d)
 			continue
 		}
+		file.BuildTag = fileBuildTag
 		fileIndexes = append(fileIndexes, len(result.Files))
 		files = append(files, *file)
 		result.Files = append(result.Files, FileResult{
