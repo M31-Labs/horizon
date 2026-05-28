@@ -118,6 +118,16 @@ All notable changes to Horizon are documented in this file. Format follows
   (roadmap: #13)
 
 ### Added
+- `scripts/kernel-matrix/capture-verifier-logs.sh` skeleton plus
+  `docs/internal/kernel-matrix-handoff.md` pickup checklist for the
+  real-kernel verifier-log corpus. The script's header comment block
+  fully documents the intended capture workflow (qcow2 boot, in-guest
+  `bpftool prog load -d`, per-(kernel, example) success/failure split
+  under `testdata/verifier-fixtures/real/`). The script currently
+  exits 78 (`EX_CONFIG`) with a clear stub message until canned
+  images publish at `M31-Labs/horizon-kernel-images`; the handoff doc
+  enumerates the file edits and tests that land alongside the real
+  capture body when the external dependency is satisfied. (#19)
 - Helper-effect annotations extended to cover context accessors
   (`kprobe.arg1..arg5`, `kretprobe.ret`,
   `cgroup.{family,sock_type,protocol,dst_port,dst_ip4,src_ip4,ip4}`),
