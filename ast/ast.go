@@ -29,10 +29,21 @@ type Decl interface {
 	GetSpan() span.Span
 }
 
+// ImportDecl is one `import [alias] "<path>[@<version>]"` declaration.
+// Path is the user-facing import path with any `@<version>` suffix
+// stripped (e.g. `github.com/m31labs/horizon-events`). Version is the
+// suffix the user supplied (e.g. `v1.2.3` or a 7+ char SHA prefix)
+// or empty if no `@` was present. The split happens in ast/build.go
+// rather than in the grammar so the existing string_literal token can
+// stay unchanged — the grammar accepts any string and the AST builder
+// peels off the version tail. Empty Version preserves v0.2 semantics
+// exactly; non-empty Version routes resolution through the lockfile +
+// content-addressed cache path introduced in roadmap #14.
 type ImportDecl struct {
-	Alias string
-	Path  string
-	Span  span.Span
+	Alias   string
+	Path    string
+	Version string
+	Span    span.Span
 }
 
 // ExportDecl is one `export <alias>.<Name>` re-export declaration

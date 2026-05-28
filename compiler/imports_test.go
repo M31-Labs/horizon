@@ -455,3 +455,241 @@ type BT struct {
 	}
 }
 
+// --- Remote-import resolver tests (roadmap #14) ---
+
+// seedFixture pre-populates the content-addressed cache for `repo@ref`
+// with one .hzn file declaring the requested package name. Returns the
+// cache root path (for use as HORIZON_CACHE_ROOT) and the resulting
+// content sha256.
+func seedFixture(t *testing.T, repo, ref, pkgName, body string) (string, string) {
+	t.Helper()
+	root := t.TempDir()
+	t.Setenv("HORIZON_CACHE_ROOT", root)
+	dest := filepath.Join(root, cacheKey(repo), ref)
+	if err := os.MkdirAll(dest, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	contents := "package " + pkgName + "\n\n" + body
+	if err := os.WriteFile(filepath.Join(dest, pkgName+".hzn"), []byte(contents), 0o644); err != nil {
+		t.Fatalf("WriteFile fixture: %v", err)
+	}
+	sum, err := hashDirSHA256(dest)
+	if err != nil {
+		t.Fatalf("hash fixture: %v", err)
+	}
+	return root, sum
+}
+
+func TestResolveImportsResolvesGithubURLWithLockfile(t *testing.T) {
+	repo := "github.com/m31labs/horizon-test-events"
+	ref := "abc1234567890abcdef1234567890abcdef12345"
+	_, sum := seedFixture(t, repo, ref, "events", `type Exec struct {
+    pid u32
+}
+`)
+	dir := t.TempDir()
+	writeFile(t, dir, "main.hzn", `package main
+
+import events "github.com/m31labs/horizon-test-events@v1.0.0"
+
+type Wrapper struct {
+    pid u32
+}
+`)
+	writeFile(t, dir, "hzn.lock", `{
+  "schema": "m31labs.dev/horizon/lockfile/v1",
+  "entries": [
+    {
+      "path": "`+repo+`",
+      "version": "v1.0.0",
+      "ref_resolved": "`+ref+`",
+      "sha256": "`+sum+`"
+    }
+  ]
+}
+`)
+	_, deps, graph, diags, err := ResolveImports(dir)
+	if err != nil {
+		t.Fatalf("ResolveImports: %v", err)
+	}
+	if diag.HasErrors(diags) {
+		t.Fatalf("diagnostics = %#v, want none", diags)
+	}
+	if len(deps) != 1 {
+		t.Fatalf("deps = %d, want 1", len(deps))
+	}
+	if deps[0].Name != "events" {
+		t.Fatalf("deps[0].Name = %q, want events", deps[0].Name)
+	}
+	rootAbs, _ := filepath.Abs(dir)
+	if _, ok := graph.Edges[rootAbs]["events"]; !ok {
+		t.Fatalf("graph.Edges missing events alias: %#v", graph.Edges)
+	}
+}
+
+func TestResolveImportsLockfileMissingEntryHZN1701(t *testing.T) {
+	repo := "github.com/m31labs/horizon-test-events"
+	ref := "abc1234567890abcdef1234567890abcdef12345"
+	seedFixture(t, repo, ref, "events", "")
+	dir := t.TempDir()
+	writeFile(t, dir, "main.hzn", `package main
+
+import events "github.com/m31labs/horizon-test-events@v1.0.0"
+
+type Wrapper struct {
+    x u32
+}
+`)
+	// No hzn.lock at all — entry missing.
+	_, _, _, diags, err := ResolveImports(dir)
+	if err != nil {
+		t.Fatalf("ResolveImports: %v", err)
+	}
+	found := false
+	for _, d := range diags {
+		if d.Code == "HZN1701" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected HZN1701 (lockfile entry missing), got %#v", diags)
+	}
+}
+
+func TestResolveImportsLockfileChecksumMismatchHZN1700(t *testing.T) {
+	repo := "github.com/m31labs/horizon-test-events"
+	ref := "abc1234567890abcdef1234567890abcdef12345"
+	seedFixture(t, repo, ref, "events", `type Exec struct {
+    pid u32
+}
+`)
+	dir := t.TempDir()
+	writeFile(t, dir, "main.hzn", `package main
+
+import events "github.com/m31labs/horizon-test-events@v1.0.0"
+
+type Wrapper struct {
+    pid u32
+}
+`)
+	bogusSum := strings.Repeat("0", 64)
+	writeFile(t, dir, "hzn.lock", `{
+  "schema": "m31labs.dev/horizon/lockfile/v1",
+  "entries": [
+    {
+      "path": "`+repo+`",
+      "version": "v1.0.0",
+      "ref_resolved": "`+ref+`",
+      "sha256": "`+bogusSum+`"
+    }
+  ]
+}
+`)
+	_, _, _, diags, err := ResolveImports(dir)
+	if err != nil {
+		t.Fatalf("ResolveImports: %v", err)
+	}
+	found := false
+	for _, d := range diags {
+		if d.Code == "HZN1700" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected HZN1700 (checksum mismatch), got %#v", diags)
+	}
+}
+
+func TestResolveImportsInvalidVersionSyntaxHZN1704(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "main.hzn", `package main
+
+import events "github.com/m31labs/horizon-test-events@latest"
+
+type Wrapper struct {
+    x u32
+}
+`)
+	_, _, _, diags, err := ResolveImports(dir)
+	if err != nil {
+		t.Fatalf("ResolveImports: %v", err)
+	}
+	found := false
+	for _, d := range diags {
+		if d.Code == "HZN1704" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected HZN1704 (invalid version syntax), got %#v", diags)
+	}
+}
+
+func TestResolveImportsLockfileUpdateAppendsEntry(t *testing.T) {
+	repo := "github.com/m31labs/horizon-test-events"
+	// Tag we'd resolve to a SHA in production; we'll stub gitClone +
+	// resolveRef to make this deterministic.
+	tag := "v1.0.0"
+	resolvedRef := "abc1234567890abcdef1234567890abcdef12345"
+
+	// Pre-seed the cache as if the fetch had already run.
+	cacheR := t.TempDir()
+	t.Setenv("HORIZON_CACHE_ROOT", cacheR)
+	dest := filepath.Join(cacheR, cacheKey(repo), resolvedRef)
+	if err := os.MkdirAll(dest, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dest, "events.hzn"), []byte("package events\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	// Stub resolveRef so lockfile-update mode doesn't try ls-remote.
+	prevResolve := resolveRef
+	resolveRef = func(repoURL, ver string) (string, error) {
+		if ver == tag {
+			return resolvedRef, nil
+		}
+		return "", nil
+	}
+	defer func() { resolveRef = prevResolve }()
+
+	dir := t.TempDir()
+	writeFile(t, dir, "main.hzn", `package main
+
+import events "`+repo+`@`+tag+`"
+
+type Wrapper struct {
+    x u32
+}
+`)
+	res, err := ResolveImportsOpts(dir, ResolveOpts{
+		Ctx:            DetectContext(),
+		LockfileUpdate: true,
+	})
+	if err != nil {
+		t.Fatalf("ResolveImportsOpts: %v", err)
+	}
+	if diag.HasErrors(res.Diagnostics) {
+		t.Fatalf("diagnostics = %#v", res.Diagnostics)
+	}
+	if len(res.LockfileUpdate) != 1 {
+		t.Fatalf("LockfileUpdate = %d, want 1", len(res.LockfileUpdate))
+	}
+	entry := res.LockfileUpdate[0]
+	if entry.Path != repo {
+		t.Fatalf("entry.Path = %q, want %q", entry.Path, repo)
+	}
+	if entry.Version != tag {
+		t.Fatalf("entry.Version = %q", entry.Version)
+	}
+	if entry.RefResolved != resolvedRef {
+		t.Fatalf("entry.RefResolved = %q", entry.RefResolved)
+	}
+	if len(entry.SHA256) != 64 {
+		t.Fatalf("entry.SHA256 should be 64-char hex, got %q", entry.SHA256)
+	}
+}
+

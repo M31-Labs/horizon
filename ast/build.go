@@ -39,10 +39,23 @@ func Build(parsed *parser.File) (*File, error) {
 }
 
 func buildImport(parsed *parser.File, n *gotreesitter.Node) ImportDecl {
+	raw := strings.Trim(text(parsed, n.ChildByFieldName("path", parsed.Lang)), `"`)
+	// Peel the `@<version>` suffix off the import path if present. We
+	// split on the LAST `@` so paths that happen to contain an `@`
+	// elsewhere (theoretically — rare, but cheap to guard) still
+	// resolve sensibly. The version is left for the resolver to
+	// validate (semver vX.Y.Z or 7+ char SHA — HZN1704 rejects the
+	// rest); buildImport itself is purely syntactic.
+	path, version := raw, ""
+	if at := strings.LastIndex(raw, "@"); at > 0 {
+		path = raw[:at]
+		version = raw[at+1:]
+	}
 	return ImportDecl{
-		Alias: text(parsed, n.ChildByFieldName("alias", parsed.Lang)),
-		Path:  strings.Trim(text(parsed, n.ChildByFieldName("path", parsed.Lang)), `"`),
-		Span:  spanForNode(parsed.Source.FileID, n),
+		Alias:   text(parsed, n.ChildByFieldName("alias", parsed.Lang)),
+		Path:    path,
+		Version: version,
+		Span:    spanForNode(parsed.Source.FileID, n),
 	}
 }
 

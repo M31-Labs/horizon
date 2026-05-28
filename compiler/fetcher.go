@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"hash"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +14,15 @@ import (
 
 	"m31labs.dev/horizon/compiler/diag"
 )
+
+// sha256New returns a fresh sha256 hasher. Wrapped through a tiny
+// helper so other compiler files that hash file trees can share one
+// dependency surface instead of each importing crypto/sha256
+// directly.
+func sha256New() hash.Hash { return sha256.New() }
+
+// sha256Hex returns the lowercase hex digest of h's accumulated state.
+func sha256Hex(h hash.Hash) string { return hex.EncodeToString(h.Sum(nil)) }
 
 // gitClone is the injection point for fetching a remote package. The
 // production implementation shells out to `git clone --depth 1 --branch
