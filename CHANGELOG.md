@@ -7,6 +7,10 @@ All notable changes to Horizon are documented in this file. Format follows
 ## [Unreleased]
 
 ### Changed
+- `fir`: kernel images not yet published at `M31-Labs/horizon-kernel-images`
+  (repo returns 404 via `gh api`; horizon issue #2 still OPEN). Phase 2 fir
+  proceeds on Path B: capture-script skeleton + internal handoff doc. No CI
+  auto-trigger flip and no real-fixture corpus land in this phase. (#19)
 - `HZN1564` (struct shape conflict) and `HZN1565` (capability schema conflict)
   now fire only at the IR merge layer (`ir.MergeWithDiagnostics`). The
   manifest-aggregation layer (`capability.AggregateManifests`) now emits the
