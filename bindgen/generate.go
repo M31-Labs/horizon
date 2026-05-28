@@ -422,6 +422,9 @@ func (g *generator) emitMapHelpers() {
 }
 
 func (g *generator) emitAttachHelpers() {
+	if hasStructOps(g.program) {
+		emitStructOpsMapLookup(&g.b, g.program)
+	}
 	for _, fn := range g.program.Functions {
 		if !isBPFProgramFunction(fn) {
 			continue
@@ -667,24 +670,79 @@ func emitSockOpsAttach(b *bytes.Buffer, fn ir.Function) {
 `, field, field, fn.Name, field)
 }
 
-// emitStructOpsAttach emits a stub Attach method for a struct_ops program.
+// emitStructOpsAttach emits an Attach method for a struct_ops program.
 // struct_ops programs replace kernel function pointers (e.g., TCP congestion
-// control ops) via a struct_ops map + BTF. The full attach path requires
-// ebpf.NewMap over a struct_ops-typed map spec and link.AttachRawLink, which
-// is non-trivial and deferred to a v0.3 follow-up (roadmap #9).
-// The stub returns a clear error at runtime so callers fail fast rather than
-// silently doing nothing.
+// control ops) by registering a struct_ops-typed BPF map with a kernel
+// subsystem. The attach is per-map, not per-program: every program in the
+// same struct_ops map shares one registration. Bindgen still emits a
+// per-program AttachOn<Fn> method for API consistency with the other
+// program kinds; the docstring documents the per-map semantics so callers
+// understand why two AttachOn<Fn> calls against programs in the same map
+// return Links that control the same underlying registration.
+//
+// The generated body delegates to o.findStructOpsMap() which iterates the
+// Objects struct's *ebpf.Map fields and returns the first whose runtime
+// Type() is ebpf.StructOpsMap. When the .bpf.o exposes its struct_ops map
+// via an IR-declared map field, the helper finds it; otherwise the method
+// returns a sentinel error documenting the requirement.
 func emitStructOpsAttach(b *bytes.Buffer, fn ir.Function) {
 	if fn.Section.Attach == "" {
 		return
 	}
 	field := exported(fn.Name)
-	fmt.Fprintf(b, `func (o *Objects) Attach%s() (link.Link, error) {
-	// struct_ops attach not yet supported by bindgen — see roadmap #9 follow-up.
-	return nil, fmt.Errorf("struct_ops attach not yet supported by bindgen — see roadmap #9 follow-up")
+	fmt.Fprintf(b, `// Attach%s attaches the struct_ops map containing %s to its kernel
+// subsystem. struct_ops attach is per-map, not per-program — if multiple
+// struct_ops programs share a map, attaching via any one of them attaches
+// all of them. The returned Link controls the lifetime of the entire
+// struct_ops registration; closing the Link detaches the map.
+//
+// Requires kernel >= 5.6 with BTF and CONFIG_BPF_STRUCT_OPS=y. The struct_ops
+// map must be exposed on Objects as an *ebpf.Map field; if no such field is
+// found at runtime, the method returns a sentinel error pointing at the
+// missing map.
+func (o *Objects) Attach%s() (link.Link, error) {
+	if o == nil || o.%s == nil {
+		return nil, fmt.Errorf("%s program is not loaded")
+	}
+	m := o.findStructOpsMap()
+	if m == nil {
+		return nil, fmt.Errorf("no struct_ops map found for %s; ensure the .bpf.o was loaded with its struct_ops map exposed on Objects")
+	}
+	return link.AttachStructOps(link.StructOpsOptions{Map: m})
 }
 
-`, field)
+`, field, field, field, field, fn.Name, fn.Name)
+}
+
+// emitStructOpsMapLookup emits a single helper method that iterates the
+// Objects struct's *ebpf.Map fields and returns the first whose runtime
+// Type() == ebpf.StructOpsMap. Emitted once per Objects type whenever the
+// program contains at least one ProgramStructOps function.
+//
+// The iteration order matches the order in which maps are declared on the
+// Objects struct, which in turn matches g.program.Maps declaration order —
+// stable across regeneration. When multiple struct_ops maps exist in one
+// package (v0.3 acknowledged-debt edge case), only the first is returned;
+// callers requiring multi-map struct_ops semantics need a future refinement.
+func emitStructOpsMapLookup(b *bytes.Buffer, program ir.Program) {
+	b.WriteString("func (o *Objects) findStructOpsMap() *ebpf.Map {\n")
+	b.WriteString("\tif o == nil {\n\t\treturn nil\n\t}\n")
+	for _, m := range program.Maps {
+		field := exported(m.Name)
+		fmt.Fprintf(b, "\tif o.%s != nil && o.%s.Type() == ebpf.StructOpsMap {\n\t\treturn o.%s\n\t}\n", field, field, field)
+	}
+	b.WriteString("\treturn nil\n}\n\n")
+}
+
+// hasStructOps reports whether any function in the program is a struct_ops
+// program. Used to gate the emit of the findStructOpsMap helper.
+func hasStructOps(program ir.Program) bool {
+	for _, fn := range program.Functions {
+		if fn.Section.Kind == ir.ProgramStructOps && fn.Section.Attach != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func emitImports(b *bytes.Buffer, program ir.Program) {

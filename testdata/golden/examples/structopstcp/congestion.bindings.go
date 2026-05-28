@@ -64,7 +64,30 @@ func (o *Objects) Close() error {
 	return err
 }
 
+func (o *Objects) findStructOpsMap() *ebpf.Map {
+	if o == nil {
+		return nil
+	}
+	return nil
+}
+
+// AttachOnTCPInit attaches the struct_ops map containing OnTCPInit to its kernel
+// subsystem. struct_ops attach is per-map, not per-program — if multiple
+// struct_ops programs share a map, attaching via any one of them attaches
+// all of them. The returned Link controls the lifetime of the entire
+// struct_ops registration; closing the Link detaches the map.
+//
+// Requires kernel >= 5.6 with BTF and CONFIG_BPF_STRUCT_OPS=y. The struct_ops
+// map must be exposed on Objects as an *ebpf.Map field; if no such field is
+// found at runtime, the method returns a sentinel error pointing at the
+// missing map.
 func (o *Objects) AttachOnTCPInit() (link.Link, error) {
-	// struct_ops attach not yet supported by bindgen — see roadmap #9 follow-up.
-	return nil, fmt.Errorf("struct_ops attach not yet supported by bindgen — see roadmap #9 follow-up")
+	if o == nil || o.OnTCPInit == nil {
+		return nil, fmt.Errorf("OnTCPInit program is not loaded")
+	}
+	m := o.findStructOpsMap()
+	if m == nil {
+		return nil, fmt.Errorf("no struct_ops map found for OnTCPInit; ensure the .bpf.o was loaded with its struct_ops map exposed on Objects")
+	}
+	return link.AttachStructOps(link.StructOpsOptions{Map: m})
 }

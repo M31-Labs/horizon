@@ -564,3 +564,116 @@ func TestGenerateRingbufReaderObservesContext(t *testing.T) {
 		}
 	}
 }
+
+// TestEmitStructOpsAttachProducesLinkCall pins the codegen shape for the
+// struct_ops attach helper. The unstubbed emit must produce a real call to
+// link.AttachStructOps (not the legacy stub error). The fixture uses the
+// in-memory IR shape from the structopstcp example: one ProgramStructOps
+// function with Section.Attach == "tcp_init", no struct_ops map declared at
+// the IR layer (struct_ops maps are created from the `.struct_ops` ELF
+// section in the compiled .bpf.o, not from the .hzn source).
+func TestEmitStructOpsAttachProducesLinkCall(t *testing.T) {
+	code, err := Generate(ir.Program{
+		Package: "probes",
+		Functions: []ir.Function{{
+			Name: "OnTCPInit",
+			Section: ir.Section{
+				Kind:   ir.ProgramStructOps,
+				Attach: "tcp_init",
+				Name:   "struct_ops",
+			},
+		}},
+	}, "bindings")
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	for _, want := range []string{
+		`"github.com/cilium/ebpf/link"`,
+		"func (o *Objects) AttachOnTCPInit() (link.Link, error)",
+		"link.AttachStructOps(link.StructOpsOptions{Map:",
+	} {
+		if !strings.Contains(code, want) {
+			t.Fatalf("generated bindings missing %q:\n%s", want, code)
+		}
+	}
+	for _, unwanted := range []string{
+		"struct_ops attach not yet supported by bindgen",
+		"roadmap #9 follow-up",
+	} {
+		if strings.Contains(code, unwanted) {
+			t.Fatalf("generated bindings unexpectedly contain stub text %q:\n%s", unwanted, code)
+		}
+	}
+}
+
+// TestEmitStructOpsAttachIncludesMapLookupGuard pins the generated guard for
+// the "no struct_ops map found" failure path. The emit must include a
+// findStructOpsMap helper and a sentinel error when the helper returns nil.
+//
+// To exercise the per-map StructOpsMap type check, the fixture declares one
+// IR map (which the helper will check against ebpf.StructOpsMap at runtime).
+// The IR layer has no MapKindStructOps today — struct_ops maps are created
+// from the `.struct_ops` ELF section in the compiled .bpf.o, not from .hzn
+// source — so we use MapKindHash here purely to ensure a *ebpf.Map field is
+// emitted on Objects for the helper to iterate over.
+func TestEmitStructOpsAttachIncludesMapLookupGuard(t *testing.T) {
+	code, err := Generate(ir.Program{
+		Package: "probes",
+		Functions: []ir.Function{{
+			Name: "OnTCPInit",
+			Section: ir.Section{
+				Kind:   ir.ProgramStructOps,
+				Attach: "tcp_init",
+				Name:   "struct_ops",
+			},
+		}},
+		Maps: []ir.Map{{
+			Name: "tcp_ops",
+			Kind: ir.MapKindHash,
+			Key:  ir.Type{Name: "u32"},
+			Val:  ir.Type{Name: "u32"},
+		}},
+	}, "bindings")
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	for _, want := range []string{
+		"func (o *Objects) findStructOpsMap() *ebpf.Map",
+		"ebpf.StructOpsMap",
+		"no struct_ops map found",
+	} {
+		if !strings.Contains(code, want) {
+			t.Fatalf("generated bindings missing %q:\n%s", want, code)
+		}
+	}
+}
+
+// TestEmitStructOpsAttachComments pins the user-facing docstring on the
+// generated AttachOnX method. The docstring must mention kernel >= 5.6, the
+// BTF requirement, and the per-map (not per-program) semantics so callers
+// understand why two programs sharing a map both attach the same registration.
+func TestEmitStructOpsAttachComments(t *testing.T) {
+	code, err := Generate(ir.Program{
+		Package: "probes",
+		Functions: []ir.Function{{
+			Name: "OnTCPInit",
+			Section: ir.Section{
+				Kind:   ir.ProgramStructOps,
+				Attach: "tcp_init",
+				Name:   "struct_ops",
+			},
+		}},
+	}, "bindings")
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	for _, want := range []string{
+		"kernel >= 5.6",
+		"BTF",
+		"per-map",
+	} {
+		if !strings.Contains(code, want) {
+			t.Fatalf("generated bindings missing docstring fragment %q:\n%s", want, code)
+		}
+	}
+}

@@ -16,6 +16,10 @@ All notable changes to Horizon are documented in this file. Format follows
   capability attribute references, and constants respectively. Same-
   package access to lower-case symbols remains legal. See
   `docs/migrations/v0.2-to-v0.3.md` for the migration. (roadmap: #17 / D6)
+- `fir`: kernel images not yet published at `M31-Labs/horizon-kernel-images`
+  (repo returns 404 via `gh api`; horizon issue #2 still OPEN). Phase 2 fir
+  proceeds on Path B: capture-script skeleton + internal handoff doc. No CI
+  auto-trigger flip and no real-fixture corpus land in this phase. (#19)
 - `HZN1564` (struct shape conflict) and `HZN1565` (capability schema conflict)
   now fire only at the IR merge layer (`ir.MergeWithDiagnostics`). The
   manifest-aggregation layer (`capability.AggregateManifests`) now emits the
@@ -179,6 +183,16 @@ All notable changes to Horizon are documented in this file. Format follows
   get an always-true constraint; existing programs are unaffected. See
   `docs/migrations/v0.2-to-v0.3.md` for the directive shape and the
   dimension whitelist. (roadmap: #16 / D5)
+- `scripts/kernel-matrix/capture-verifier-logs.sh` skeleton plus
+  `docs/internal/kernel-matrix-handoff.md` pickup checklist for the
+  real-kernel verifier-log corpus. The script's header comment block
+  fully documents the intended capture workflow (qcow2 boot, in-guest
+  `bpftool prog load -d`, per-(kernel, example) success/failure split
+  under `testdata/verifier-fixtures/real/`). The script currently
+  exits 78 (`EX_CONFIG`) with a clear stub message until canned
+  images publish at `M31-Labs/horizon-kernel-images`; the handoff doc
+  enumerates the file edits and tests that land alongside the real
+  capture body when the external dependency is satisfied. (#19)
 - Helper-effect annotations extended to cover context accessors
   (`kprobe.arg1..arg5`, `kretprobe.ret`,
   `cgroup.{family,sock_type,protocol,dst_port,dst_ip4,src_ip4,ip4}`),
