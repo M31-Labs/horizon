@@ -3,7 +3,11 @@ name: release
 on:
   push:
     tags:
-      - 'v*'
+      # Real semver release tags only (e.g. v0.3.0, v0.3.1, v1.0.0).
+      # Intermediate phase / per-track tags such as v0.3.0-phase2 or
+      # v0.3.0-phase1-cedar carry a suffix and are deliberately NOT matched —
+      # they are not releases and have no CHANGELOG section.
+      - 'v[0-9]+.[0-9]+.[0-9]+'
 
 permissions:
   contents: write
@@ -75,13 +79,24 @@ jobs:
             echo "::error::CHANGELOG.md missing — cannot extract release notes"
             exit 1
           fi
-          NOTES="$(awk -v tag="$TAG" '
-            $0 ~ "^## \\["tag"\\]" { inrange=1; print; next }
-            inrange && /^## \[/    { exit }
-            inrange                { print }
-          ' CHANGELOG.md)"
-          if [ -z "$NOTES" ]; then
-            echo "::error::No section found for $TAG in CHANGELOG.md"
+          # Extract the body of a "## [<section>]" block, stopping at the next
+          # "## [" heading. The heading line itself is omitted (the release
+          # title already carries the tag).
+          extract() {
+            awk -v sec="$1" '
+              $0 ~ "^## \\["sec"\\]" { inrange=1; next }
+              inrange && /^## \[/    { exit }
+              inrange                { print }
+            ' CHANGELOG.md
+          }
+          # Prefer a section matching the tag, then the tag without a leading
+          # "v", then fall back to the "Unreleased" section (the working
+          # changelog keeps the pending release notes there until cut).
+          NOTES="$(extract "$TAG")"
+          [ -z "$(printf '%s' "$NOTES" | tr -d '[:space:]')" ] && NOTES="$(extract "${TAG#v}")"
+          [ -z "$(printf '%s' "$NOTES" | tr -d '[:space:]')" ] && NOTES="$(extract "Unreleased")"
+          if [ -z "$(printf '%s' "$NOTES" | tr -d '[:space:]')" ]; then
+            echo "::error::No release notes found for $TAG (tried [$TAG], [${TAG#v}], [Unreleased]) in CHANGELOG.md"
             exit 1
           fi
           printf '%s\n' "$NOTES" > /tmp/release-notes.md
