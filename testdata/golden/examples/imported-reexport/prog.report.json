@@ -1,0 +1,53 @@
+{
+  "compile": false,
+  "diagnostic_count": 0,
+  "diagnostics": [],
+  "generator": "hzn workbench",
+  "package": "main",
+  "schema": "m31labs.dev/horizon/report/v0",
+  "sources": [
+    {
+      "package": "main",
+      "path": "examples/imported-reexport/prog.hzn",
+      "sha256": "2da0ea518dacd3b62707dc06c0db79338831aebfc479f778463670bb26aa68ea",
+      "size": 574
+    },
+    {
+      "package": "events",
+      "path": "examples/imported-reexport/vendor/m31labs.dev/horizon-test/events/events.hzn",
+      "sha256": "ba3e801a2054b46a94e681aed66199ad20df912d625971c33e646e6e8ba9dc93",
+      "size": 416
+    },
+    {
+      "package": "middleware",
+      "path": "examples/imported-reexport/vendor/m31labs.dev/horizon-test/middleware/middleware.hzn",
+      "sha256": "7be750e1198a5654f9f73606af2ab0a08ee1241fb7e5a9ce53c9c495410a76d7",
+      "size": 398
+    }
+  ],
+  "status": "generated",
+  "summary": {
+    "capability_count": 1,
+    "capability_dangers": [
+      "observe"
+    ],
+    "features": [
+      "tracefs"
+    ],
+    "map_count": 1,
+    "map_kinds": [
+      "ringbuf"
+    ],
+    "min_kernel": "5.8",
+    "permissions": [
+      "bpf_program_load",
+      "perf_event_open"
+    ],
+    "program_count": 1,
+    "program_kinds": [
+      "tracepoint"
+    ],
+    "source_count": 3,
+    "type_count": 1
+  }
+}

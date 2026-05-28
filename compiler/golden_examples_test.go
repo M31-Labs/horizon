@@ -36,6 +36,7 @@ var examples = []exampleFixture{
 	{Name: "structopstcp"},
 	{Name: "multifile-execcount"},
 	{Name: "imported-execcount"},
+	{Name: "imported-reexport"},
 	{Name: "helperctor-execwatch"},
 	{
 		Name: "multifile-buildtag",
