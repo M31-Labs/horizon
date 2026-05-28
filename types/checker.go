@@ -1398,7 +1398,11 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 			diags = append(diags, validateTypeRef(param.Type, known)...)
 		}
 	}
-	diags = append(diags, validateTypeRef(decl.Return, known)...)
+	if isHelper {
+		diags = append(diags, validateHelperReturnTypeRef(decl.Return, known)...)
+	} else {
+		diags = append(diags, validateTypeRef(decl.Return, known)...)
+	}
 	if isHelper {
 		diags = append(diags, validateHelperSignature(decl)...)
 	} else {
@@ -1711,18 +1715,18 @@ func validateHelperSignature(decl ast.FuncDecl) []diag.Diagnostic {
 		return append(diags, diag.Diagnostic{
 			Code:     "HZN1320",
 			Severity: diag.SeverityError,
-			Message:  fmt.Sprintf("helper function %q must return a scalar or bool value", decl.Name),
+			Message:  fmt.Sprintf("helper function %q must return a scalar, bool, or nullable resource handle pointer", decl.Name),
 			Primary:  decl.Span,
-			Suggest:  "return an explicit scalar value such as i32, u32, u64, or bool",
+			Suggest:  "return an explicit scalar value such as i32, u32, u64, bool, or a single-hop pointer to a Horizon-declared struct (e.g. *Event)",
 		})
 	}
-	if !helperScalarType(decl.Return) {
+	if !helperScalarType(decl.Return) && !helperResourceReturnType(decl.Return) {
 		diags = append(diags, diag.Diagnostic{
 			Code:     "HZN1320",
 			Severity: diag.SeverityError,
-			Message:  fmt.Sprintf("helper function %q return type must be scalar or bool, got %s", decl.Name, decl.Return.Name),
+			Message:  fmt.Sprintf("helper function %q return type must be scalar, bool, or a nullable resource handle pointer, got %s", decl.Name, decl.Return.Name),
 			Primary:  decl.Return.Span,
-			Suggest:  "Horizon v0 user helpers are inline scalar helpers; keep resources and records local to entrypoints",
+			Suggest:  "Horizon user helpers may return scalars, bool, or a single-hop pointer to a named struct (e.g. *Event). Aggregate-by-value and multi-pointer returns are not supported.",
 		})
 	}
 	return diags
@@ -1752,6 +1756,51 @@ func helperResourceParamType(ref ast.TypeRef) bool {
 		return false
 	}
 	return true
+}
+
+// helperResourceReturnType reports whether a helper-function return type ref
+// names a tracked nullable resource handle (e.g. *Event, *Counter, *xdp.Eth).
+// This predicate is the return-position counterpart of helperResourceParamType
+// and is the v0.3 alder relaxation of the v0.2 HZN1320 scalar-only return
+// requirement. The two predicates must classify the same single-hop pointer-
+// to-named-struct shapes — keep them in lockstep when extending. The return
+// predicate is additionally strict on the multi-pointer case (**Event) which
+// the parameter predicate accepts only because validateHelperParamTypeRef's
+// inner recursion catches it via HZN1106 on the inner pointer; the return
+// path rejects it up-front so that HZN1320 fires with a coherent message.
+func helperResourceReturnType(ref ast.TypeRef) bool {
+	if !helperResourceParamType(ref) {
+		return false
+	}
+	if ref.Elem != nil && ref.Elem.Ptr {
+		return false
+	}
+	return true
+}
+
+// validateHelperReturnTypeRef validates a type ref appearing in helper-function
+// return position. It mirrors validateHelperParamTypeRef: a `*<NamedStruct>`
+// shape that matches helperResourceReturnType is admitted without emitting
+// HZN1106. All other `*T` forms continue to flow through validateTypeRef and
+// emit HZN1106 unchanged. The inner elem still passes through validateTypeRef
+// so unknown-name (HZN1102) and any deeper *T continue to fire.
+func validateHelperReturnTypeRef(ref ast.TypeRef, known map[string]bool) []diag.Diagnostic {
+	if !helperResourceReturnType(ref) {
+		return validateTypeRef(ref, known)
+	}
+	var diags []diag.Diagnostic
+	if ref.Elem != nil {
+		diags = append(diags, validateTypeRef(*ref.Elem, known)...)
+	}
+	if ref.Name != "" && !known[ref.Name] {
+		diags = append(diags, diag.Diagnostic{
+			Code:     "HZN1102",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("unknown type %q", ref.Name),
+			Primary:  ref.Span,
+		})
+	}
+	return diags
 }
 
 func validateFunctionCallGraph(funcs map[string]ast.FuncDecl) map[string][]diag.Diagnostic {

@@ -203,7 +203,12 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	}
 }
 
-func TestHelperResourceReturnStillRejected(t *testing.T) {
+// TestHelperFunctionAcceptsResourcePointerReturn pins the v0.3 HZN1320 relax
+// (alder Phase 2, roadmap #18): a helper whose return type is a single-hop
+// pointer to a Horizon-declared struct is admitted. This mirrors the v0.2
+// maple HZN1319 relax for parameter types and unblocks user-defined
+// constructor helpers like `func MakeEvent() *Event { return Events.reserve() }`.
+func TestHelperFunctionAcceptsResourcePointerReturn(t *testing.T) {
 	file := parseTestFile(t, `package probes
 
 type Event struct {
@@ -212,23 +217,77 @@ type Event struct {
 
 map Events ringbuf[Event]
 
-func badReturn(ev *Event) *Event {
-    return ev
+func make() *Event {
+    return Events.reserve()
 }
 
 @tracepoint("sched:sched_process_exec")
 func OnExec(ctx tracepoint.Exec) i32 {
-    event := Events.reserve()
+    event := make()
     if event == nil {
         return 0
     }
-    badReturn(event)
+    Events.submit(event)
+    return 0
+}
+`)
+	diags := Check(file)
+	if slices.ContainsFunc(diags, func(d diag.Diagnostic) bool { return d.Code == "HZN1320" }) {
+		t.Fatalf("diagnostics = %#v, want no HZN1320 on resource-typed helper return", diags)
+	}
+}
+
+// TestHelperFunctionRejectsAggregateReturn pins that the HZN1320 relax is
+// narrow: returning a struct by value remains rejected. The relax admits
+// only single-hop pointer-to-named-struct return types.
+func TestHelperFunctionRejectsAggregateReturn(t *testing.T) {
+	file := parseTestFile(t, `package probes
+
+type Event struct {
+    pid u32
+}
+
+map Events ringbuf[Event]
+
+func badAggregate() Event {
+    return Event{}
+}
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
     return 0
 }
 `)
 	diags := Check(file)
 	if !slices.ContainsFunc(diags, func(d diag.Diagnostic) bool { return d.Code == "HZN1320" }) {
-		t.Fatalf("diagnostics = %#v, want HZN1320 on resource-typed helper return", diags)
+		t.Fatalf("diagnostics = %#v, want HZN1320 on aggregate-by-value helper return", diags)
+	}
+}
+
+// TestHelperFunctionRejectsMultiPointerReturn pins that the HZN1320 relax is
+// single-hop only: returning **Event remains rejected. The relax admits one
+// pointer indirection; nested pointers are out of scope.
+func TestHelperFunctionRejectsMultiPointerReturn(t *testing.T) {
+	file := parseTestFile(t, `package probes
+
+type Event struct {
+    pid u32
+}
+
+map Events ringbuf[Event]
+
+func badMultiPtr() **Event {
+    return nil
+}
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    return 0
+}
+`)
+	diags := Check(file)
+	if !slices.ContainsFunc(diags, func(d diag.Diagnostic) bool { return d.Code == "HZN1320" }) {
+		t.Fatalf("diagnostics = %#v, want HZN1320 on multi-pointer helper return", diags)
 	}
 }
 
