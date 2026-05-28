@@ -123,6 +123,24 @@ All notable changes to Horizon are documented in this file. Format follows
   (roadmap: #13)
 
 ### Added
+- Packages may now re-export symbols from their imports via top-level
+  `export <alias>.<Name>` declarations. Re-exports cover types and
+  helper functions; capabilities, maps, and constants are unchanged
+  (capability flow continues to use the existing aggregator). Re-exports
+  are one-hop only — a transitive consumer of `A` cannot rely on `A`
+  re-exporting `B`'s re-exports of `C`; the canonical path is to import
+  the originating package directly. The manifest preserves the
+  *original* symbol origin even when access flows through a re-export
+  chain, so a re-exported `events.ExecEvent` reached as `mw.ExecEvent`
+  still surfaces with `origin: "events"` in `prog.cap.json`. New
+  diagnostics `HZN1690` (re-export target not found in the named
+  import), `HZN1691` (re-export of an un-exported symbol — composes
+  with the v0.3 privacy rule and includes the capitalization
+  suggestion), and `HZN1692` (re-export shadows a local declaration or
+  duplicates an earlier `export`). New example `examples/imported-reexport/`
+  exercises the full path: a vendored `events` package owning a struct,
+  a vendored `middleware` package re-exporting it, and a root program
+  consuming the type through the middleware alias. (roadmap: #15 / D3)
 - File-level build constraints via `//hzn:build <expr>` comment directives
   at the head of a `.hzn` file. The expression grammar covers `os`, `arch`,
   `kernel` (with `>=`/`<=`/`==`/`<`/`>` comparisons), and `btf` dimensions,
