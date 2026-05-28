@@ -17,7 +17,14 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Gate: boot every supported kernel and load-test the example objects
+  # against the real verifier. A required-kernel (6.1 / 6.6) mismatch fails
+  # this job, which blocks the release job below from publishing anything.
+  kernel-matrix:
+    uses: ./.github/workflows/kernel-matrix.yml
+
   release:
+    needs: kernel-matrix
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
