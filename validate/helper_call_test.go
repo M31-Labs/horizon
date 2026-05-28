@@ -435,3 +435,120 @@ func TestRingbufConsumesPropagatesAcrossThreeHelperChain(t *testing.T) {
 		t.Fatalf("HZN2102 count = %d, want 1 (3-helper chain should consume through to caller)", got)
 	}
 }
+
+// ── #7 (B3) end-to-end caller-side specialization ─────────────────────────────
+
+// recordFlagHelperFn mirrors recordHelperFn() in helper_effects_test.go but
+// inline so this file does not couple test files. Same body shape:
+//
+//	func record(ev *Event, flag u32) bool {
+//	    if flag != 0 { Events.submit(ev); return true }
+//	    else { return ev }
+//	}
+//
+// Flat summary on ev = Mixed (then-branch consumes, else-branch preserves);
+// specialized with flag=1 → Consumes; specialized with flag=0 → Preserves.
+func recordFlagHelperFn() ir.Function {
+	return helperFn("record",
+		[]ir.Param{
+			resourceParam("ev", "Event"),
+			scalarParam("flag", "u32"),
+		},
+		[]ir.Statement{
+			{
+				Kind: "if",
+				Cond: &ir.Expr{
+					Kind:  "binary",
+					Op:    "!=",
+					Left:  &ir.Expr{Kind: "ident", Name: "flag"},
+					Right: &ir.Expr{Kind: "int", Value: "0"},
+				},
+				Then: []ir.Statement{
+					{Kind: "expr", Expr: submitExpr("Events", "ev")},
+					{Kind: "return", Value: &ir.Expr{Kind: "bool", Value: "true"}},
+				},
+				Else: []ir.Statement{
+					{Kind: "return", Value: &ir.Expr{Kind: "ident", Name: "ev"}},
+				},
+			},
+		},
+	)
+}
+
+// TestRingbufHelperWithKnownPositiveFlagFiresDoubleSubmit verifies that
+// per-call-site specialization correctly drives caller state when the helper
+// is conditional on a literal arg.
+//
+// Baseline (v0.2, flat summary): record summarizes as Mixed on ev. Caller's
+// state goes live → maybe_consumed → trailing Events.submit fires HZN2102
+// (the maybe_consumed case in the consume-state switch already fires the
+// double-submit diagnostic).
+//
+// v0.3 (#7 specialization): record(event, 1) specializes to Consumes on ev.
+// Caller's state goes live → consumed → trailing Events.submit fires HZN2102
+// (the consumed case fires the same diagnostic). No regression at the
+// diagnostic level; precision improvement is observable at the EffectForCall
+// API level (see TestHelperEffectsConstantArgPathSpecializeToConsumes).
+//
+// The precision gap that #7 closes — invisible at this test's diagnostic
+// level — is for record(event, 0): v0.2 still widens to maybe_consumed and
+// fires HZN2104 (live-on-return treats maybe_consumed as possibly live);
+// v0.3 specializes to Preserves and fires HZN2104 from a cleaner "live"
+// state. Both fire the same diagnostic at the entrypoint, but the
+// specialized state is informationally tighter for downstream callers
+// (e.g. a wrapping helper that itself classifies via record's effect).
+func TestRingbufHelperWithKnownPositiveFlagFiresDoubleSubmit(t *testing.T) {
+	record := recordFlagHelperFn()
+	// entry:
+	//   event := Events.reserve()
+	//   if event == nil { return 0 }
+	//   record(event, 1)           // specialized → Consumes on ev
+	//   Events.submit(event)        // HZN2102 — second consume
+	//   return 0
+	entry := []ir.Statement{
+		{Kind: "short_var", Name: "event", Value: reserveExpr("Events")},
+		{Kind: "if", Cond: eqNilCond("event"), Then: []ir.Statement{returnZero()}},
+		{Kind: "expr", Expr: userCallExpr("record",
+			ir.Expr{Kind: "ident", Name: "event"},
+			ir.Expr{Kind: "int", Value: "1"},
+		)},
+		{Kind: "expr", Expr: submitExpr("Events", "event")},
+		returnZero(),
+	}
+	prog := ringbufProgWithHelper(entry, record)
+	diags := validate.Program(prog)
+	if got := countDiag(diags, "HZN2102"); got != 1 {
+		t.Fatalf("HZN2102 count = %d, want 1 (specialized Consumes path drives state to consumed; trailing submit double-consumes)", got)
+	}
+}
+
+// TestRingbufHelperWithKnownZeroFlagFiresLiveOnReturn verifies the dual case:
+// when the literal arg makes the helper's submit path infeasible, the caller
+// retains a live reservation and the bare return fires HZN2104.
+//
+// Baseline (v0.2): record summarizes as Mixed → state becomes maybe_consumed
+// → HZN2104 fires (maybe_consumed treated as possibly live at return).
+// v0.3: record(event, 0) specializes to Preserves → state stays live →
+// HZN2104 fires. Same diagnostic, tighter underlying state.
+func TestRingbufHelperWithKnownZeroFlagFiresLiveOnReturn(t *testing.T) {
+	record := recordFlagHelperFn()
+	// entry:
+	//   event := Events.reserve()
+	//   if event == nil { return 0 }
+	//   record(event, 0)            // specialized → Preserves on ev
+	//   return 0                     // HZN2104 — live on return
+	entry := []ir.Statement{
+		{Kind: "short_var", Name: "event", Value: reserveExpr("Events")},
+		{Kind: "if", Cond: eqNilCond("event"), Then: []ir.Statement{returnZero()}},
+		{Kind: "expr", Expr: userCallExpr("record",
+			ir.Expr{Kind: "ident", Name: "event"},
+			ir.Expr{Kind: "int", Value: "0"},
+		)},
+		returnZero(),
+	}
+	prog := ringbufProgWithHelper(entry, record)
+	diags := validate.Program(prog)
+	if got := countDiag(diags, "HZN2104"); got != 1 {
+		t.Fatalf("HZN2104 count = %d, want 1 (specialized Preserves leaves state live; bare return fires live-on-return)", got)
+	}
+}

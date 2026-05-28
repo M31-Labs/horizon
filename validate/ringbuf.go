@@ -111,8 +111,21 @@ func validateTypedRingbuf(fn ir.Function, ringMaps map[string]ir.Map, effects He
 				if varName, ok := selectorBase(stmt.Target); ok {
 					checkWrite(varName, stmt.Span)
 				}
+				// #6 field-store aliasing: `container.slot = event` registers a
+				// field edge so later selector reads (`container.slot`) resolve
+				// back to event's root. Only fires when RHS is an ident of an
+				// already-tracked name — integer/literal stores leave the graph
+				// alone.
+				if stmt.Target != nil && stmt.Target.Kind == "selector" &&
+					stmt.Target.Operand != nil && stmt.Target.Operand.Kind == "ident" &&
+					stmt.Value != nil && stmt.Value.Kind == "ident" {
+					src := stmt.Value.Name
+					if _, ok := states[aliases.root(src)]; ok {
+						aliases.registerFieldStore(stmt.Target.Operand.Name, stmt.Target.Field, src)
+					}
+				}
 			case "expr":
-				if mapName, op, varName, ok := consumeCall(stmt.Expr); ok {
+				if mapName, op, varName, ok := consumeCallResolved(stmt.Expr, aliases); ok {
 					if _, ok := ringMaps[mapName]; !ok {
 						break
 					}
@@ -364,10 +377,22 @@ func applyHelperEffectRingbuf(expr *ir.Expr, states map[string]reserveState, ali
 		return
 	}
 	if expr.Kind == "call" {
-		// Compiler-known consume calls are intercepted by consumeCall in the
-		// dispatcher above; do not double-process their arg here.
-		if _, _, _, ok := consumeCall(expr); !ok {
+		// Compiler-known consume calls are intercepted by consumeCallResolved
+		// in the dispatcher above; do not double-process their arg here.
+		// We deliberately pass a fresh empty aliasGraph so the gate only
+		// fires for syntactically-recognized consume shapes (ident or
+		// selector arg) — alias-resolution itself happened up there.
+		if _, _, _, ok := consumeCallResolved(expr, aliases); !ok {
 			helperName := userHelperName(expr.Func)
+			// #7 (B3) path-sensitive specialization: when the call site
+			// includes literal args, EffectForCall re-walks the helper body
+			// under the substitution to produce a tighter per-call effect
+			// vector. Computed once per call site; cached internally by
+			// HelperEffects.bySite (bounded at 32 entries per helper).
+			var perCallEffects []HelperEffect
+			if helperName != "" {
+				perCallEffects = effects.EffectForCall(helperName, expr.Args)
+			}
 			for i := range expr.Args {
 				arg := &expr.Args[i]
 				// Recurse into the arg FIRST so nested calls like
@@ -383,7 +408,11 @@ func applyHelperEffectRingbuf(expr *ir.Expr, states map[string]reserveState, ali
 					continue
 				}
 				if helperName != "" {
-					switch effects.EffectFor(helperName, i) {
+					effect := HelperEffectUnknown
+					if i < len(perCallEffects) {
+						effect = perCallEffects[i]
+					}
+					switch effect {
 					case HelperEffectConsumes:
 						if state.State == "live" || state.State == "maybe_nil" {
 							state.State = "consumed"
@@ -637,6 +666,32 @@ func consumeCall(expr *ir.Expr) (string, string, string, bool) {
 		return "", "", "", false
 	}
 	return operand.Name, method, arg.Name, true
+}
+
+// consumeCallResolved is consumeCall extended to recognize selector-form args
+// (`Events.submit(container.slot)`) by resolving them through the alias graph's
+// field-store edges (#6). For ident args, it matches consumeCall verbatim. For
+// selector args, it returns the registered field-store source when one exists;
+// otherwise returns ok=false so callers fall through to their non-consume
+// dispatch.
+func consumeCallResolved(expr *ir.Expr, aliases *aliasGraph) (string, string, string, bool) {
+	if expr == nil || expr.Kind != "call" || len(expr.Args) != 1 {
+		return "", "", "", false
+	}
+	operand, method, ok := selectorMethod(expr.Func)
+	if !ok || method != "submit" && method != "discard" || operand.Kind != "ident" {
+		return "", "", "", false
+	}
+	arg := &expr.Args[0]
+	switch arg.Kind {
+	case "ident":
+		return operand.Name, method, arg.Name, true
+	case "selector":
+		if rootName := aliases.rootOfSelector(arg); rootName != "" {
+			return operand.Name, method, rootName, true
+		}
+	}
+	return "", "", "", false
 }
 
 func helperWriteBase(expr *ir.Expr) (string, bool) {

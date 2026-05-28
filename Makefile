@@ -12,7 +12,7 @@ HZN_EXAMPLES := \
 	./examples/tcpass \
 	./examples/xdpdrop
 
-.PHONY: test check ci ci-go ci-clang fmt-check doctor setup-vmlinux workbench build-example build-examples bindings-smoke clang-smoke golden-update verifier-fixtures-update clang-fixtures-update kernel-smoke helpergen-check helpergen-emit
+.PHONY: test check ci ci-go ci-clang fmt-check doctor setup-vmlinux workbench build-example build-examples bindings-smoke clang-smoke golden-update verifier-fixtures-update clang-fixtures-update kernel-smoke helpergen-check helpergen-emit depth-report
 
 test:
 	@log="$$(mktemp)"; \
@@ -139,3 +139,22 @@ helpergen-check:
 helpergen-emit:
 	go run ./cmd/hzn-helpergen emit -o /tmp/helpers-candidate.json
 	@echo "wrote /tmp/helpers-candidate.json — review against internal/registry/helpers-v1.json manually"
+
+# depth-report (Phase 1 birch #8): runs hzn check over every HZN_EXAMPLE with
+# HORIZON_BIRCH_DEPTH_REPORT=1, greps the [birch-depth] stderr lines into
+# $(OUT)/birch-depth.txt, and prints the global max helper-call-chain depth.
+# Cap revisit policy lives in the v0.3 Phase 1 birch plan §Step 6.4: max < 6
+# → leave maxHelperEffectDepth = 8; max == 7 or 8 → bump to 12; max > 8 →
+# investigate precision regression before bumping.
+depth-report:
+	@mkdir -p "$(OUT)"
+	@: >"$(OUT)/birch-depth.txt"
+	@for example in $(HZN_EXAMPLES); do \
+		HORIZON_BIRCH_DEPTH_REPORT=1 go run ./cmd/hzn check "$$example" 2>>"$(OUT)/birch-depth.txt" >/dev/null || true; \
+	done
+	@grep '\[birch-depth\]' "$(OUT)/birch-depth.txt" || echo "(no [birch-depth] lines emitted — confirm telemetry gate)"
+	@echo "---"
+	@echo "max observed depth across HZN_EXAMPLES:"
+	@awk -F'max_depth=' 'NF>1 {print $$2}' "$(OUT)/birch-depth.txt" | awk '{print $$1}' | sort -nr | head -1
+	@echo "total cache overflows across HZN_EXAMPLES:"
+	@awk -F'cache_overflows=' 'NF>1 {print $$2}' "$(OUT)/birch-depth.txt" | awk '{s+=$$1} END {print s+0}'

@@ -187,6 +187,228 @@ func TestPacketNilCheckRecognizedInAndConjunction(t *testing.T) {
 
 // ── Step 2.8: || disjunction negative test ────────────────────────────────────
 
+// notCond builds: !inner
+func notCond(inner *ir.Expr) *ir.Expr {
+	return &ir.Expr{
+		Kind:    "unary",
+		Op:      "!",
+		Operand: inner,
+	}
+}
+
+// eqIntCond builds: varName == value
+func eqIntCond(varName, value string) *ir.Expr {
+	return &ir.Expr{
+		Kind:  "binary",
+		Op:    "==",
+		Left:  identExpr(varName),
+		Right: &ir.Expr{Kind: "int", Value: value},
+	}
+}
+
+// ── Task 1 (#5 B1): DeMorgan / !-negation recognition tests ───────────────────
+
+// TestNilCheckRecognizedInNegatedEquality verifies that
+//
+//	event := Events.reserve()
+//	if !(event == nil) { Events.submit(event) }
+//	return 0
+//
+// produces zero HZN2100 diagnostics. `!(event == nil)` is DeMorgan-equivalent
+// to `event != nil`, so the then-arm should promote event to live.
+func TestNilCheckRecognizedInNegatedEquality(t *testing.T) {
+	prog := ringbufProg([]ir.Statement{
+		{Kind: "short_var", Name: "event", Value: reserveExpr("Events")},
+		{
+			Kind: "if",
+			Cond: notCond(eqNilCond("event")),
+			Then: []ir.Statement{exprStmt(submitExpr("Events", "event"))},
+		},
+		returnZero(),
+	})
+
+	diags := validate.Program(prog)
+	hzn2100 := countDiag(diags, "HZN2100")
+	if hzn2100 != 0 {
+		t.Fatalf("HZN2100 count = %d, want 0 (!(event == nil) should promote event to live)", hzn2100)
+	}
+}
+
+// TestNilCheckRecognizedInDoubleNegation verifies that
+//
+//	event := Events.reserve()
+//	if !!(event != nil) { Events.submit(event) }
+//	return 0
+//
+// produces zero HZN2100 diagnostics. Two consecutive `!`s cancel; `!!(event !=
+// nil)` is equivalent to `event != nil`.
+func TestNilCheckRecognizedInDoubleNegation(t *testing.T) {
+	prog := ringbufProg([]ir.Statement{
+		{Kind: "short_var", Name: "event", Value: reserveExpr("Events")},
+		{
+			Kind: "if",
+			Cond: notCond(notCond(neqNilCond("event"))),
+			Then: []ir.Statement{exprStmt(submitExpr("Events", "event"))},
+		},
+		returnZero(),
+	})
+
+	diags := validate.Program(prog)
+	hzn2100 := countDiag(diags, "HZN2100")
+	if hzn2100 != 0 {
+		t.Fatalf("HZN2100 count = %d, want 0 (!!(event != nil) should promote event to live)", hzn2100)
+	}
+}
+
+// TestNilCheckRecognizedInDemorganDisjunction verifies that
+//
+//	a := Events.reserve()
+//	b := Events.reserve()
+//	if !(a == nil || b == nil) { Events.submit(a); Events.submit(b) }
+//	return 0
+//
+// produces zero HZN2100 diagnostics. `!(a == nil || b == nil)` is DeMorgan-
+// equivalent to `a != nil && b != nil`, so both reservations should promote
+// to live in the then-arm.
+func TestNilCheckRecognizedInDemorganDisjunction(t *testing.T) {
+	prog := ringbufProg([]ir.Statement{
+		{Kind: "short_var", Name: "a", Value: reserveExpr("Events")},
+		{Kind: "short_var", Name: "b", Value: reserveExpr("Events")},
+		{
+			Kind: "if",
+			Cond: notCond(orCond(eqNilCond("a"), eqNilCond("b"))),
+			Then: []ir.Statement{
+				exprStmt(submitExpr("Events", "a")),
+				exprStmt(submitExpr("Events", "b")),
+			},
+		},
+		returnZero(),
+	})
+
+	diags := validate.Program(prog)
+	hzn2100 := countDiag(diags, "HZN2100")
+	if hzn2100 != 0 {
+		t.Fatalf("HZN2100 count = %d, want 0 (!(a == nil || b == nil) should promote both)", hzn2100)
+	}
+}
+
+// TestNilCheckNegatedConjunctionDoesNotPromote verifies that
+//
+//	event := Events.reserve()
+//	if !(event != nil && pid > 0) { Events.submit(event) }
+//	return 0
+//
+// produces at least one HZN2100. `!(event != nil && pid > 0)` is DeMorgan-
+// equivalent to `event == nil || pid <= 0`, so event must NOT promote to live
+// in the then-arm — only one disjunct may hold.
+func TestNilCheckNegatedConjunctionDoesNotPromote(t *testing.T) {
+	prog := ringbufProg([]ir.Statement{
+		{Kind: "short_var", Name: "event", Value: reserveExpr("Events")},
+		{
+			Kind: "if",
+			Cond: notCond(andCond(neqNilCond("event"), intGtCond("pid", "0"))),
+			Then: []ir.Statement{exprStmt(submitExpr("Events", "event"))},
+		},
+		returnZero(),
+	})
+
+	diags := validate.Program(prog)
+	hzn2100 := countDiag(diags, "HZN2100")
+	if hzn2100 == 0 {
+		t.Errorf("HZN2100 count = 0, want >= 1 (negated conjunction must NOT promote event)")
+	}
+}
+
+// ── Task 2 (#5 B1): mixed-op nil-check chain regression-pin tests ─────────────
+
+// TestMixedOpPositiveConjunctionStillPromotes verifies that
+//
+//	event := Events.reserve()
+//	if event != nil && (pid > 0 || flag == 1) { Events.submit(event) }
+//	return 0
+//
+// produces zero HZN2100. The left operand of `&&` is the nil-check; the right
+// operand is a disjunction that does not mention event. Union semantics on `&&`
+// means event still promotes via the left arm.
+func TestMixedOpPositiveConjunctionStillPromotes(t *testing.T) {
+	prog := ringbufProg([]ir.Statement{
+		{Kind: "short_var", Name: "event", Value: reserveExpr("Events")},
+		{
+			Kind: "if",
+			Cond: andCond(
+				neqNilCond("event"),
+				orCond(intGtCond("pid", "0"), eqIntCond("flag", "1")),
+			),
+			Then: []ir.Statement{exprStmt(submitExpr("Events", "event"))},
+		},
+		returnZero(),
+	})
+
+	diags := validate.Program(prog)
+	hzn2100 := countDiag(diags, "HZN2100")
+	if hzn2100 != 0 {
+		t.Fatalf("HZN2100 count = %d, want 0 (left-arm nil-check should promote even when right arm is ||)", hzn2100)
+	}
+}
+
+// TestMixedOpDemorganConjunctionOfNegationsPromotesBoth verifies the variant
+//
+//	a := Events.reserve()
+//	b := Events.reserve()
+//	if !(a == nil) && !(b == nil) { Events.submit(a); Events.submit(b) }
+//	return 0
+//
+// produces zero HZN2100. Each conjunct is a !-equivalent of `!= nil`; both
+// reservations should promote.
+func TestMixedOpDemorganConjunctionOfNegationsPromotesBoth(t *testing.T) {
+	prog := ringbufProg([]ir.Statement{
+		{Kind: "short_var", Name: "a", Value: reserveExpr("Events")},
+		{Kind: "short_var", Name: "b", Value: reserveExpr("Events")},
+		{
+			Kind: "if",
+			Cond: andCond(notCond(eqNilCond("a")), notCond(eqNilCond("b"))),
+			Then: []ir.Statement{
+				exprStmt(submitExpr("Events", "a")),
+				exprStmt(submitExpr("Events", "b")),
+			},
+		},
+		returnZero(),
+	})
+
+	diags := validate.Program(prog)
+	hzn2100 := countDiag(diags, "HZN2100")
+	if hzn2100 != 0 {
+		t.Fatalf("HZN2100 count = %d, want 0 (!(a == nil) && !(b == nil) should promote both)", hzn2100)
+	}
+}
+
+// TestMixedOpDisjunctionWithUnrelatedPredicateDoesNotPromote regression-pins
+// the natural-polarity || rule: even if one disjunct names the resource, the
+// other one doesn't, so the resource cannot be promoted.
+//
+//	event := Events.reserve()
+//	if event != nil || flag == 1 { Events.submit(event) }
+//	return 0
+//
+// produces at least one HZN2100.
+func TestMixedOpDisjunctionWithUnrelatedPredicateDoesNotPromote(t *testing.T) {
+	prog := ringbufProg([]ir.Statement{
+		{Kind: "short_var", Name: "event", Value: reserveExpr("Events")},
+		{
+			Kind: "if",
+			Cond: orCond(neqNilCond("event"), eqIntCond("flag", "1")),
+			Then: []ir.Statement{exprStmt(submitExpr("Events", "event"))},
+		},
+		returnZero(),
+	})
+
+	diags := validate.Program(prog)
+	hzn2100 := countDiag(diags, "HZN2100")
+	if hzn2100 == 0 {
+		t.Errorf("HZN2100 count = 0, want >= 1 (|| with unrelated predicate must NOT promote)")
+	}
+}
+
 // TestNilCheckDisjunctionDoesNotPromote verifies that
 //
 //	event := Events.reserve()

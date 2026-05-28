@@ -15,6 +15,50 @@ All notable changes to Horizon are documented in this file. Format follows
   the layer at which the conflict was detected so CI logs and downstream
   consumers no longer need to disambiguate by inspecting code. See
   `docs/migrations/v0.2-to-v0.3.md`. (roadmap: #9)
+- Helper-effect summarizer (`validate/helper_effects.go`) now records the
+  deepest helper-call chain observed during `BuildHelperEffects` in
+  `HelperEffects.MaxObservedDepth`, alongside the per-call-site
+  specialization-cache overflow count in `CacheOverflows()`. New
+  env-gated stderr surface in `validate.Program`: setting
+  `HORIZON_BIRCH_DEPTH_REPORT=1` emits one `[birch-depth] program=… max_depth=… helper_count=… cache_overflows=…`
+  line per program. New Makefile target `make depth-report` runs `hzn check`
+  over every `HZN_EXAMPLES` entry, collates the lines into
+  `$(OUT)/birch-depth.txt`, and prints the global max + total overflow
+  count. Telemetry pass across the v0.3 examples observed max depth = 1
+  (well under the 8-cap headroom); `maxHelperEffectDepth` therefore stays
+  at 8 and will be revisited if a future telemetry run shows ≥ 6.
+  (roadmap: #8)
+- Helper-effect summarizer (`validate/helper_effects.go`) now specializes
+  per-call-site for literal arguments via new `EffectForCall(helper, args)`
+  API. A helper whose flat summary is `Mixed` because one branch consumes
+  and another preserves (`if flag != 0 { submit } else { return ev }`)
+  re-walks under the constant-folded substitution when the caller passes a
+  literal `int`/`bool`/`nil`: `flag=1` specializes to `Consumes`, `flag=0`
+  to `Preserves`. The existing flat `EffectFor` API is unchanged for callers
+  without arg context. The substitution-aware walker folds `ident ==
+  literal` / `ident != literal` / `unary{!}` / `binary{&&, ||}` of folded
+  leaves; anything else falls through to walking both branches. Cached by
+  canonical literal-arg signature (`"0=int:1,1=bool:true"`); bounded at 32
+  entries per helper, after which `EffectForCall` falls back to the flat
+  summary and bumps `CacheOverflows()` for telemetry. Wired through
+  `applyHelperEffectRingbuf` / `applyHelperEffectLookup` /
+  `applyHelperEffectPacket`. (roadmap: #7)
+- Validate-layer alias graph (`validate/aliases.go`) now tracks struct-field
+  stores within a function: `container.slot = event` registers an edge so
+  later reads through the same selector (`container.slot`) resolve back to
+  the underlying tracked reservation. Ringbuf / maps / packet validators
+  consume the new edge through `aliases.rootOfSelector(expr)`, and
+  `Events.submit(container.slot)` (selector-form consume argument) now
+  consumes the field-aliased resource. Intra-function only;
+  cross-function struct-field aliasing remains out of scope. (roadmap: #6)
+- Helper-effect summarizer (`validate/helper_effects.go`) now propagates
+  struct-field aliases through helper bodies. A helper that stores its
+  tracked param into a container field (`c.slot = ev`) and never references
+  the field again classifies as `Escapes` (sound conservative — the
+  container's downstream fate is opaque). A helper that subsequently
+  consumes through the field-aliased selector (`Events.submit(c.slot)`)
+  classifies as `Consumes`. Implemented via the same intra-function
+  field-store edge added for the validator-level extension. (roadmap: #6)
 - Legacy `cmd/hzn/diagnose.go:verifierSuggestion` switch removed; remediation
   guidance now flows exclusively from the verifier catalog. Unrecognized
   verifier messages fall back to `HZN3100` with no `suggest`. (roadmap: #14)

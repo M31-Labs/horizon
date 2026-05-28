@@ -1,6 +1,9 @@
 package validate
 
 import (
+	"fmt"
+	"os"
+
 	"m31labs.dev/horizon/compiler/diag"
 	"m31labs.dev/horizon/ir"
 )
@@ -20,5 +23,23 @@ func Program(program ir.Program) []diag.Diagnostic {
 	diags = append(diags, AnalyzeHelpers(program, sites)...)
 	diags = append(diags, AnalyzePacket(program, sites, effects)...)
 	diags = append(diags, ValidateCapabilities(program)...)
+	// #8 depth-telemetry env-gate. When HORIZON_BIRCH_DEPTH_REPORT is set,
+	// emit one stderr line per program with the max helper-call-chain depth,
+	// the helper count, and the per-call-site specialization cache overflow
+	// count. Lives at the end of Program so the cache-overflow counter
+	// reflects everything the validators consumed during this run. The
+	// `make depth-report` Makefile target greps these lines and computes
+	// the global max across HZN_EXAMPLES — see the plan's Step 6.4 cap
+	// revisit policy.
+	if os.Getenv("HORIZON_BIRCH_DEPTH_REPORT") != "" {
+		name := program.Package
+		if name == "" {
+			name = "<unnamed>"
+		}
+		fmt.Fprintf(os.Stderr,
+			"[birch-depth] program=%s max_depth=%d helper_count=%d cache_overflows=%d\n",
+			name, effects.MaxObservedDepth, len(effects.byName), effects.CacheOverflows(),
+		)
+	}
 	return diags
 }
