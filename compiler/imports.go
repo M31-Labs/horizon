@@ -68,6 +68,21 @@ var builtinImportPaths = map[string]string{
 // non-nil only for hard I/O failures — resolution failures are surfaced via
 // diags.
 func ResolveImports(rootDir string) (root ast.Package, deps []ast.Package, graph ImportGraph, diags []diag.Diagnostic, err error) {
+	return ResolveImportsCtx(rootDir, DetectContext())
+}
+
+// ResolveImportsCtx is the build-context-aware form of ResolveImports.
+// Files carrying `//hzn:build <expr>` directives are filtered against
+// ctx before parsing; only surviving files contribute to the returned
+// packages. When every file in a *reached* package directory is
+// excluded by the filter, diagnostic HZN1680 fires.
+//
+// Most callers use ResolveImports, which delegates here with
+// DetectContext(). Tests that need a deterministic context (e.g. the
+// `multifile-buildtag` golden fixture) call ResolveImportsCtx directly
+// or set the per-dimension HORIZON_BUILD_* env vars and reset the
+// DetectContext cache via resetContextCache.
+func ResolveImportsCtx(rootDir string, ctx BuildContext) (root ast.Package, deps []ast.Package, graph ImportGraph, diags []diag.Diagnostic, err error) {
 	graph.Edges = map[string]map[string]string{}
 	graph.Packages = map[string]ast.Package{}
 	graph.BuiltinAliases = map[string]bool{}
@@ -112,9 +127,27 @@ func ResolveImports(rootDir string) (root ast.Package, deps []ast.Package, graph
 		onStack[dir] = true
 		defer func() { onStack[dir] = false }()
 
-		pkg, ds, err := loadPackage(dir, singlePath)
+		pkg, ds, err := loadPackage(dir, singlePath, ctx)
 		if err != nil {
 			return ast.Package{}, ds, err
+		}
+
+		// HZN1680: if a non-root package was reached from an import but
+		// every one of its `.hzn` files was filtered out by the active
+		// build constraints, the package is unreachable under this
+		// context. Fires only for imported packages — a root with no
+		// surviving files flows through the existing "no .hzn files"
+		// path. Source-on-disk vs filtered-out is distinguished by
+		// dirHasHznFiles (would be true here even when pkg.Files is
+		// empty).
+		if dir != absRoot && len(pkg.Files) == 0 && dirHasHznFiles(dir) {
+			ds = append(ds, diag.Diagnostic{
+				Code:     "HZN1680",
+				Severity: diag.SeverityError,
+				Message:  fmt.Sprintf("build constraint excluded all files in package %q", dir),
+				Primary:  importSpan,
+				Suggest:  "remove a `//hzn:build` directive from at least one file, or adjust the active build context (HORIZON_BUILD_OS / _ARCH / _KERNEL / _BTF) so at least one constraint evaluates true",
+			})
 		}
 
 		// Resolve each import in each file.
@@ -304,9 +337,19 @@ func dirHasHznFiles(dir string) bool {
 // returns an ast.Package with stable file ordering. .hzn files inside nested
 // directories are NOT included — those belong to their own packages.
 //
+// Files carrying `//hzn:build <expr>` constraint directives are evaluated
+// against ctx; files whose constraint fails (or whose expression is itself
+// malformed) are filtered out before parsing — they contribute no
+// declarations and produce no parse/AST diagnostics. Malformed expressions
+// do surface as a non-fatal warning so authors notice typos. The surviving
+// files have their joined constraint recorded on `ast.File.BuildTag` for
+// downstream reproducibility.
+//
 // If singlePath is non-empty, only that one file is loaded into the package
 // (used when AnalyzePath is called with a file path instead of a directory).
-func loadPackage(dir, singlePath string) (ast.Package, []diag.Diagnostic, error) {
+// Single-file mode still honors build constraints — a file pointed at
+// explicitly whose constraint fails is still filtered out.
+func loadPackage(dir, singlePath string, ctx BuildContext) (ast.Package, []diag.Diagnostic, error) {
 	var paths []string
 	if singlePath != "" {
 		paths = []string{singlePath}
@@ -335,6 +378,34 @@ func loadPackage(dir, singlePath string) (ast.Package, []diag.Diagnostic, error)
 		// terms for resolution correctness; only the *recorded* span needs
 		// to be relative.
 		parsePath := relativeToCwd(path)
+
+		// Filter by `//hzn:build` constraints BEFORE parsing — tag-
+		// excluded files never produce parse errors. A read failure
+		// here is rare (we already enumerated the dir) but is recovered
+		// gracefully: the file gets parsed normally and any subsequent
+		// I/O failure surfaces through the parser.
+		raw, rerr := os.ReadFile(path)
+		joinedTag := ""
+		if rerr == nil {
+			tags := parser.ExtractBuildTags(raw)
+			include, joined, mderr := evaluateBuildTags(ctx, tags)
+			if mderr != nil {
+				diags = append(diags, diag.Diagnostic{
+					Code:     "HZN1680",
+					Severity: diag.SeverityWarning,
+					Message:  fmt.Sprintf("malformed //hzn:build directive in %s: %v", parsePath, mderr),
+					Suggest:  "check the constraint expression (allowed dimensions: os, arch, kernel comparisons, btf)",
+				})
+				// Treat malformed directives as "exclude" — safer than
+				// silently treating them as always-true.
+				continue
+			}
+			if !include {
+				continue
+			}
+			joinedTag = joined
+		}
+
 		parsed, perr := parser.ParsePath(parsePath)
 		if perr != nil {
 			diags = append(diags, frontEndDiagnostic(parsePath, perr))
@@ -345,6 +416,7 @@ func loadPackage(dir, singlePath string) (ast.Package, []diag.Diagnostic, error)
 			diags = append(diags, frontEndDiagnostic(parsePath, ferr))
 			continue
 		}
+		file.BuildTag = joinedTag
 		if pkg.Name == "" {
 			pkg.Name = file.Package
 			pkg.Span = file.Span
@@ -356,4 +428,25 @@ func loadPackage(dir, singlePath string) (ast.Package, []diag.Diagnostic, error)
 		return string(pkg.Files[i].Span.File) < string(pkg.Files[j].Span.File)
 	})
 	return pkg, diags, nil
+}
+
+// evaluateBuildTags ANDs every directive against ctx. Returns
+// (include, joined, err). include is false if any directive evaluates
+// false; joined is the " && "-joined expression text recorded on the
+// surviving AST file for traceability. err is non-nil only when one of
+// the expressions is malformed (unknown identifier, etc.).
+func evaluateBuildTags(ctx BuildContext, tags []string) (bool, string, error) {
+	if len(tags) == 0 {
+		return true, "", nil
+	}
+	for _, t := range tags {
+		ok, err := ctx.Matches(t)
+		if err != nil {
+			return false, "", err
+		}
+		if !ok {
+			return false, "", nil
+		}
+	}
+	return true, strings.Join(tags, " && "), nil
 }

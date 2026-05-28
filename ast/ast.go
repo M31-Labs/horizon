@@ -7,6 +7,15 @@ type File struct {
 	Imports []ImportDecl
 	Decls   []Decl
 	Span    span.Span
+	// BuildTag is the raw `//hzn:build <expr>` constraint expression
+	// recorded by the compiler when the file passed the active
+	// BuildContext filter. Empty when the file declared no
+	// `//hzn:build` directive. When multiple directives are present
+	// they are joined with " && " in source order, mirroring the
+	// caller-side AND semantics. Informational only — the filter
+	// decision already happened by the time the file lands in
+	// ast.Package.
+	BuildTag string
 }
 
 type Decl interface {

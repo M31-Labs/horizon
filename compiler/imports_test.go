@@ -268,6 +268,150 @@ type Wrapper struct {
 	}
 }
 
+// TestResolveImportsFiltersByBuildTag pins O-4: two files in the same
+// package directory with mutually exclusive `//hzn:build` constraints
+// is legal. Under HORIZON_BUILD_OS=linux only the linux-tagged file
+// contributes to the package; the darwin-tagged file is filtered out
+// before parsing and produces no diagnostics.
+func TestResolveImportsFiltersByBuildTag(t *testing.T) {
+	t.Setenv("HORIZON_BUILD_OS", "linux")
+	t.Setenv("HORIZON_BUILD_ARCH", "amd64")
+	t.Setenv("HORIZON_BUILD_KERNEL", "5.15")
+	t.Setenv("HORIZON_BUILD_BTF", "0")
+	resetContextCache()
+	t.Cleanup(resetContextCache)
+
+	dir := t.TempDir()
+	writeFile(t, dir, "linux.hzn", `//hzn:build linux
+
+package mfbt
+
+type LinuxOnly struct {
+    x u32
+}
+`)
+	writeFile(t, dir, "darwin.hzn", `//hzn:build darwin
+
+package mfbt
+
+type DarwinOnly struct {
+    x u32
+}
+`)
+	root, _, _, diags, err := ResolveImports(dir)
+	if err != nil {
+		t.Fatalf("ResolveImports: %v", err)
+	}
+	if diag.HasErrors(diags) {
+		t.Fatalf("diagnostics = %#v, want none", diags)
+	}
+	if len(root.Files) != 1 {
+		t.Fatalf("root.Files = %d, want 1 (darwin file should be filtered out)", len(root.Files))
+	}
+	// The surviving file should be linux.hzn — assert by checking its
+	// recorded BuildTag.
+	if root.Files[0].BuildTag != "linux" {
+		t.Fatalf("surviving file BuildTag = %q, want %q", root.Files[0].BuildTag, "linux")
+	}
+}
+
+// TestResolveImportsEmitsHZN1680WhenAllFilesExcluded covers the diagnostic
+// that fires when an *imported* package directory has every file filtered
+// out by the active build context.
+func TestResolveImportsEmitsHZN1680WhenAllFilesExcluded(t *testing.T) {
+	t.Setenv("HORIZON_BUILD_OS", "linux")
+	t.Setenv("HORIZON_BUILD_ARCH", "amd64")
+	t.Setenv("HORIZON_BUILD_KERNEL", "5.15")
+	t.Setenv("HORIZON_BUILD_BTF", "0")
+	resetContextCache()
+	t.Cleanup(resetContextCache)
+
+	dir := t.TempDir()
+	writeFile(t, dir, "main.hzn", `package main
+
+import other "./other"
+
+type Wrapper struct {
+    a u32
+}
+`)
+	writeFile(t, dir, "other/other.hzn", `//hzn:build darwin
+
+package other
+
+type Foo struct {
+    x u32
+}
+`)
+	_, _, _, diags, err := ResolveImports(dir)
+	if err != nil {
+		t.Fatalf("ResolveImports: %v", err)
+	}
+	var found bool
+	for _, d := range diags {
+		if d.Code == "HZN1680" && d.Severity == diag.SeverityError {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected HZN1680 error, got diagnostics: %#v", diags)
+	}
+}
+
+// TestResolveImportsBuildTagSurvivesPartialExclusion pins that when at
+// least one file in a package survives the filter, HZN1680 does NOT fire
+// (only-all-files-excluded triggers it).
+func TestResolveImportsBuildTagSurvivesPartialExclusion(t *testing.T) {
+	t.Setenv("HORIZON_BUILD_OS", "linux")
+	t.Setenv("HORIZON_BUILD_ARCH", "amd64")
+	t.Setenv("HORIZON_BUILD_KERNEL", "5.15")
+	t.Setenv("HORIZON_BUILD_BTF", "0")
+	resetContextCache()
+	t.Cleanup(resetContextCache)
+
+	dir := t.TempDir()
+	writeFile(t, dir, "main.hzn", `package main
+
+import other "./other"
+
+type Wrapper struct {
+    a u32
+}
+`)
+	writeFile(t, dir, "other/linux.hzn", `//hzn:build linux
+
+package other
+
+type Foo struct {
+    x u32
+}
+`)
+	writeFile(t, dir, "other/darwin.hzn", `//hzn:build darwin
+
+package other
+
+type Bar struct {
+    x u32
+}
+`)
+	_, deps, _, diags, err := ResolveImports(dir)
+	if err != nil {
+		t.Fatalf("ResolveImports: %v", err)
+	}
+	for _, d := range diags {
+		if d.Code == "HZN1680" {
+			t.Fatalf("HZN1680 should not fire when at least one file survives the filter: %#v", d)
+		}
+	}
+	if len(deps) != 1 {
+		t.Fatalf("deps = %d, want 1", len(deps))
+	}
+	if len(deps[0].Files) != 1 {
+		t.Fatalf("deps[0].Files = %d, want 1 (only linux.hzn should survive)", len(deps[0].Files))
+	}
+}
+
 func TestResolveImportsErrorImportCycle(t *testing.T) {
 	dir := t.TempDir()
 	// root imports A, A imports B, B imports A -> cycle.
