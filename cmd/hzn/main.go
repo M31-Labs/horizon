@@ -42,6 +42,8 @@ func run(args []string) error {
 		return runDiagnose(rest)
 	case "capabilities":
 		return runCapabilities(rest)
+	case "get":
+		return runGet(rest)
 	default:
 		usage()
 		return fmt.Errorf("unknown command %q", cmd)
@@ -49,7 +51,7 @@ func run(args []string) error {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "Usage: hzn <new|check|fmt|workbench|build|doctor|version|emit-c|bindgen|diagnose|capabilities> [path] [flags]")
+	fmt.Fprintln(os.Stderr, "Usage: hzn <new|check|fmt|workbench|build|doctor|version|emit-c|bindgen|diagnose|capabilities|get> [path] [flags]")
 }
 
 func pathArg(fs *flag.FlagSet) string {
