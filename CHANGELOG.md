@@ -223,6 +223,17 @@ All notable changes to Horizon are documented in this file. Format follows
   package versioning, re-exports, and per-package published manifests
   are explicitly out of scope. See `docs/migrations/v0.2-package-composition.md`.
   (roadmap: #21)
+- Horizon helper functions may now return resource pointer types
+  (`*Event`, `*Counter`, `*xdp.Eth`). HZN1320 is relaxed for resource-
+  typed returns, mirroring maple's v0.2 HZN1319 relax for resource-typed
+  parameters. The validate layer learns return-value lifetime tracking
+  via a new `ReturnEffect` verdict lattice (`ReturnsResource`,
+  `ReturnsResourceMaybe`, `ReturnsAlias`, `Unknown`) — callers binding a
+  helper's return value treat it as a freshly-created resource
+  (analogous to a `reserve()` call) when the verdict permits. New
+  example `examples/helperctor-execwatch/` exercises a user-defined
+  `MakeExecEvent()` constructor returning `*ExecEvent`.
+  (roadmap: #18 / E1)
 
 ## [v0.1.2] — 2026-05-25
 
