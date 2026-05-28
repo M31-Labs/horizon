@@ -1,0 +1,602 @@
+{
+  "generated": {
+    "language": "c"
+  },
+  "mappings": [
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 22
+        },
+        "start": {
+          "column": 1,
+          "line": 18
+        }
+      },
+      "node": "helper_wrapper",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 30,
+          "line": 37
+        },
+        "end_byte": 1002,
+        "file": "examples/helperctor-execwatch/exec.hzn",
+        "start": {
+          "column": 13,
+          "line": 37
+        },
+        "start_byte": 985
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 26
+        },
+        "start": {
+          "column": 1,
+          "line": 22
+        }
+      },
+      "node": "helper_wrapper",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 33,
+          "line": 36
+        },
+        "end_byte": 972,
+        "file": "examples/helperctor-execwatch/exec.hzn",
+        "start": {
+          "column": 15,
+          "line": 36
+        },
+        "start_byte": 954
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 30
+        },
+        "start": {
+          "column": 1,
+          "line": 26
+        }
+      },
+      "node": "helper_wrapper",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 30,
+          "line": 38
+        },
+        "end_byte": 1032,
+        "file": "examples/helperctor-execwatch/exec.hzn",
+        "start": {
+          "column": 5,
+          "line": 38
+        },
+        "start_byte": 1007
+      }
+    },
+    {
+      "function": "",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 40
+        },
+        "start": {
+          "column": 1,
+          "line": 30
+        }
+      },
+      "node": "struct",
+      "section": "",
+      "source": {
+        "end": {
+          "column": 2,
+          "line": 9
+        },
+        "end_byte": 135,
+        "file": "examples/helperctor-execwatch/exec.hzn",
+        "start": {
+          "column": 6,
+          "line": 5
+        },
+        "start_byte": 73
+      }
+    },
+    {
+      "function": "",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 45
+        },
+        "start": {
+          "column": 1,
+          "line": 40
+        }
+      },
+      "node": "map",
+      "section": "",
+      "source": {
+        "end": {
+          "column": 30,
+          "line": 11
+        },
+        "end_byte": 166,
+        "file": "examples/helperctor-execwatch/exec.hzn",
+        "start": {
+          "column": 1,
+          "line": 11
+        },
+        "start_byte": 137
+      }
+    },
+    {
+      "function": "MakeExecEvent",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 49
+        },
+        "start": {
+          "column": 1,
+          "line": 45
+        }
+      },
+      "node": "map_wrapper",
+      "section": "",
+      "source": {
+        "end": {
+          "column": 26,
+          "line": 22
+        },
+        "end_byte": 710,
+        "file": "examples/helperctor-execwatch/exec.hzn",
+        "start": {
+          "column": 10,
+          "line": 22
+        },
+        "start_byte": 694
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 53
+        },
+        "start": {
+          "column": 1,
+          "line": 49
+        }
+      },
+      "node": "map_wrapper",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 21,
+          "line": 39
+        },
+        "end_byte": 1053,
+        "file": "examples/helperctor-execwatch/exec.hzn",
+        "start": {
+          "column": 5,
+          "line": 39
+        },
+        "start_byte": 1037
+      }
+    },
+    {
+      "function": "MakeExecEvent",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 58
+        },
+        "start": {
+          "column": 1,
+          "line": 57
+        }
+      },
+      "node": "short_var",
+      "section": "",
+      "source": {
+        "end": {
+          "column": 26,
+          "line": 22
+        },
+        "end_byte": 710,
+        "file": "examples/helperctor-execwatch/exec.hzn",
+        "start": {
+          "column": 5,
+          "line": 22
+        },
+        "start_byte": 689
+      }
+    },
+    {
+      "function": "MakeExecEvent",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 60
+        },
+        "start": {
+          "column": 1,
+          "line": 59
+        }
+      },
+      "node": "return",
+      "section": "",
+      "source": {
+        "end": {
+          "column": 19,
+          "line": 24
+        },
+        "end_byte": 747,
+        "file": "examples/helperctor-execwatch/exec.hzn",
+        "start": {
+          "column": 9,
+          "line": 24
+        },
+        "start_byte": 737
+      }
+    },
+    {
+      "function": "MakeExecEvent",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 61
+        },
+        "start": {
+          "column": 1,
+          "line": 58
+        }
+      },
+      "node": "if",
+      "section": "",
+      "source": {
+        "end": {
+          "column": 6,
+          "line": 25
+        },
+        "end_byte": 753,
+        "file": "examples/helperctor-execwatch/exec.hzn",
+        "start": {
+          "column": 5,
+          "line": 23
+        },
+        "start_byte": 715
+      }
+    },
+    {
+      "function": "MakeExecEvent",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 62
+        },
+        "start": {
+          "column": 1,
+          "line": 61
+        }
+      },
+      "node": "return",
+      "section": "",
+      "source": {
+        "end": {
+          "column": 13,
+          "line": 26
+        },
+        "end_byte": 766,
+        "file": "examples/helperctor-execwatch/exec.hzn",
+        "start": {
+          "column": 5,
+          "line": 26
+        },
+        "start_byte": 758
+      }
+    },
+    {
+      "function": "MakeExecEvent",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 63
+        },
+        "start": {
+          "column": 1,
+          "line": 55
+        }
+      },
+      "node": "helper_function",
+      "section": "",
+      "source": {
+        "end": {
+          "column": 2,
+          "line": 27
+        },
+        "end_byte": 768,
+        "file": "examples/helperctor-execwatch/exec.hzn",
+        "start": {
+          "column": 1,
+          "line": 21
+        },
+        "start_byte": 651
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 68
+        },
+        "start": {
+          "column": 1,
+          "line": 67
+        }
+      },
+      "node": "short_var",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 25,
+          "line": 32
+        },
+        "end_byte": 898,
+        "file": "examples/helperctor-execwatch/exec.hzn",
+        "start": {
+          "column": 5,
+          "line": 32
+        },
+        "start_byte": 878
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 70
+        },
+        "start": {
+          "column": 1,
+          "line": 69
+        }
+      },
+      "node": "return",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 17,
+          "line": 34
+        },
+        "end_byte": 933,
+        "file": "examples/helperctor-execwatch/exec.hzn",
+        "start": {
+          "column": 9,
+          "line": 34
+        },
+        "start_byte": 925
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 71
+        },
+        "start": {
+          "column": 1,
+          "line": 68
+        }
+      },
+      "node": "if",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 6,
+          "line": 35
+        },
+        "end_byte": 939,
+        "file": "examples/helperctor-execwatch/exec.hzn",
+        "start": {
+          "column": 5,
+          "line": 33
+        },
+        "start_byte": 903
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 72
+        },
+        "start": {
+          "column": 1,
+          "line": 71
+        }
+      },
+      "node": "assign",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 33,
+          "line": 36
+        },
+        "end_byte": 972,
+        "file": "examples/helperctor-execwatch/exec.hzn",
+        "start": {
+          "column": 5,
+          "line": 36
+        },
+        "start_byte": 944
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 73
+        },
+        "start": {
+          "column": 1,
+          "line": 72
+        }
+      },
+      "node": "assign",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 30,
+          "line": 37
+        },
+        "end_byte": 1002,
+        "file": "examples/helperctor-execwatch/exec.hzn",
+        "start": {
+          "column": 5,
+          "line": 37
+        },
+        "start_byte": 977
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 74
+        },
+        "start": {
+          "column": 1,
+          "line": 73
+        }
+      },
+      "node": "expr",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 30,
+          "line": 38
+        },
+        "end_byte": 1032,
+        "file": "examples/helperctor-execwatch/exec.hzn",
+        "start": {
+          "column": 5,
+          "line": 38
+        },
+        "start_byte": 1007
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 75
+        },
+        "start": {
+          "column": 1,
+          "line": 74
+        }
+      },
+      "node": "expr",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 21,
+          "line": 39
+        },
+        "end_byte": 1053,
+        "file": "examples/helperctor-execwatch/exec.hzn",
+        "start": {
+          "column": 5,
+          "line": 39
+        },
+        "start_byte": 1037
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 76
+        },
+        "start": {
+          "column": 1,
+          "line": 75
+        }
+      },
+      "node": "return",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 13,
+          "line": 40
+        },
+        "end_byte": 1066,
+        "file": "examples/helperctor-execwatch/exec.hzn",
+        "start": {
+          "column": 5,
+          "line": 40
+        },
+        "start_byte": 1058
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 77
+        },
+        "start": {
+          "column": 1,
+          "line": 63
+        }
+      },
+      "node": "function",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 2,
+          "line": 41
+        },
+        "end_byte": 1068,
+        "file": "examples/helperctor-execwatch/exec.hzn",
+        "start": {
+          "column": 1,
+          "line": 29
+        },
+        "start_byte": 770
+      }
+    }
+  ],
+  "schema": "m31labs.dev/horizon/sourcemap/v0",
+  "sources": [
+    {
+      "id": 0,
+      "path": "examples/helperctor-execwatch/exec.hzn"
+    }
+  ]
+}

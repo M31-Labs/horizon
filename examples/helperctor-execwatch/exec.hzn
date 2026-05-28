@@ -1,0 +1,41 @@
+package execwatch
+
+import bpf "m31labs.dev/horizon/runtime/kernel"
+
+type ExecEvent struct {
+    ts_ns u64
+    pid u32
+    comm [16]u8
+}
+
+map Events ringbuf[ExecEvent]
+
+capability ExecObserve danger observe = "kernel.process.exec.observe"
+
+// MakeExecEvent is a user-defined constructor helper: it reserves a fresh
+// ringbuf slot, returns nil on reservation failure, and otherwise returns
+// the live reservation back to the caller. The HZN1320 relax (v0.3 alder,
+// roadmap #18) admits the *ExecEvent return type; the validate-layer
+// state machine binds the caller's `e := MakeExecEvent()` as a tracked
+// reservation via the ReturnEffect verdict.
+func MakeExecEvent() *ExecEvent {
+    e := Events.reserve()
+    if e == nil {
+        return nil
+    }
+    return e
+}
+
+@capability(ExecObserve)
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    e := MakeExecEvent()
+    if e == nil {
+        return 0
+    }
+    e.ts_ns = bpf.ktime_get_ns()
+    e.pid = bpf.current_pid()
+    bpf.current_comm(&e.comm)
+    Events.submit(e)
+    return 0
+}

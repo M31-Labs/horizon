@@ -344,7 +344,22 @@ func validateTypedRingbuf(fn ir.Function, ringMaps map[string]ir.Map, effects He
 				// Post-loop state: merge iter-1 and iter-2 outcomes.
 				states = mergeReserveBranchStates(afterIter1, afterIter2, false, false)
 			case "return":
+				// v0.3 alder Phase 2 (roadmap #18): if this function is a
+				// user helper (sectionless) that returns a resource pointer
+				// and the returned expression is exactly a tracked
+				// reservation by name, the helper is *handing off* the
+				// reservation to its caller — not leaking it. Suppress
+				// HZN2104 for that bound name; the caller's state machine
+				// picks up the live reservation via trackHelperReturnStatement.
+				handedOff := ""
+				if fn.Section.Kind == "" && isResourcePointerReturn(fn.Return) &&
+					stmt.Value != nil && stmt.Value.Kind == "ident" {
+					handedOff = aliases.root(stmt.Value.Name)
+				}
 				for varName, state := range states {
+					if varName == handedOff {
+						continue
+					}
 					if state.State == "live" || state.State == "maybe_nil" || state.State == "maybe_consumed" {
 						reportLive(varName, stmt.Span)
 					}
@@ -353,6 +368,16 @@ func validateTypedRingbuf(fn ir.Function, ringMaps map[string]ir.Map, effects He
 		}
 	}
 	walk(functionStatements(fn))
+	// At end-of-function: also exempt any live reservation that matches the
+	// last-handoff shape for a constructor helper (helper has resource-
+	// pointer return type AND the body's terminal statement may return one
+	// of the tracked names). Simpler approximation: if the function is a
+	// user helper returning a resource pointer, skip the trailing live-on-
+	// fall-through check — control-flow that reaches end-without-return is
+	// covered by the per-return branch above.
+	if fn.Section.Kind == "" && isResourcePointerReturn(fn.Return) {
+		return diags
+	}
 	for varName, state := range states {
 		if state.State == "consumed" || state.State == "nil" || state.State == "escaped" {
 			continue

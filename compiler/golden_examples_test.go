@@ -23,6 +23,7 @@ var examples = []string{
 	"structopstcp",
 	"multifile-execcount",
 	"imported-execcount",
+	"helperctor-execwatch",
 }
 
 // Fields stripped before comparison because they vary per-run.

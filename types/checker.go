@@ -2308,7 +2308,7 @@ func (c *funcBodyChecker) checkShortVar(s ast.ShortVarStmt, locals map[string]va
 		})
 	case isFixedArray(typ):
 		c.add(fixedArrayLocalDiagnostic(s.Span, s.Name, typ))
-	case len(exprDiags) == 0 && isTrackedPointer(typ) && !directTrackedPointerSource(s.Value, c.maps):
+	case len(exprDiags) == 0 && isTrackedPointer(typ) && !directTrackedPointerSource(s.Value, c.maps) && !userHelperResourceReturnSource(s.Value, c.funcs):
 		c.add(trackedPointerAliasDiagnostic(s.Span, s.Name, typ))
 		if s.Name != "" && !nameInvalid {
 			locals[s.Name] = typ
@@ -4104,6 +4104,20 @@ func (t exprTyper) userFunctionCall(fn ast.FuncDecl, call ast.CallExpr) (valueTy
 		}}
 	}
 	result := valueType{Name: fn.Return.Name, Ref: fn.Return, Ptr: fn.Return.Ptr}
+	// v0.3 alder Phase 2 (roadmap #18): if the helper returns a resource
+	// pointer (matches helperResourceReturnType), mark the bound value as a
+	// nullable resource so downstream call sites — notably the HZN1412
+	// "expects a reserved *X" check on Events.submit / discard — accept
+	// `e := MakeExecEvent(); Events.submit(e)` patterns. The validate-layer
+	// state machine tightens the maybe-nil disposition based on the
+	// helper's ReturnEffect verdict (Resource / ResourceMaybe / Alias /
+	// Unknown); the type layer is intentionally conservative — Resource +
+	// MaybeNil — so source-level diagnostics fire when needed and the
+	// validate layer can refine.
+	if helperResourceReturnType(fn.Return) {
+		result.Resource = true
+		result.MaybeNil = true
+	}
 	if len(call.Args) != len(fn.Params) {
 		return result, []diag.Diagnostic{argCountDiagnostic(call.Span, fn.Name, len(fn.Params), len(call.Args))}
 	}
@@ -4660,6 +4674,30 @@ func directTrackedPointerSource(expr ast.Expr, maps map[string]ast.MapDecl) bool
 	default:
 		return false
 	}
+}
+
+// userHelperResourceReturnSource reports whether expr is a call to a user
+// helper whose return type is a resource pointer (single-hop *NamedStruct).
+// This admits the v0.3 alder constructor-helper pattern
+// (`e := MakeExecEvent()`) past the HZN1447 tracked-pointer-alias gate: the
+// helper is the *source* of the tracked pointer, not an alias of another
+// tracked binding. The validate-layer ringbuf state machine consumes the
+// helper's ReturnEffect verdict to bind the result precisely. v0.3 alder
+// Phase 2 (roadmap #18).
+func userHelperResourceReturnSource(expr ast.Expr, funcs map[string]ast.FuncDecl) bool {
+	call, ok := expr.(ast.CallExpr)
+	if !ok {
+		return false
+	}
+	ident, ok := call.Func.(ast.IdentExpr)
+	if !ok {
+		return false
+	}
+	fn, ok := funcs[ident.Name]
+	if !ok {
+		return false
+	}
+	return helperResourceReturnType(fn.Return)
 }
 
 func isXDPPacketHeaderHelper(name string) bool {
