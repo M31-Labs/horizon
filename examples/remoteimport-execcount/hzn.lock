@@ -1,0 +1,11 @@
+{
+  "schema": "m31labs.dev/horizon/lockfile/v1",
+  "entries": [
+    {
+      "path": "github.com/m31labs/horizon-test-events",
+      "version": "v1.0.0",
+      "ref_resolved": "v1.0.0",
+      "sha256": "ffe0a0c6c33a64898da8bb9a18f6b857c9f571c3c5e7c7490c08cbe404bee625"
+    }
+  ]
+}

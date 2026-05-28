@@ -22,6 +22,12 @@ var updateGolden = flag.Bool("update-golden", false, "regenerate testdata/golden
 type exampleFixture struct {
 	Name string
 	Env  []string
+	// EnvBuilder allows the fixture to compute env vars at test
+	// time — needed by remoteimport-execcount, which sets
+	// HORIZON_CACHE_ROOT to the absolute path of the in-repo
+	// remote-fixture tree. Static Env entries (from the Env field)
+	// are appended after the builder's output.
+	EnvBuilder func(t *testing.T) []string
 }
 
 var examples = []exampleFixture{
@@ -47,6 +53,27 @@ var examples = []exampleFixture{
 			"HORIZON_BUILD_BTF=1",
 		},
 	},
+	{
+		Name: "remoteimport-execcount",
+		// Points the resolver's content-addressed cache at the
+		// pre-populated in-repo fixture tree so the workbench
+		// invocation never touches the network. The fixture is
+		// laid out as cacheRoot/<sha256(repo)[:32]>/<ref>/...
+		// matching what compiler.cacheKey produces for the
+		// example's hzn.lock entry. Real-network round-trip is
+		// gated behind HORIZON_NETWORK_TESTS — see
+		// docs/internal/remote-imports-testing.md.
+		EnvBuilder: func(t *testing.T) []string {
+			abs, err := filepath.Abs(filepath.Join("..", "testdata", "remote-fixtures"))
+			if err != nil {
+				t.Fatalf("abs remote-fixtures: %v", err)
+			}
+			return []string{
+				"HORIZON_CACHE_ROOT=" + abs,
+				"HORIZON_NETWORK_TESTS=",
+			}
+		},
+	},
 }
 
 // Fields stripped before comparison because they vary per-run.
@@ -65,8 +92,13 @@ func TestGoldenExamplesWorkbench(t *testing.T) {
 			cmd := exec.Command("go", "run", "./cmd/hzn", "workbench",
 				"./examples/"+ex.Name, "-o", tmp)
 			cmd.Dir = ".."
-			if len(ex.Env) > 0 {
-				cmd.Env = append(os.Environ(), ex.Env...)
+			var extraEnv []string
+			if ex.EnvBuilder != nil {
+				extraEnv = append(extraEnv, ex.EnvBuilder(t)...)
+			}
+			extraEnv = append(extraEnv, ex.Env...)
+			if len(extraEnv) > 0 {
+				cmd.Env = append(os.Environ(), extraEnv...)
 			}
 			var stderr bytes.Buffer
 			cmd.Stderr = &stderr

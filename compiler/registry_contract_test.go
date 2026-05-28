@@ -32,6 +32,19 @@ func TestExampleManifestsValidateAgainstRegistry(t *testing.T) {
 		dir := dir
 		name := filepath.Base(dir)
 		t.Run(name, func(t *testing.T) {
+			// remoteimport-execcount imports a fixture from the
+			// in-repo testdata cache. Point HORIZON_CACHE_ROOT at
+			// the abs path of testdata/remote-fixtures so the
+			// resolver finds the fixture (cache hit) instead of
+			// trying to clone from github. See
+			// docs/internal/remote-imports-testing.md.
+			if name == "remoteimport-execcount" {
+				abs, err := filepath.Abs("../testdata/remote-fixtures")
+				if err != nil {
+					t.Fatalf("abs remote-fixtures: %v", err)
+				}
+				t.Setenv("HORIZON_CACHE_ROOT", abs)
+			}
 			result, err := AnalyzePath(dir)
 			if err != nil {
 				t.Fatalf("analyze %s: %v", dir, err)
