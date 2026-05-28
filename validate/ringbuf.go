@@ -42,6 +42,18 @@ func AnalyzeRingbuf(program ir.Program, sites Sites, effects HelperEffects) []di
 		seen[site.Function] = true
 		diags = append(diags, validateTypedRingbuf(*site.Function, ringMaps, effects)...)
 	}
+	// v0.3 alder Phase 2 (roadmap #18): also walk functions that bind a user-
+	// helper return value into a short_var, in case that helper's return
+	// verdict (ReturnEffectReturnsResource / Maybe) means the bound name
+	// becomes a tracked reservation. Walk is deduped against the set already
+	// visited from RingbufReserve.
+	for _, site := range sites.RingbufHelperReturn {
+		if seen[site.Function] {
+			continue
+		}
+		seen[site.Function] = true
+		diags = append(diags, validateTypedRingbuf(*site.Function, ringMaps, effects)...)
+	}
 	return diags
 }
 
@@ -99,6 +111,14 @@ func validateTypedRingbuf(fn ir.Function, ringMaps map[string]ir.Map, effects He
 			switch stmt.Kind {
 			case "short_var":
 				trackReserveStatement(stmt, ringMaps, states)
+				// v0.3 alder Phase 2 (roadmap #18): if the RHS is a user-
+				// helper call returning a resource, consult the helper's
+				// ReturnEffect verdict and bind the result accordingly.
+				// ReturnsResource → live (never-nil); ReturnsResourceMaybe →
+				// maybe_nil (nil-check required); ReturnsAlias / Unknown /
+				// None → do not track (downstream behavior matches Phase 1
+				// "unknown" — no spurious diagnostics on the bound value).
+				trackHelperReturnStatement(stmt, ringMaps, states, effects)
 				// Register alias if the RHS is a plain ident of an already-tracked name.
 				if src := aliasOf(stmt); src != "" {
 					if _, ok := states[aliases.root(src)]; ok {
@@ -324,7 +344,22 @@ func validateTypedRingbuf(fn ir.Function, ringMaps map[string]ir.Map, effects He
 				// Post-loop state: merge iter-1 and iter-2 outcomes.
 				states = mergeReserveBranchStates(afterIter1, afterIter2, false, false)
 			case "return":
+				// v0.3 alder Phase 2 (roadmap #18): if this function is a
+				// user helper (sectionless) that returns a resource pointer
+				// and the returned expression is exactly a tracked
+				// reservation by name, the helper is *handing off* the
+				// reservation to its caller — not leaking it. Suppress
+				// HZN2104 for that bound name; the caller's state machine
+				// picks up the live reservation via trackHelperReturnStatement.
+				handedOff := ""
+				if fn.Section.Kind == "" && isResourcePointerReturn(fn.Return) &&
+					stmt.Value != nil && stmt.Value.Kind == "ident" {
+					handedOff = aliases.root(stmt.Value.Name)
+				}
 				for varName, state := range states {
+					if varName == handedOff {
+						continue
+					}
 					if state.State == "live" || state.State == "maybe_nil" || state.State == "maybe_consumed" {
 						reportLive(varName, stmt.Span)
 					}
@@ -333,6 +368,16 @@ func validateTypedRingbuf(fn ir.Function, ringMaps map[string]ir.Map, effects He
 		}
 	}
 	walk(functionStatements(fn))
+	// At end-of-function: also exempt any live reservation that matches the
+	// last-handoff shape for a constructor helper (helper has resource-
+	// pointer return type AND the body's terminal statement may return one
+	// of the tracked names). Simpler approximation: if the function is a
+	// user helper returning a resource pointer, skip the trailing live-on-
+	// fall-through check — control-flow that reaches end-without-return is
+	// covered by the per-return branch above.
+	if fn.Section.Kind == "" && isResourcePointerReturn(fn.Return) {
+		return diags
+	}
 	for varName, state := range states {
 		if state.State == "consumed" || state.State == "nil" || state.State == "escaped" {
 			continue
@@ -393,6 +438,17 @@ func applyHelperEffectRingbuf(expr *ir.Expr, states map[string]reserveState, ali
 			if helperName != "" {
 				perCallEffects = effects.EffectForCall(helperName, expr.Args)
 			}
+			// v0.3 alder Phase 2 (roadmap #18): if the helper's return
+			// verdict is ReturnsAlias, the helper exfiltrates one of its
+			// arguments via return. The matching argument must be widened
+			// to "escaped" so the caller's downstream usage is suppressed
+			// (the helper may have leaked it onward). For Unknown, keep
+			// Phase 1 escape behavior (already handled by the param switch
+			// default below).
+			returnVerdict := ReturnEffectNone
+			if helperName != "" {
+				returnVerdict = effects.ReturnEffectFor(helperName)
+			}
 			for i := range expr.Args {
 				arg := &expr.Args[i]
 				// Recurse into the arg FIRST so nested calls like
@@ -411,6 +467,21 @@ func applyHelperEffectRingbuf(expr *ir.Expr, states map[string]reserveState, ali
 					effect := HelperEffectUnknown
 					if i < len(perCallEffects) {
 						effect = perCallEffects[i]
+					}
+					// ReturnsAlias dominates: the helper returned this
+					// argument back out, so caller-side tracking must widen
+					// to escaped even if the per-param effect said
+					// Preserves. Without this, a passthrough helper would
+					// leave the reservation "live" and HZN2104 would fire
+					// at the entry's return — but the helper has potentially
+					// exfiltrated the reservation, so silencing matches the
+					// Phase 1 escape posture.
+					if returnVerdict == ReturnEffectReturnsAlias {
+						if state.State == "live" || state.State == "maybe_nil" {
+							state.State = "escaped"
+							states[root] = state
+						}
+						continue
 					}
 					switch effect {
 					case HelperEffectConsumes:
@@ -539,6 +610,47 @@ func trackReserveStatement(stmt ir.Statement, ringMaps map[string]ir.Map, states
 		return
 	}
 	states[stmt.Name] = reserveState{Map: mapName, State: "maybe_nil"}
+}
+
+// trackHelperReturnStatement binds a short_var name to a reserveState entry
+// when the RHS is a user-helper call whose ReturnEffect verdict says the
+// helper returns a freshly-created resource (ReturnsResource: live;
+// ReturnsResourceMaybe: maybe_nil). Other verdicts (ReturnsAlias, Unknown,
+// None) leave states untouched — the bound value either is not a tracked
+// reservation or has already-escaped semantics that match Phase 1's
+// suppression. v0.3 alder Phase 2 (roadmap #18).
+//
+// The reserveState.Map field is left empty because the bound value's origin
+// is the helper, not a specific ringbuf map — downstream consume-site logic
+// only consumes by name, not by map. This is the same shape Phase 1
+// tolerated for helper-returned values via the escape fallback.
+func trackHelperReturnStatement(stmt ir.Statement, ringMaps map[string]ir.Map, states map[string]reserveState, effects HelperEffects) {
+	if stmt.Value == nil || stmt.Value.Kind != "call" || stmt.Value.Func == nil {
+		return
+	}
+	if stmt.Value.Func.Kind != "ident" {
+		return
+	}
+	helperName := stmt.Value.Func.Name
+	switch effects.ReturnEffectFor(helperName) {
+	case ReturnEffectReturnsResource:
+		// Definitely-live freshly-created resource. Bind as "live" so callers
+		// may submit without a nil-check.
+		states[stmt.Name] = reserveState{State: "live"}
+	case ReturnEffectReturnsResourceMaybe:
+		// Sometimes-nil. Bind as "maybe_nil" — caller must nil-check before
+		// use, matching a direct reserve() site.
+		states[stmt.Name] = reserveState{State: "maybe_nil"}
+	case ReturnEffectUnknown, ReturnEffectReturnsAlias:
+		// Un-analyzable / aliased return. Bind as "escaped" so downstream
+		// consume calls (Events.submit(e)) silently transition without
+		// firing HZN2101 "unknown reservation" — matching Phase 1's escape
+		// suppression for unsummarizable helper bodies.
+		states[stmt.Name] = reserveState{State: "escaped"}
+	default:
+		// ReturnEffectNone: helper does not return a tracked resource. Do
+		// not register.
+	}
 }
 
 func walkReserveSwitch(stmt ir.Statement, states *map[string]reserveState, checkWrite func(string, span.Span), walk func([]ir.Statement)) {

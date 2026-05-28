@@ -1,0 +1,522 @@
+{
+  "generated": {
+    "language": "c"
+  },
+  "mappings": [
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 22
+        },
+        "start": {
+          "column": 1,
+          "line": 18
+        }
+      },
+      "node": "helper_wrapper",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 34,
+          "line": 18
+        },
+        "end_byte": 465,
+        "file": "examples/imported-reexport/prog.hzn",
+        "start": {
+          "column": 17,
+          "line": 18
+        },
+        "start_byte": 448
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 26
+        },
+        "start": {
+          "column": 1,
+          "line": 22
+        }
+      },
+      "node": "helper_wrapper",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 34,
+          "line": 19
+        },
+        "end_byte": 499,
+        "file": "examples/imported-reexport/prog.hzn",
+        "start": {
+          "column": 17,
+          "line": 19
+        },
+        "start_byte": 482
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 30
+        },
+        "start": {
+          "column": 1,
+          "line": 26
+        }
+      },
+      "node": "helper_wrapper",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 37,
+          "line": 17
+        },
+        "end_byte": 431,
+        "file": "examples/imported-reexport/prog.hzn",
+        "start": {
+          "column": 19,
+          "line": 17
+        },
+        "start_byte": 413
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 34
+        },
+        "start": {
+          "column": 1,
+          "line": 30
+        }
+      },
+      "node": "helper_wrapper",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 34,
+          "line": 20
+        },
+        "end_byte": 533,
+        "file": "examples/imported-reexport/prog.hzn",
+        "start": {
+          "column": 5,
+          "line": 20
+        },
+        "start_byte": 504
+      }
+    },
+    {
+      "function": "",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 46
+        },
+        "start": {
+          "column": 1,
+          "line": 34
+        }
+      },
+      "node": "struct",
+      "section": "",
+      "source": {
+        "end": {
+          "column": 2,
+          "line": 13
+        },
+        "end_byte": 415,
+        "file": "examples/imported-reexport/vendor/m31labs.dev/horizon-test/events/events.hzn",
+        "start": {
+          "column": 6,
+          "line": 8
+        },
+        "start_byte": 341
+      }
+    },
+    {
+      "function": "",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 51
+        },
+        "start": {
+          "column": 1,
+          "line": 46
+        }
+      },
+      "node": "map",
+      "section": "",
+      "source": {
+        "end": {
+          "column": 33,
+          "line": 6
+        },
+        "end_byte": 143,
+        "file": "examples/imported-reexport/prog.hzn",
+        "start": {
+          "column": 1,
+          "line": 6
+        },
+        "start_byte": 111
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 55
+        },
+        "start": {
+          "column": 1,
+          "line": 51
+        }
+      },
+      "node": "map_wrapper",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 30,
+          "line": 13
+        },
+        "end_byte": 349,
+        "file": "examples/imported-reexport/prog.hzn",
+        "start": {
+          "column": 14,
+          "line": 13
+        },
+        "start_byte": 333
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 59
+        },
+        "start": {
+          "column": 1,
+          "line": 55
+        }
+      },
+      "node": "map_wrapper",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 25,
+          "line": 21
+        },
+        "end_byte": 558,
+        "file": "examples/imported-reexport/prog.hzn",
+        "start": {
+          "column": 5,
+          "line": 21
+        },
+        "start_byte": 538
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 64
+        },
+        "start": {
+          "column": 1,
+          "line": 63
+        }
+      },
+      "node": "short_var",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 30,
+          "line": 13
+        },
+        "end_byte": 349,
+        "file": "examples/imported-reexport/prog.hzn",
+        "start": {
+          "column": 5,
+          "line": 13
+        },
+        "start_byte": 324
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 66
+        },
+        "start": {
+          "column": 1,
+          "line": 65
+        }
+      },
+      "node": "return",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 17,
+          "line": 15
+        },
+        "end_byte": 388,
+        "file": "examples/imported-reexport/prog.hzn",
+        "start": {
+          "column": 9,
+          "line": 15
+        },
+        "start_byte": 380
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 67
+        },
+        "start": {
+          "column": 1,
+          "line": 64
+        }
+      },
+      "node": "if",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 6,
+          "line": 16
+        },
+        "end_byte": 394,
+        "file": "examples/imported-reexport/prog.hzn",
+        "start": {
+          "column": 5,
+          "line": 14
+        },
+        "start_byte": 354
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 68
+        },
+        "start": {
+          "column": 1,
+          "line": 67
+        }
+      },
+      "node": "assign",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 37,
+          "line": 17
+        },
+        "end_byte": 431,
+        "file": "examples/imported-reexport/prog.hzn",
+        "start": {
+          "column": 5,
+          "line": 17
+        },
+        "start_byte": 399
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 69
+        },
+        "start": {
+          "column": 1,
+          "line": 68
+        }
+      },
+      "node": "assign",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 34,
+          "line": 18
+        },
+        "end_byte": 465,
+        "file": "examples/imported-reexport/prog.hzn",
+        "start": {
+          "column": 5,
+          "line": 18
+        },
+        "start_byte": 436
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 70
+        },
+        "start": {
+          "column": 1,
+          "line": 69
+        }
+      },
+      "node": "assign",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 34,
+          "line": 19
+        },
+        "end_byte": 499,
+        "file": "examples/imported-reexport/prog.hzn",
+        "start": {
+          "column": 5,
+          "line": 19
+        },
+        "start_byte": 470
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 71
+        },
+        "start": {
+          "column": 1,
+          "line": 70
+        }
+      },
+      "node": "expr",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 34,
+          "line": 20
+        },
+        "end_byte": 533,
+        "file": "examples/imported-reexport/prog.hzn",
+        "start": {
+          "column": 5,
+          "line": 20
+        },
+        "start_byte": 504
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 72
+        },
+        "start": {
+          "column": 1,
+          "line": 71
+        }
+      },
+      "node": "expr",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 25,
+          "line": 21
+        },
+        "end_byte": 558,
+        "file": "examples/imported-reexport/prog.hzn",
+        "start": {
+          "column": 5,
+          "line": 21
+        },
+        "start_byte": 538
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 73
+        },
+        "start": {
+          "column": 1,
+          "line": 72
+        }
+      },
+      "node": "return",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 13,
+          "line": 22
+        },
+        "end_byte": 571,
+        "file": "examples/imported-reexport/prog.hzn",
+        "start": {
+          "column": 5,
+          "line": 22
+        },
+        "start_byte": 563
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 74
+        },
+        "start": {
+          "column": 1,
+          "line": 59
+        }
+      },
+      "node": "function",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 2,
+          "line": 23
+        },
+        "end_byte": 573,
+        "file": "examples/imported-reexport/prog.hzn",
+        "start": {
+          "column": 1,
+          "line": 10
+        },
+        "start_byte": 216
+      }
+    }
+  ],
+  "schema": "m31labs.dev/horizon/sourcemap/v0",
+  "sources": [
+    {
+      "id": 0,
+      "path": "examples/imported-reexport/prog.hzn"
+    },
+    {
+      "id": 1,
+      "path": "examples/imported-reexport/vendor/m31labs.dev/horizon-test/events/events.hzn"
+    }
+  ]
+}

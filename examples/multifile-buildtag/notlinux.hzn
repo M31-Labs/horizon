@@ -1,0 +1,12 @@
+//hzn:build !linux
+package mfbt
+
+// FallbackEvent is the non-linux variant of the package's event shape.
+// Under HORIZON_BUILD_OS=linux this file is filtered out by the
+// compiler's build-tag matcher (roadmap #16) and contributes no
+// declarations to the package. The companion `linux.hzn` carries the
+// linux-specific decls instead.
+type FallbackEvent struct {
+    ts_ns u64
+    note [16]u8
+}

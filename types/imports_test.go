@@ -238,6 +238,306 @@ func hasDiagCode(perFile [][]diag.Diagnostic, code string) bool {
 	return false
 }
 
+// TestQualifiedLookupRejectsLowercaseType pins the v0.3 privacy gate
+// (roadmap #17): a qualified type reference to a lowercase symbol in an
+// imported package is rejected with HZN1670. The companion uppercase test
+// just below pins the negative — no HZN1670 fires when the symbol is
+// already exported.
+func TestQualifiedLookupRejectsLowercaseType(t *testing.T) {
+	root := parseTestPackage(t, "/root", "main", map[string]string{
+		"prog.hzn": `package main
+
+import bpf "m31labs.dev/horizon/runtime/kernel"
+import events "m31labs.dev/horizon-test/events"
+
+map Events ringbuf[events.execEvent]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    return 0
+}
+`,
+	})
+	dep := parseTestPackage(t, "/dep/events", "events", map[string]string{
+		"events.hzn": `package events
+
+type execEvent struct {
+    pid u32
+}
+`,
+	})
+	graph := ImportGraph{
+		Edges: map[string]map[string]string{
+			"/root": {
+				"bpf":    "m31labs.dev/horizon/runtime/kernel",
+				"events": "/dep/events",
+			},
+		},
+		Packages: map[string]ast.Package{
+			"/root":       root,
+			"/dep/events": dep,
+		},
+		BuiltinAliases: map[string]bool{"bpf": true},
+	}
+	results := CheckPackages([]ast.Package{root, dep}, graph)
+	if !hasDiagCode(results["/root"], "HZN1670") {
+		t.Fatalf("expected HZN1670 for lowercase qualified type reference; got %#v", results["/root"])
+	}
+}
+
+// TestQualifiedLookupAcceptsUppercaseType pins the negative side of #17:
+// an uppercase qualified type reference must NOT trip the privacy gate.
+func TestQualifiedLookupAcceptsUppercaseType(t *testing.T) {
+	root := parseTestPackage(t, "/root", "main", map[string]string{
+		"prog.hzn": `package main
+
+import bpf "m31labs.dev/horizon/runtime/kernel"
+import events "m31labs.dev/horizon-test/events"
+
+map Events ringbuf[events.ExecEvent]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    return 0
+}
+`,
+	})
+	dep := parseTestPackage(t, "/dep/events", "events", map[string]string{
+		"events.hzn": `package events
+
+type ExecEvent struct {
+    pid u32
+}
+`,
+	})
+	graph := ImportGraph{
+		Edges: map[string]map[string]string{
+			"/root": {
+				"bpf":    "m31labs.dev/horizon/runtime/kernel",
+				"events": "/dep/events",
+			},
+		},
+		Packages: map[string]ast.Package{
+			"/root":       root,
+			"/dep/events": dep,
+		},
+		BuiltinAliases: map[string]bool{"bpf": true},
+	}
+	results := CheckPackages([]ast.Package{root, dep}, graph)
+	if hasDiagCode(results["/root"], "HZN1670") {
+		t.Fatalf("HZN1670 fired for uppercase qualified type reference; got %#v", results["/root"])
+	}
+}
+
+// TestQualifiedLookupRejectsLowercaseFunc pins #17 for qualified function
+// calls: `events.helper()` produces HZN1671. The current language does not
+// resolve cross-package func calls positively (that arrives with #15
+// re-exports), so the privacy gate is the only diagnostic surfacing here —
+// and it must surface with the specific HZN1671 code, not a generic fallback.
+func TestQualifiedLookupRejectsLowercaseFunc(t *testing.T) {
+	root := parseTestPackage(t, "/root", "main", map[string]string{
+		"prog.hzn": `package main
+
+import bpf "m31labs.dev/horizon/runtime/kernel"
+import events "m31labs.dev/horizon-test/events"
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    events.helper()
+    return 0
+}
+`,
+	})
+	dep := parseTestPackage(t, "/dep/events", "events", map[string]string{
+		"events.hzn": `package events
+
+func helper() i32 {
+    return 0
+}
+`,
+	})
+	graph := ImportGraph{
+		Edges: map[string]map[string]string{
+			"/root": {
+				"bpf":    "m31labs.dev/horizon/runtime/kernel",
+				"events": "/dep/events",
+			},
+		},
+		Packages: map[string]ast.Package{
+			"/root":       root,
+			"/dep/events": dep,
+		},
+		BuiltinAliases: map[string]bool{"bpf": true},
+	}
+	results := CheckPackages([]ast.Package{root, dep}, graph)
+	if !hasDiagCode(results["/root"], "HZN1671") {
+		t.Fatalf("expected HZN1671 for lowercase qualified function call; got %#v", results["/root"])
+	}
+}
+
+// TestQualifiedLookupRejectsLowercaseMap pins #17 for qualified map
+// references: `events.events.lookup(...)` (where the imported map is
+// lowercase) produces HZN1672.
+func TestQualifiedLookupRejectsLowercaseMap(t *testing.T) {
+	root := parseTestPackage(t, "/root", "main", map[string]string{
+		"prog.hzn": `package main
+
+import bpf "m31labs.dev/horizon/runtime/kernel"
+import events "m31labs.dev/horizon-test/events"
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    events.events.lookup(0)
+    return 0
+}
+`,
+	})
+	dep := parseTestPackage(t, "/dep/events", "events", map[string]string{
+		"events.hzn": `package events
+
+map events hash[u32]u64
+`,
+	})
+	graph := ImportGraph{
+		Edges: map[string]map[string]string{
+			"/root": {
+				"bpf":    "m31labs.dev/horizon/runtime/kernel",
+				"events": "/dep/events",
+			},
+		},
+		Packages: map[string]ast.Package{
+			"/root":       root,
+			"/dep/events": dep,
+		},
+		BuiltinAliases: map[string]bool{"bpf": true},
+	}
+	results := CheckPackages([]ast.Package{root, dep}, graph)
+	if !hasDiagCode(results["/root"], "HZN1672") {
+		t.Fatalf("expected HZN1672 for lowercase qualified map reference; got %#v", results["/root"])
+	}
+}
+
+// TestQualifiedLookupRejectsLowercaseCapAttribute pins #17 for capability
+// attribute references: `@capability(events.execobserve)` produces HZN1673.
+func TestQualifiedLookupRejectsLowercaseCapAttribute(t *testing.T) {
+	root := parseTestPackage(t, "/root", "main", map[string]string{
+		"prog.hzn": `package main
+
+import bpf "m31labs.dev/horizon/runtime/kernel"
+import events "m31labs.dev/horizon-test/events"
+
+@capability(events.execobserve)
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    return 0
+}
+`,
+	})
+	dep := parseTestPackage(t, "/dep/events", "events", map[string]string{
+		"events.hzn": `package events
+
+capability execobserve danger observe = "kernel.process.exec.observe"
+`,
+	})
+	graph := ImportGraph{
+		Edges: map[string]map[string]string{
+			"/root": {
+				"bpf":    "m31labs.dev/horizon/runtime/kernel",
+				"events": "/dep/events",
+			},
+		},
+		Packages: map[string]ast.Package{
+			"/root":       root,
+			"/dep/events": dep,
+		},
+		BuiltinAliases: map[string]bool{"bpf": true},
+	}
+	results := CheckPackages([]ast.Package{root, dep}, graph)
+	if !hasDiagCode(results["/root"], "HZN1673") {
+		t.Fatalf("expected HZN1673 for lowercase qualified capability attribute reference; got %#v", results["/root"])
+	}
+}
+
+// TestQualifiedLookupRejectsLowercaseConst pins #17 for qualified const
+// references: `events.threshold` (where the imported const is lowercase)
+// produces HZN1674.
+func TestQualifiedLookupRejectsLowercaseConst(t *testing.T) {
+	root := parseTestPackage(t, "/root", "main", map[string]string{
+		"prog.hzn": `package main
+
+import bpf "m31labs.dev/horizon/runtime/kernel"
+import events "m31labs.dev/horizon-test/events"
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    x := events.threshold
+    return x
+}
+`,
+	})
+	dep := parseTestPackage(t, "/dep/events", "events", map[string]string{
+		"events.hzn": `package events
+
+const threshold i32 = 42
+`,
+	})
+	graph := ImportGraph{
+		Edges: map[string]map[string]string{
+			"/root": {
+				"bpf":    "m31labs.dev/horizon/runtime/kernel",
+				"events": "/dep/events",
+			},
+		},
+		Packages: map[string]ast.Package{
+			"/root":       root,
+			"/dep/events": dep,
+		},
+		BuiltinAliases: map[string]bool{"bpf": true},
+	}
+	results := CheckPackages([]ast.Package{root, dep}, graph)
+	if !hasDiagCode(results["/root"], "HZN1674") {
+		t.Fatalf("expected HZN1674 for lowercase qualified const reference; got %#v", results["/root"])
+	}
+}
+
+// TestQualifiedLookupAllowsSamePackageLowercase pins the intra-package
+// negative: privacy is a cross-package gate only — a same-package reference
+// to a lowercase symbol stays legal. The fixture declares a lowercase
+// helper and calls it from a sibling file in the same package; no HZN1671
+// must fire.
+func TestQualifiedLookupAllowsSamePackageLowercase(t *testing.T) {
+	pkg := parseTestPackage(t, "/root", "main", map[string]string{
+		"a.hzn": `package main
+
+import bpf "m31labs.dev/horizon/runtime/kernel"
+
+func helper() i32 {
+    return 0
+}
+`,
+		"b.hzn": `package main
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    return helper()
+}
+`,
+	})
+	graph := ImportGraph{
+		Edges:          map[string]map[string]string{"/root": {"bpf": "m31labs.dev/horizon/runtime/kernel"}},
+		Packages:       map[string]ast.Package{"/root": pkg},
+		BuiltinAliases: map[string]bool{"bpf": true},
+	}
+	results := CheckPackages([]ast.Package{pkg}, graph)
+	for _, perFile := range results["/root"] {
+		for _, d := range perFile {
+			if d.Code == "HZN1670" || d.Code == "HZN1671" || d.Code == "HZN1672" || d.Code == "HZN1673" || d.Code == "HZN1674" {
+				t.Fatalf("intra-package lowercase reference must not trip privacy gates; got %#v", d)
+			}
+		}
+	}
+}
+
 // TestCapabilityAttributeAcceptsQualifiedReference verifies the Subtask 3c
 // shape: `@capability(events.ExecObserve)` parses and resolves through
 // CheckPackages when ExecObserve is declared in the imported `events`
@@ -287,4 +587,364 @@ capability ExecObserve danger observe = "kernel.process.exec.observe"
 			}
 		}
 	}
+}
+
+// TestReExportedTypeAccessibleFromTransitiveImporter pins the v0.3 #15
+// happy path: a middleware package re-exports `events.ExecEvent` via
+// `export events.ExecEvent`, and a root package imports the middleware
+// and references `mw.ExecEvent` in a map declaration. The type checker
+// must not emit HZN1558 ("type not declared") for the qualified
+// reference — the re-export brings the symbol into mw's surface.
+func TestReExportedTypeAccessibleFromTransitiveImporter(t *testing.T) {
+	root := parseTestPackage(t, "/root", "main", map[string]string{
+		"prog.hzn": `package main
+
+import bpf "m31labs.dev/horizon/runtime/kernel"
+import mw "m31labs.dev/horizon-test/middleware"
+
+map Events ringbuf[mw.ExecEvent]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    return 0
+}
+`,
+	})
+	middleware := parseTestPackage(t, "/dep/middleware", "middleware", map[string]string{
+		"middleware.hzn": `package middleware
+
+import events "m31labs.dev/horizon-test/events"
+
+export events.ExecEvent
+`,
+	})
+	events := parseTestPackage(t, "/dep/events", "events", map[string]string{
+		"events.hzn": `package events
+
+type ExecEvent struct {
+    pid u32
+}
+`,
+	})
+	graph := ImportGraph{
+		Edges: map[string]map[string]string{
+			"/root": {
+				"bpf": "m31labs.dev/horizon/runtime/kernel",
+				"mw":  "/dep/middleware",
+			},
+			"/dep/middleware": {
+				"events": "/dep/events",
+			},
+		},
+		Packages: map[string]ast.Package{
+			"/root":           root,
+			"/dep/middleware": middleware,
+			"/dep/events":     events,
+		},
+		BuiltinAliases: map[string]bool{"bpf": true},
+	}
+	results := CheckPackages([]ast.Package{root, middleware, events}, graph)
+	for _, perFile := range results["/root"] {
+		for _, d := range perFile {
+			if d.Severity == diag.SeverityError {
+				t.Fatalf("re-exported type unreachable from root: %#v", d)
+			}
+		}
+	}
+}
+
+// TestReExportOfMissingSymbolEmitsHZN1690 pins the diagnostic for a
+// re-export whose target name does not exist in the named import. The
+// middleware says `export events.Nonexistent` but `events` declares no
+// such symbol; the type-checker fires HZN1690 against the middleware's
+// export decl.
+func TestReExportOfMissingSymbolEmitsHZN1690(t *testing.T) {
+	middleware := parseTestPackage(t, "/dep/middleware", "middleware", map[string]string{
+		"middleware.hzn": `package middleware
+
+import events "m31labs.dev/horizon-test/events"
+
+export events.Nonexistent
+`,
+	})
+	events := parseTestPackage(t, "/dep/events", "events", map[string]string{
+		"events.hzn": `package events
+
+type ExecEvent struct {
+    pid u32
+}
+`,
+	})
+	graph := ImportGraph{
+		Edges: map[string]map[string]string{
+			"/dep/middleware": {"events": "/dep/events"},
+		},
+		Packages: map[string]ast.Package{
+			"/dep/middleware": middleware,
+			"/dep/events":     events,
+		},
+	}
+	results := CheckPackages([]ast.Package{middleware, events}, graph)
+	if !hasDiagCode(results["/dep/middleware"], "HZN1690") {
+		t.Fatalf("expected HZN1690 for missing re-export target; got %#v", results["/dep/middleware"])
+	}
+}
+
+// TestReExportOfPrivateSymbolEmitsHZN1691 composes the re-export gate
+// with the v0.3 privacy rule (#17). A re-export of a lowercase symbol
+// is rejected with HZN1691 even though the symbol exists, because
+// non-exported symbols cannot cross a package boundary in any form.
+func TestReExportOfPrivateSymbolEmitsHZN1691(t *testing.T) {
+	middleware := parseTestPackage(t, "/dep/middleware", "middleware", map[string]string{
+		"middleware.hzn": `package middleware
+
+import events "m31labs.dev/horizon-test/events"
+
+export events.execEvent
+`,
+	})
+	events := parseTestPackage(t, "/dep/events", "events", map[string]string{
+		"events.hzn": `package events
+
+type execEvent struct {
+    pid u32
+}
+`,
+	})
+	graph := ImportGraph{
+		Edges: map[string]map[string]string{
+			"/dep/middleware": {"events": "/dep/events"},
+		},
+		Packages: map[string]ast.Package{
+			"/dep/middleware": middleware,
+			"/dep/events":     events,
+		},
+	}
+	results := CheckPackages([]ast.Package{middleware, events}, graph)
+	if !hasDiagCode(results["/dep/middleware"], "HZN1691") {
+		t.Fatalf("expected HZN1691 for re-export of private symbol; got %#v", results["/dep/middleware"])
+	}
+	if hasDiagCode(results["/dep/middleware"], "HZN1690") {
+		t.Fatalf("re-export of present-but-private symbol must NOT fire HZN1690; got %#v", results["/dep/middleware"])
+	}
+}
+
+// TestReExportShadowingLocalDeclEmitsHZN1692 pins shadow detection:
+// re-exporting a symbol whose name collides with a local decl in the
+// re-exporting package surfaces HZN1692. The middleware declares its
+// own `ExecEvent` AND re-exports `events.ExecEvent` — the surface is
+// ambiguous and the gate rejects.
+func TestReExportShadowingLocalDeclEmitsHZN1692(t *testing.T) {
+	middleware := parseTestPackage(t, "/dep/middleware", "middleware", map[string]string{
+		"middleware.hzn": `package middleware
+
+import events "m31labs.dev/horizon-test/events"
+
+type ExecEvent struct {
+    pid u32
+}
+
+export events.ExecEvent
+`,
+	})
+	events := parseTestPackage(t, "/dep/events", "events", map[string]string{
+		"events.hzn": `package events
+
+type ExecEvent struct {
+    pid u32
+}
+`,
+	})
+	graph := ImportGraph{
+		Edges: map[string]map[string]string{
+			"/dep/middleware": {"events": "/dep/events"},
+		},
+		Packages: map[string]ast.Package{
+			"/dep/middleware": middleware,
+			"/dep/events":     events,
+		},
+	}
+	results := CheckPackages([]ast.Package{middleware, events}, graph)
+	if !hasDiagCode(results["/dep/middleware"], "HZN1692") {
+		t.Fatalf("expected HZN1692 for shadowing re-export; got %#v", results["/dep/middleware"])
+	}
+}
+
+// TestReExportIsOneHopOnly pins the v0.3 non-goal: re-exports do NOT
+// cascade transitively. Package `b` re-exports `events.ExecEvent`; a
+// root package that wants `ExecEvent` from a downstream-of-b
+// re-exporter must reach for `b` directly (or import `events`). When a
+// further-downstream package `c` declares `export b.ExecEvent` (i.e.
+// re-exporting the re-export), the type-checker rejects the second
+// hop because `ExecEvent` is not a *direct* declaration in `b`'s
+// surface for the purpose of re-exporting onward. The chosen
+// diagnostic is HZN1690 (target not found in named import) — the same
+// code as a missing symbol — because re-export traversal is bounded
+// to a single hop by construction.
+func TestReExportIsOneHopOnly(t *testing.T) {
+	events := parseTestPackage(t, "/dep/events", "events", map[string]string{
+		"events.hzn": `package events
+
+type ExecEvent struct {
+    pid u32
+}
+`,
+	})
+	b := parseTestPackage(t, "/dep/b", "b", map[string]string{
+		"b.hzn": `package b
+
+import events "m31labs.dev/horizon-test/events"
+
+export events.ExecEvent
+`,
+	})
+	c := parseTestPackage(t, "/dep/c", "c", map[string]string{
+		"c.hzn": `package c
+
+import b "m31labs.dev/horizon-test/b"
+
+export b.ExecEvent
+`,
+	})
+	graph := ImportGraph{
+		Edges: map[string]map[string]string{
+			"/dep/b": {"events": "/dep/events"},
+			"/dep/c": {"b": "/dep/b"},
+		},
+		Packages: map[string]ast.Package{
+			"/dep/events": events,
+			"/dep/b":      b,
+			"/dep/c":      c,
+		},
+	}
+	results := CheckPackages([]ast.Package{events, b, c}, graph)
+	if !hasDiagCode(results["/dep/c"], "HZN1690") {
+		t.Fatalf("expected HZN1690 for second-hop re-export; got %#v", results["/dep/c"])
+	}
+}
+
+// TestSamePackageExportRejected pins resolution O-3: an `export X`
+// declaration that names a local-to-the-re-exporting-package symbol
+// (no qualified alias to an import) is rejected. Same-package
+// declarations are exported via capitalization alone; the `export`
+// form is exclusively for re-exporting from imports. In test fixture
+// shape the alias `mypkg` would have to be a known import for the
+// symbol lookup to succeed; here the alias names the package itself,
+// which is not in any import edge, so HZN1690 fires.
+func TestSamePackageExportRejected(t *testing.T) {
+	pkg := parseTestPackage(t, "/dep/mypkg", "mypkg", map[string]string{
+		"mypkg.hzn": `package mypkg
+
+type LocalEvent struct {
+    pid u32
+}
+
+export mypkg.LocalEvent
+`,
+	})
+	graph := ImportGraph{
+		Edges:    map[string]map[string]string{"/dep/mypkg": {}},
+		Packages: map[string]ast.Package{"/dep/mypkg": pkg},
+	}
+	results := CheckPackages([]ast.Package{pkg}, graph)
+	if !hasDiagCode(results["/dep/mypkg"], "HZN1690") {
+		t.Fatalf("expected HZN1690 for same-package export; got %#v", results["/dep/mypkg"])
+	}
+}
+
+// TestReExportedFuncAccessibleFromTransitiveImporter pins re-export
+// support for helper functions in addition to types. Middleware
+// re-exports `events.MakeExecEvent` and root references
+// `mw.MakeExecEvent` — the type checker recognizes the qualified
+// reference as a callable user-helper.
+func TestReExportedFuncAccessibleFromTransitiveImporter(t *testing.T) {
+	root := parseTestPackage(t, "/root", "main", map[string]string{
+		"prog.hzn": `package main
+
+import bpf "m31labs.dev/horizon/runtime/kernel"
+import mw "m31labs.dev/horizon-test/middleware"
+
+map Events ringbuf[mw.ExecEvent]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    e := mw.MakeExecEvent()
+    if e == nil { return 0 }
+    Events.submit(e)
+    return 0
+}
+`,
+	})
+	middleware := parseTestPackage(t, "/dep/middleware", "middleware", map[string]string{
+		"middleware.hzn": `package middleware
+
+import events "m31labs.dev/horizon-test/events"
+
+export events.ExecEvent
+export events.MakeExecEvent
+`,
+	})
+	events := parseTestPackage(t, "/dep/events", "events", map[string]string{
+		"events.hzn": `package events
+
+type ExecEvent struct {
+    pid u32
+}
+
+func MakeExecEvent() *ExecEvent {
+    return nil
+}
+`,
+	})
+	graph := ImportGraph{
+		Edges: map[string]map[string]string{
+			"/root": {
+				"bpf": "m31labs.dev/horizon/runtime/kernel",
+				"mw":  "/dep/middleware",
+			},
+			"/dep/middleware": {
+				"events": "/dep/events",
+			},
+		},
+		Packages: map[string]ast.Package{
+			"/root":           root,
+			"/dep/middleware": middleware,
+			"/dep/events":     events,
+		},
+		BuiltinAliases: map[string]bool{"bpf": true},
+	}
+	results := CheckPackages([]ast.Package{root, middleware, events}, graph)
+	for _, perFile := range results["/root"] {
+		for _, d := range perFile {
+			// We are permissive about which body-walk diagnostics may fire
+			// here — the assertion is that re-exported func MakeExecEvent
+			// resolves as a known symbol on mw. A failure mode would be a
+			// "function not declared" / unknown-helper diagnostic that
+			// names mw.MakeExecEvent. Any error referencing that selector
+			// fails the test.
+			if d.Severity == diag.SeverityError {
+				if containsAll(d.Message, "MakeExecEvent") {
+					t.Fatalf("re-exported function unreachable from root: %#v", d)
+				}
+			}
+		}
+	}
+}
+
+func containsAll(haystack string, needles ...string) bool {
+	for _, n := range needles {
+		if !sliceContains(haystack, n) {
+			return false
+		}
+	}
+	return true
+}
+
+func sliceContains(s, substr string) bool {
+	for i := 0; i+len(substr) <= len(s); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }

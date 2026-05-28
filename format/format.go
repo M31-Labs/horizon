@@ -46,7 +46,15 @@ func formatFile(file ast.File, comments []lineComment, packageLine int) []byte {
 			if imp.Alias != "" {
 				line += imp.Alias + " "
 			}
-			line += strconv.Quote(imp.Path)
+			// Re-attach the `@<version>` suffix peeled off by
+			// ast.buildImport (roadmap #14). Without this the
+			// formatter would silently drop the pin on every
+			// `hzn fmt`, breaking lockfile-based resolution.
+			pathLiteral := imp.Path
+			if imp.Version != "" {
+				pathLiteral += "@" + imp.Version
+			}
+			line += strconv.Quote(pathLiteral)
 			b.lineWithComment(line, imp.Span.Start.Line)
 		}
 	}

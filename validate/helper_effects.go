@@ -104,7 +104,64 @@ type HelperEffects struct {
 	siteCountByName  map[string]int
 	counters         *effectsCounters
 	MaxObservedDepth int
+	// Returns records, per user helper, the lattice-join of all ReturnStmt
+	// classifications observed in the helper body. v0.3 alder (roadmap #18)
+	// — see ReturnEffect for the lattice. A helper that does not return a
+	// resource pointer carries ReturnEffectNone (the zero value); the
+	// ReturnEffectFor accessor returns ReturnEffectNone for any helper not
+	// in the map, which is the safe default for caller-side state machines
+	// (no tracked-resource binding).
+	Returns map[string]ReturnEffect
 }
+
+// ReturnEffect describes what kind of value a user helper returns on the
+// resource-tracking axis. The lattice is consumed by validate/lifetime.go's
+// caller-side state machine: when an entrypoint writes `e := helper()`, the
+// validator consults ReturnEffectFor(helper) to decide how to bind `e`.
+//
+// Lattice ordering (top-to-bottom in increasing information):
+//   - ReturnEffectNone: helper returns a scalar / bool / nothing. Default
+//     for all non-resource-returning helpers and the zero value.
+//   - ReturnEffectReturnsResource: every path returns a freshly-created live
+//     resource. Caller binds result as live (same as a reserve() site).
+//   - ReturnEffectReturnsResourceMaybe: some paths nil, some fresh. Caller
+//     binds as maybe_live; using without a nil-check fires the existing
+//     unchecked-resource-use diagnostic.
+//   - ReturnEffectReturnsAlias: helper returns one of its input arguments
+//     unchanged. Caller marks the matching argument as escaped; the bound
+//     return value is live-but-aliased.
+//   - ReturnEffectUnknown: un-analyzable. Caller treats result as escaped
+//     and suppresses downstream diagnostics. Mirrors the v0.2 HelperEffect
+//     Unknown fallback for parameters.
+//
+// Lattice-join rule (used when a helper has multiple ReturnStmt nodes that
+// contribute different classifications): Unknown dominates everything;
+// Alias joined with Resource is Unknown (cannot distinguish without per-
+// call-site analysis); Resource joined with literal nil is ResourceMaybe;
+// None joined with anything is the other side.
+type ReturnEffect int
+
+const (
+	// ReturnEffectNone is the zero value: helper returns a scalar, bool, or
+	// nothing. No tracked-resource binding on the caller side.
+	ReturnEffectNone ReturnEffect = iota
+	// ReturnEffectReturnsResource: every path returns a freshly-created live
+	// resource (e.g. a fresh Events.reserve() result). Caller binds the
+	// result as a live tracked resource.
+	ReturnEffectReturnsResource
+	// ReturnEffectReturnsResourceMaybe: some paths return nil, others return
+	// a freshly-created live resource. Caller binds the result as
+	// maybe_live; downstream use without a nil-check fires the standard
+	// unchecked-resource-use diagnostic.
+	ReturnEffectReturnsResourceMaybe
+	// ReturnEffectReturnsAlias: helper returns one of its own input
+	// arguments unchanged. The matching argument escapes; the bound result
+	// is a live-but-aliased reference.
+	ReturnEffectReturnsAlias
+	// ReturnEffectUnknown: un-analyzable. Caller treats the bound result as
+	// escaped and suppresses downstream diagnostics.
+	ReturnEffectUnknown
+)
 
 // effectsCounters holds the mutable telemetry counters for HelperEffects.
 // Lives behind a pointer so EffectForCall (value receiver) can bump them
@@ -144,6 +201,18 @@ func (e HelperEffects) EffectFor(helper string, paramIndex int) HelperEffect {
 	return effects[paramIndex]
 }
 
+// ReturnEffectFor returns the return-value verdict for the named helper. If
+// the helper is not known (compiler-known kernel helper, or not in the
+// program), the result is ReturnEffectNone — the safe default that tells
+// the caller-side state machine to bind the result with no tracked-
+// resource transition. v0.3 alder (roadmap #18).
+func (e HelperEffects) ReturnEffectFor(helper string) ReturnEffect {
+	if e.Returns == nil {
+		return ReturnEffectNone
+	}
+	return e.Returns[helper]
+}
+
 // BuildHelperEffects walks every user helper (sectionless function) in the
 // program once, topologically sorting them by call-graph so that a helper
 // calling another helper sees the callee's summary already computed. Returns
@@ -168,12 +237,20 @@ func BuildHelperEffects(program ir.Program) HelperEffects {
 			}
 			effects[fn.Name] = vec
 		}
+		// Cycle fallback: also seed Returns with ReturnEffectUnknown for every
+		// helper so callers consuming the verdict treat results as escaped —
+		// the same posture as the per-param all-Unknown fallback.
+		returns := make(map[string]ReturnEffect, len(helpers))
+		for _, fn := range helpers {
+			returns[fn.Name] = ReturnEffectUnknown
+		}
 		return HelperEffects{
 			byName:          effects,
 			bySite:          map[pathKey][]HelperEffect{},
 			helperByName:    map[string]*ir.Function{},
 			siteCountByName: map[string]int{},
 			counters:        &effectsCounters{},
+			Returns:         returns,
 		}
 	}
 	// Compute depth-from-leaf for every helper. Leaves (helpers that call no
@@ -207,6 +284,7 @@ func BuildHelperEffects(program ir.Program) HelperEffects {
 		helperByName:    byNameLookup,
 		siteCountByName: map[string]int{},
 		counters:        &effectsCounters{},
+		Returns:         make(map[string]ReturnEffect, len(order)),
 	}
 	for _, fn := range order {
 		if depthOf[fn.Name] > maxHelperEffectDepth {
@@ -218,6 +296,14 @@ func BuildHelperEffects(program ir.Program) HelperEffects {
 			continue
 		}
 		effects.byName[fn.Name] = summarizeHelper(*fn, effects, 0)
+	}
+	// v0.3 alder Phase 2 (roadmap #18): third pass — classify return values
+	// for every user helper. Runs after the per-param and per-call-site
+	// passes so that classifyReturnSource may consult the existing summaries
+	// (e.g. propagating a callee's return verdict, deferred to v0.4 — v0.3
+	// returns Unknown for any user-helper-call source).
+	for _, fn := range order {
+		effects.Returns[fn.Name] = classifyHelperReturns(*fn)
 	}
 	// Record the deepest helper-call chain observed across all helpers (zero
 	// when the program has no user helpers). The #8 telemetry surface
@@ -1001,4 +1087,186 @@ func foldLiteralValue(expr *ir.Expr, subs map[string]ir.Expr) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// classifyHelperReturns walks every ReturnStmt in fn's body and lattice-joins
+// the classification of each returned value. If fn has no resource-pointer
+// return type, the result is ReturnEffectNone (the safe default for non-
+// resource-returning helpers — they have no caller-side tracked binding to
+// affect). v0.3 alder (roadmap #18).
+//
+// The lattice-join across multiple ReturnStmt nodes uses joinReturnEffect.
+// If fn has no return statements (rare, but possible for a void helper), the
+// result is ReturnEffectNone.
+func classifyHelperReturns(fn ir.Function) ReturnEffect {
+	if !isResourcePointerReturn(fn.Return) {
+		return ReturnEffectNone
+	}
+	paramNames := make(map[string]bool, len(fn.Params))
+	for _, p := range fn.Params {
+		paramNames[p.Name] = true
+	}
+	var joined ReturnEffect
+	seen := false
+	for _, block := range fn.Body {
+		for _, stmt := range block.Statements {
+			walkReturnStmts(stmt, func(ret ir.Statement) {
+				contrib := classifyReturnSource(ret.Value, paramNames)
+				if !seen {
+					joined = contrib
+					seen = true
+				} else {
+					joined = joinReturnEffect(joined, contrib)
+				}
+			})
+		}
+	}
+	if !seen {
+		return ReturnEffectNone
+	}
+	return joined
+}
+
+// isResourcePointerReturn mirrors types/checker.go::helperResourceReturnType
+// at the IR level: single-hop pointer-to-named-struct. Keep this and the
+// types-layer predicate in lockstep when extending the return-resource shape.
+func isResourcePointerReturn(t ir.Type) bool {
+	if !t.Ptr || t.Name == "" {
+		return false
+	}
+	if t.Len != "" {
+		return false
+	}
+	switch t.Name {
+	case "bool", "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "f32", "f64":
+		return false
+	}
+	// Reject multi-pointer (**Event) — the inner Elem itself being a pointer
+	// indicates two hops of indirection. The types-layer predicate uses the
+	// same Elem.Ptr check.
+	if t.Elem != nil && t.Elem.Ptr {
+		return false
+	}
+	return true
+}
+
+// walkReturnStmts invokes fn for every Statement whose Kind == "return"
+// reachable from stmt, recursing through compound statement kinds (if/for/
+// switch). Used by classifyHelperReturns so that returns inside nested
+// branches contribute to the lattice-join just like top-level returns.
+func walkReturnStmts(stmt ir.Statement, visit func(ir.Statement)) {
+	switch stmt.Kind {
+	case "return":
+		visit(stmt)
+	case "if":
+		for _, s := range stmt.Then {
+			walkReturnStmts(s, visit)
+		}
+		for _, s := range stmt.Else {
+			walkReturnStmts(s, visit)
+		}
+	case "for":
+		for _, s := range stmt.Body {
+			walkReturnStmts(s, visit)
+		}
+	case "switch":
+		for _, c := range stmt.Cases {
+			for _, s := range c.Body {
+				walkReturnStmts(s, visit)
+			}
+		}
+	}
+}
+
+// classifyReturnSource classifies a single returned expression on the
+// ReturnEffect lattice. Recognized shapes (v0.3 alder, roadmap #18):
+//
+//   - <map>.reserve() call → ReturnEffectReturnsResource (fresh handle)
+//   - nil literal           → ReturnEffectReturnsResourceMaybe (signals that
+//     joined with a fresh-resource branch the helper sometimes-returns-nil;
+//     standing alone it would be a nil-only helper, which we still classify
+//     here as ResourceMaybe because the caller MUST nil-check)
+//   - bare ident matching a parameter name → ReturnEffectReturnsAlias
+//   - anything else (other helper calls, field loads, etc.) → ReturnEffect
+//     Unknown
+//
+// Returning a literal nil contributes ReturnsResourceMaybe rather than
+// ReturnsResource so that a helper whose only branch returns nil is
+// classified usefully (a constant-nil helper is degenerate but still names
+// the maybe-nil shape its return type implies). When joined with a fresh-
+// resource branch via joinReturnEffect, the result remains ResourceMaybe.
+func classifyReturnSource(value *ir.Expr, paramNames map[string]bool) ReturnEffect {
+	if value == nil {
+		return ReturnEffectUnknown
+	}
+	switch value.Kind {
+	case "nil":
+		return ReturnEffectReturnsResourceMaybe
+	case "ident":
+		if paramNames[value.Name] {
+			return ReturnEffectReturnsAlias
+		}
+		return ReturnEffectUnknown
+	case "call":
+		if isFreshResourceCall(value) {
+			return ReturnEffectReturnsResource
+		}
+		return ReturnEffectUnknown
+	}
+	return ReturnEffectUnknown
+}
+
+// isFreshResourceCall reports whether expr is a call of the form
+// <map>.reserve() — the only fresh-resource constructor in v0.3. Future
+// reserves (e.g. xdp packet helpers that create new resources) can extend
+// this predicate. Keeping the set narrow keeps the lattice precise.
+func isFreshResourceCall(expr *ir.Expr) bool {
+	if expr == nil || expr.Kind != "call" || expr.Func == nil {
+		return false
+	}
+	if expr.Func.Kind != "selector" {
+		return false
+	}
+	return expr.Func.Field == "reserve"
+}
+
+// joinReturnEffect implements the ReturnEffect lattice-join:
+//
+//	None ⊔ x                   = x   (None is the unit)
+//	x ⊔ None                   = x
+//	Unknown ⊔ x                = Unknown   (Unknown dominates)
+//	Resource ⊔ ResourceMaybe   = ResourceMaybe
+//	Resource ⊔ Resource        = Resource
+//	ResourceMaybe ⊔ Resource   = ResourceMaybe
+//	ResourceMaybe ⊔ Maybe      = ResourceMaybe
+//	Alias ⊔ Alias              = Alias
+//	Alias ⊔ Resource           = Unknown   (cannot distinguish caller-side)
+//	Alias ⊔ ResourceMaybe      = Unknown
+//	Alias ⊔ anything-else      = Unknown
+//
+// Symmetric: joinReturnEffect(a, b) == joinReturnEffect(b, a).
+func joinReturnEffect(a, b ReturnEffect) ReturnEffect {
+	if a == b {
+		return a
+	}
+	if a == ReturnEffectNone {
+		return b
+	}
+	if b == ReturnEffectNone {
+		return a
+	}
+	if a == ReturnEffectUnknown || b == ReturnEffectUnknown {
+		return ReturnEffectUnknown
+	}
+	// Resource ⊔ ResourceMaybe = ResourceMaybe (either order).
+	if (a == ReturnEffectReturnsResource && b == ReturnEffectReturnsResourceMaybe) ||
+		(a == ReturnEffectReturnsResourceMaybe && b == ReturnEffectReturnsResource) {
+		return ReturnEffectReturnsResourceMaybe
+	}
+	// Any mix involving Alias and a non-Alias non-None value: Unknown.
+	if a == ReturnEffectReturnsAlias || b == ReturnEffectReturnsAlias {
+		return ReturnEffectUnknown
+	}
+	// Fallthrough — defensive; lattice should have covered all cases above.
+	return ReturnEffectUnknown
 }

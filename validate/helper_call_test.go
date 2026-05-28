@@ -552,3 +552,165 @@ func TestRingbufHelperWithKnownZeroFlagFiresLiveOnReturn(t *testing.T) {
 		t.Fatalf("HZN2104 count = %d, want 1 (specialized Preserves leaves state live; bare return fires live-on-return)", got)
 	}
 }
+
+// ── ReturnEffect caller-side consumption tests (v0.3 alder Phase 2, roadmap #18)
+
+// resourceReturnHelperFnLocal mirrors the same helper-builder used in
+// helper_effects_test.go for return-effect tests. Kept local so this test
+// file is self-contained.
+func resourceReturnHelperFnLocal(name string, params []ir.Param, body []ir.Statement, returnTypeName string) ir.Function {
+	return ir.Function{
+		Name:   name,
+		Params: params,
+		Return: ir.Type{Name: returnTypeName, Ptr: true},
+		Body:   []ir.Block{{Statements: body}},
+	}
+}
+
+// TestCallerBindsHelperReturnAsLiveResource pins that an entrypoint calling
+// `e := make_event()` where make_event has verdict ReturnsResource (every
+// path returns a fresh Events.reserve()) binds `e` as a live tracked
+// resource. Submitting `e` directly afterward MUST be silent — neither
+// HZN2101 (unknown reservation) nor HZN2100 (missing nil-check) should
+// fire, because the helper guarantees a fresh non-nil handle.
+func TestCallerBindsHelperReturnAsLiveResource(t *testing.T) {
+	// helper: func make() *Event { return Events.reserve() }
+	makeFn := resourceReturnHelperFnLocal("make",
+		nil,
+		[]ir.Statement{
+			{Kind: "return", Value: reserveExpr("Events")},
+		},
+		"Event",
+	)
+	// entry:
+	//   e := make()
+	//   Events.submit(e)
+	//   return 0
+	entry := []ir.Statement{
+		{Kind: "short_var", Name: "e", Value: userCallExpr("make")},
+		{Kind: "expr", Expr: submitExpr("Events", "e")},
+		returnZero(),
+	}
+	prog := ringbufProgWithHelper(entry, makeFn)
+	diags := validate.Program(prog)
+	if got := countDiag(diags, "HZN2101"); got != 0 {
+		t.Fatalf("HZN2101 count = %d, want 0 (ReturnsResource should bind e as a tracked reservation): %#v", got, diags)
+	}
+	if got := countDiag(diags, "HZN2100"); got != 0 {
+		t.Fatalf("HZN2100 count = %d, want 0 (ReturnsResource implies never-nil, no nil-check required): %#v", got, diags)
+	}
+	if got := countDiag(diags, "HZN2104"); got != 0 {
+		t.Fatalf("HZN2104 count = %d, want 0 (submit consumed the reservation): %#v", got, diags)
+	}
+}
+
+// TestCallerBindsHelperReturnAsMaybeLiveResource pins that an entrypoint
+// calling `e := maybeMake()` where maybeMake has verdict ReturnsResourceMaybe
+// binds `e` as maybe_live: submitting `e` without a nil-check fires HZN2100
+// (missing nil-check) — same diagnostic as a direct reserve site.
+func TestCallerBindsHelperReturnAsMaybeLiveResource(t *testing.T) {
+	// helper: func maybeMake(cond bool) *Event {
+	//   if cond { return nil }
+	//   return Events.reserve()
+	// }
+	maybeMake := resourceReturnHelperFnLocal("maybeMake",
+		[]ir.Param{scalarParam("cond", "bool")},
+		[]ir.Statement{
+			{
+				Kind: "if",
+				Cond: &ir.Expr{Kind: "ident", Name: "cond"},
+				Then: []ir.Statement{
+					{Kind: "return", Value: nilExpr()},
+				},
+			},
+			{Kind: "return", Value: reserveExpr("Events")},
+		},
+		"Event",
+	)
+	// entry:
+	//   e := maybeMake(false)
+	//   Events.submit(e)        // HZN2100 — submitted without nil-check
+	//   return 0
+	entry := []ir.Statement{
+		{Kind: "short_var", Name: "e", Value: userCallExpr("maybeMake", ir.Expr{Kind: "bool", Value: "false"})},
+		{Kind: "expr", Expr: submitExpr("Events", "e")},
+		returnZero(),
+	}
+	prog := ringbufProgWithHelper(entry, maybeMake)
+	diags := validate.Program(prog)
+	if got := countDiag(diags, "HZN2100"); got != 1 {
+		t.Fatalf("HZN2100 count = %d, want 1 (ReturnsResourceMaybe must require nil-check before submit): %#v", got, diags)
+	}
+}
+
+// TestCallerArgumentEscapesOnReturnsAlias pins that an entrypoint passing a
+// tracked reservation to a helper with verdict ReturnsAlias has the argument
+// marked escaped — i.e. the trailing return does NOT fire HZN2104 (the
+// helper has potentially exfiltrated the reservation via return).
+func TestCallerArgumentEscapesOnReturnsAlias(t *testing.T) {
+	// helper: func passthrough(e *Event) *Event { return e }
+	passthrough := resourceReturnHelperFnLocal("passthrough",
+		[]ir.Param{resourceParam("e", "Event")},
+		[]ir.Statement{
+			{Kind: "return", Value: &ir.Expr{Kind: "ident", Name: "e"}},
+		},
+		"Event",
+	)
+	// entry:
+	//   event := Events.reserve()
+	//   if event == nil { return 0 }
+	//   passthrough(event)    // verdict ReturnsAlias — event escapes
+	//   return 0              // no HZN2104 — escaped suppresses
+	entry := []ir.Statement{
+		{Kind: "short_var", Name: "event", Value: reserveExpr("Events")},
+		{Kind: "if", Cond: eqNilCond("event"), Then: []ir.Statement{returnZero()}},
+		{Kind: "expr", Expr: userCallExpr("passthrough", ir.Expr{Kind: "ident", Name: "event"})},
+		returnZero(),
+	}
+	prog := ringbufProgWithHelper(entry, passthrough)
+	diags := validate.Program(prog)
+	if got := countDiag(diags, "HZN2104"); got != 0 {
+		t.Fatalf("HZN2104 count = %d, want 0 (ReturnsAlias escapes the argument; suppression matches Phase 1 fallback): %#v", got, diags)
+	}
+}
+
+// TestCallerUnknownReturnSuppressesDiagnostics pins that an entrypoint
+// calling `e := opaque()` where opaque has verdict ReturnEffectUnknown
+// produces no spurious diagnostics on the bound value — submitting `e`
+// after must NOT fire HZN2101 (unknown reservation); the result is treated
+// as escaped (not tracked) and downstream diagnostics are suppressed in
+// the same way Phase 1 handled unsummarizable helpers.
+func TestCallerUnknownReturnSuppressesDiagnostics(t *testing.T) {
+	// helper: func opaque() *Event { return delegate() } where delegate
+	// is itself a user helper returning *Event via reserve(). The opaque
+	// helper's return verdict is Unknown (returns the result of another
+	// user-helper call — not classifiable as fresh/nil/alias).
+	delegate := resourceReturnHelperFnLocal("delegate",
+		nil,
+		[]ir.Statement{
+			{Kind: "return", Value: reserveExpr("Events")},
+		},
+		"Event",
+	)
+	opaque := resourceReturnHelperFnLocal("opaque",
+		nil,
+		[]ir.Statement{
+			{Kind: "return", Value: userCallExpr("delegate")},
+		},
+		"Event",
+	)
+	// entry:
+	//   e := opaque()
+	//   Events.submit(e)        // must NOT fire HZN2101 (Unknown suppresses)
+	//   return 0
+	entry := []ir.Statement{
+		{Kind: "short_var", Name: "e", Value: userCallExpr("opaque")},
+		{Kind: "expr", Expr: submitExpr("Events", "e")},
+		returnZero(),
+	}
+	prog := ringbufProgWithHelper(entry, delegate, opaque)
+	diags := validate.Program(prog)
+	if got := countDiag(diags, "HZN2101"); got != 0 {
+		t.Fatalf("HZN2101 count = %d, want 0 (Unknown return verdict must suppress downstream diagnostics on the bound value): %#v", got, diags)
+	}
+}

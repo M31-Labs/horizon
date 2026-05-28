@@ -1,0 +1,462 @@
+{
+  "generated": {
+    "language": "c"
+  },
+  "mappings": [
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 22
+        },
+        "start": {
+          "column": 1,
+          "line": 18
+        }
+      },
+      "node": "helper_wrapper",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 34,
+          "line": 30
+        },
+        "end_byte": 890,
+        "file": "examples/multifile-buildtag/linux.hzn",
+        "start": {
+          "column": 17,
+          "line": 30
+        },
+        "start_byte": 873
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 26
+        },
+        "start": {
+          "column": 1,
+          "line": 22
+        }
+      },
+      "node": "helper_wrapper",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 37,
+          "line": 29
+        },
+        "end_byte": 856,
+        "file": "examples/multifile-buildtag/linux.hzn",
+        "start": {
+          "column": 19,
+          "line": 29
+        },
+        "start_byte": 838
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 30
+        },
+        "start": {
+          "column": 1,
+          "line": 26
+        }
+      },
+      "node": "helper_wrapper",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 34,
+          "line": 31
+        },
+        "end_byte": 924,
+        "file": "examples/multifile-buildtag/linux.hzn",
+        "start": {
+          "column": 5,
+          "line": 31
+        },
+        "start_byte": 895
+      }
+    },
+    {
+      "function": "",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 40
+        },
+        "start": {
+          "column": 1,
+          "line": 30
+        }
+      },
+      "node": "struct",
+      "section": "",
+      "source": {
+        "end": {
+          "column": 2,
+          "line": 16
+        },
+        "end_byte": 532,
+        "file": "examples/multifile-buildtag/linux.hzn",
+        "start": {
+          "column": 6,
+          "line": 12
+        },
+        "start_byte": 465
+      }
+    },
+    {
+      "function": "",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 45
+        },
+        "start": {
+          "column": 1,
+          "line": 40
+        }
+      },
+      "node": "map",
+      "section": "",
+      "source": {
+        "end": {
+          "column": 35,
+          "line": 18
+        },
+        "end_byte": 568,
+        "file": "examples/multifile-buildtag/linux.hzn",
+        "start": {
+          "column": 1,
+          "line": 18
+        },
+        "start_byte": 534
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 49
+        },
+        "start": {
+          "column": 1,
+          "line": 45
+        }
+      },
+      "node": "map_wrapper",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 30,
+          "line": 25
+        },
+        "end_byte": 774,
+        "file": "examples/multifile-buildtag/linux.hzn",
+        "start": {
+          "column": 14,
+          "line": 25
+        },
+        "start_byte": 758
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 53
+        },
+        "start": {
+          "column": 1,
+          "line": 49
+        }
+      },
+      "node": "map_wrapper",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 25,
+          "line": 32
+        },
+        "end_byte": 949,
+        "file": "examples/multifile-buildtag/linux.hzn",
+        "start": {
+          "column": 5,
+          "line": 32
+        },
+        "start_byte": 929
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 58
+        },
+        "start": {
+          "column": 1,
+          "line": 57
+        }
+      },
+      "node": "short_var",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 30,
+          "line": 25
+        },
+        "end_byte": 774,
+        "file": "examples/multifile-buildtag/linux.hzn",
+        "start": {
+          "column": 5,
+          "line": 25
+        },
+        "start_byte": 749
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 60
+        },
+        "start": {
+          "column": 1,
+          "line": 59
+        }
+      },
+      "node": "return",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 17,
+          "line": 27
+        },
+        "end_byte": 813,
+        "file": "examples/multifile-buildtag/linux.hzn",
+        "start": {
+          "column": 9,
+          "line": 27
+        },
+        "start_byte": 805
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 61
+        },
+        "start": {
+          "column": 1,
+          "line": 58
+        }
+      },
+      "node": "if",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 6,
+          "line": 28
+        },
+        "end_byte": 819,
+        "file": "examples/multifile-buildtag/linux.hzn",
+        "start": {
+          "column": 5,
+          "line": 26
+        },
+        "start_byte": 779
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 62
+        },
+        "start": {
+          "column": 1,
+          "line": 61
+        }
+      },
+      "node": "assign",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 37,
+          "line": 29
+        },
+        "end_byte": 856,
+        "file": "examples/multifile-buildtag/linux.hzn",
+        "start": {
+          "column": 5,
+          "line": 29
+        },
+        "start_byte": 824
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 63
+        },
+        "start": {
+          "column": 1,
+          "line": 62
+        }
+      },
+      "node": "assign",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 34,
+          "line": 30
+        },
+        "end_byte": 890,
+        "file": "examples/multifile-buildtag/linux.hzn",
+        "start": {
+          "column": 5,
+          "line": 30
+        },
+        "start_byte": 861
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 64
+        },
+        "start": {
+          "column": 1,
+          "line": 63
+        }
+      },
+      "node": "expr",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 34,
+          "line": 31
+        },
+        "end_byte": 924,
+        "file": "examples/multifile-buildtag/linux.hzn",
+        "start": {
+          "column": 5,
+          "line": 31
+        },
+        "start_byte": 895
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 65
+        },
+        "start": {
+          "column": 1,
+          "line": 64
+        }
+      },
+      "node": "expr",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 25,
+          "line": 32
+        },
+        "end_byte": 949,
+        "file": "examples/multifile-buildtag/linux.hzn",
+        "start": {
+          "column": 5,
+          "line": 32
+        },
+        "start_byte": 929
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 66
+        },
+        "start": {
+          "column": 1,
+          "line": 65
+        }
+      },
+      "node": "return",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 13,
+          "line": 33
+        },
+        "end_byte": 962,
+        "file": "examples/multifile-buildtag/linux.hzn",
+        "start": {
+          "column": 5,
+          "line": 33
+        },
+        "start_byte": 954
+      }
+    },
+    {
+      "function": "OnExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 67
+        },
+        "start": {
+          "column": 1,
+          "line": 53
+        }
+      },
+      "node": "function",
+      "section": "tracepoint/sched/sched_process_exec",
+      "source": {
+        "end": {
+          "column": 2,
+          "line": 34
+        },
+        "end_byte": 964,
+        "file": "examples/multifile-buildtag/linux.hzn",
+        "start": {
+          "column": 1,
+          "line": 22
+        },
+        "start_byte": 641
+      }
+    }
+  ],
+  "schema": "m31labs.dev/horizon/sourcemap/v0",
+  "sources": [
+    {
+      "id": 0,
+      "path": "examples/multifile-buildtag/linux.hzn"
+    }
+  ]
+}

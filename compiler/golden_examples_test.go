@@ -13,16 +13,67 @@ import (
 
 var updateGolden = flag.Bool("update-golden", false, "regenerate testdata/golden/examples baselines")
 
-var examples = []string{
-	"cgroupconnect", "eventbatch", "execwatch", "execcount", "execdeny",
-	"killwatch", "lsmfile", "openwatch", "tcpconnect", "tcpass", "xdpdrop",
-	"uprobeexec", "uretprobeexec",
-	"fentryopen", "fexitopen",
-	"rawtpenter",
-	"sockopstrack",
-	"structopstcp",
-	"multifile-execcount",
-	"imported-execcount",
+// exampleFixture describes one example registered with the golden
+// harness. Name is the directory under ./examples and is the only
+// required field. Env supplies optional per-example process
+// environment overrides — used by the multifile-buildtag fixture to
+// pin a deterministic BuildContext via HORIZON_BUILD_* env vars so
+// the golden output matches regardless of CI host OS/arch/kernel.
+type exampleFixture struct {
+	Name string
+	Env  []string
+	// EnvBuilder allows the fixture to compute env vars at test
+	// time — needed by remoteimport-execcount, which sets
+	// HORIZON_CACHE_ROOT to the absolute path of the in-repo
+	// remote-fixture tree. Static Env entries (from the Env field)
+	// are appended after the builder's output.
+	EnvBuilder func(t *testing.T) []string
+}
+
+var examples = []exampleFixture{
+	{Name: "cgroupconnect"}, {Name: "eventbatch"}, {Name: "execwatch"},
+	{Name: "execcount"}, {Name: "execdeny"},
+	{Name: "killwatch"}, {Name: "lsmfile"}, {Name: "openwatch"},
+	{Name: "tcpconnect"}, {Name: "tcpass"}, {Name: "xdpdrop"},
+	{Name: "uprobeexec"}, {Name: "uretprobeexec"},
+	{Name: "fentryopen"}, {Name: "fexitopen"},
+	{Name: "rawtpenter"},
+	{Name: "sockopstrack"},
+	{Name: "structopstcp"},
+	{Name: "multifile-execcount"},
+	{Name: "imported-execcount"},
+	{Name: "imported-reexport"},
+	{Name: "helperctor-execwatch"},
+	{
+		Name: "multifile-buildtag",
+		Env: []string{
+			"HORIZON_BUILD_OS=linux",
+			"HORIZON_BUILD_ARCH=amd64",
+			"HORIZON_BUILD_KERNEL=5.15",
+			"HORIZON_BUILD_BTF=1",
+		},
+	},
+	{
+		Name: "remoteimport-execcount",
+		// Points the resolver's content-addressed cache at the
+		// pre-populated in-repo fixture tree so the workbench
+		// invocation never touches the network. The fixture is
+		// laid out as cacheRoot/<sha256(repo)[:32]>/<ref>/...
+		// matching what compiler.cacheKey produces for the
+		// example's hzn.lock entry. Real-network round-trip is
+		// gated behind HORIZON_NETWORK_TESTS — see
+		// docs/internal/remote-imports-testing.md.
+		EnvBuilder: func(t *testing.T) []string {
+			abs, err := filepath.Abs(filepath.Join("..", "testdata", "remote-fixtures"))
+			if err != nil {
+				t.Fatalf("abs remote-fixtures: %v", err)
+			}
+			return []string{
+				"HORIZON_CACHE_ROOT=" + abs,
+				"HORIZON_NETWORK_TESTS=",
+			}
+		},
+	},
 }
 
 // Fields stripped before comparison because they vary per-run.
@@ -35,18 +86,26 @@ var volatileReportFields = []string{
 }
 
 func TestGoldenExamplesWorkbench(t *testing.T) {
-	for _, name := range examples {
-		t.Run(name, func(t *testing.T) {
+	for _, ex := range examples {
+		t.Run(ex.Name, func(t *testing.T) {
 			tmp := t.TempDir()
 			cmd := exec.Command("go", "run", "./cmd/hzn", "workbench",
-				"./examples/"+name, "-o", tmp)
+				"./examples/"+ex.Name, "-o", tmp)
 			cmd.Dir = ".."
+			var extraEnv []string
+			if ex.EnvBuilder != nil {
+				extraEnv = append(extraEnv, ex.EnvBuilder(t)...)
+			}
+			extraEnv = append(extraEnv, ex.Env...)
+			if len(extraEnv) > 0 {
+				cmd.Env = append(os.Environ(), extraEnv...)
+			}
 			var stderr bytes.Buffer
 			cmd.Stderr = &stderr
 			if err := cmd.Run(); err != nil {
 				t.Fatalf("workbench: %v\n%s", err, stderr.String())
 			}
-			compareGoldenExamplesDir(t, name, tmp)
+			compareGoldenExamplesDir(t, ex.Name, tmp)
 		})
 	}
 }

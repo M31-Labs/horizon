@@ -1,0 +1,47 @@
+{
+  "compile": false,
+  "diagnostic_count": 0,
+  "diagnostics": [],
+  "generator": "hzn workbench",
+  "package": "main",
+  "schema": "m31labs.dev/horizon/report/v0",
+  "sources": [
+    {
+      "package": "main",
+      "path": "examples/remoteimport-execcount/prog.hzn",
+      "sha256": "d8eb5af4cd5c951a5be34dc3dd60d8669987ecdba4c178151ad9f1bed38d77a2",
+      "size": 592
+    },
+    {
+      "package": "events",
+      "path": "testdata/remote-fixtures/2235ddd408b26d46ee475b7dc227eb39/v1.0.0/events.hzn",
+      "sha256": "b691f43715523561027ce879e85fd47c6f822c368b92e6c6d738ec1293b9c94e",
+      "size": 96
+    }
+  ],
+  "status": "generated",
+  "summary": {
+    "capability_count": 1,
+    "capability_dangers": [
+      "observe"
+    ],
+    "features": [
+      "tracefs"
+    ],
+    "map_count": 1,
+    "map_kinds": [
+      "ringbuf"
+    ],
+    "min_kernel": "5.8",
+    "permissions": [
+      "bpf_program_load",
+      "perf_event_open"
+    ],
+    "program_count": 1,
+    "program_kinds": [
+      "tracepoint"
+    ],
+    "source_count": 2,
+    "type_count": 1
+  }
+}

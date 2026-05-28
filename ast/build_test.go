@@ -768,3 +768,40 @@ func F(ctx tracepoint.Exec) i32 {
 		t.Fatalf("literal = %#v, want Count{seen: ...}", lit)
 	}
 }
+
+// TestBuildExportDecl pins the v0.3 re-export AST lift (roadmap #15).
+// Each `export <alias>.<Name>` line in source materializes as one
+// ast.ExportDecl carrying Alias, Name, and Span. Imports continue to
+// land in file.Imports unchanged so the existing import resolver path
+// is undisturbed.
+func TestBuildExportDecl(t *testing.T) {
+	parsed, err := parser.ParseSource(parser.SourceFile{Path: "inline.hzn", Bytes: []byte(`package middleware
+
+import events "m31labs.dev/horizon-test/events"
+
+export events.ExecEvent
+export events.MakeExecEvent
+`)})
+	if err != nil {
+		t.Fatalf("ParseSource: %v", err)
+	}
+	file, err := Build(parsed)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(file.Imports) != 1 || file.Imports[0].Alias != "events" {
+		t.Fatalf("imports = %#v, want one import alias=events", file.Imports)
+	}
+	if len(file.Exports) != 2 {
+		t.Fatalf("exports = %d, want 2; got %#v", len(file.Exports), file.Exports)
+	}
+	if file.Exports[0].Alias != "events" || file.Exports[0].Name != "ExecEvent" {
+		t.Fatalf("exports[0] = %#v, want {events, ExecEvent}", file.Exports[0])
+	}
+	if file.Exports[1].Alias != "events" || file.Exports[1].Name != "MakeExecEvent" {
+		t.Fatalf("exports[1] = %#v, want {events, MakeExecEvent}", file.Exports[1])
+	}
+	if file.Exports[0].Span.StartByte == 0 && file.Exports[0].Span.EndByte == 0 {
+		t.Fatalf("exports[0].Span = %#v, want a populated span", file.Exports[0].Span)
+	}
+}

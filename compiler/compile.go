@@ -83,7 +83,31 @@ func AnalyzePath(root string) (*Result, error) {
 	files := make([]ast.File, 0, len(paths))
 	fileIndexes := make([]int, 0, len(paths))
 	hadFrontEndError := false
+	ctx := DetectContext()
 	for _, path := range paths {
+		// Apply build-tag filter on the single-package path, mirroring
+		// loadPackage's behavior for the multi-package path. Tag-
+		// excluded files do not contribute decls and do not produce
+		// parse/AST diagnostics (roadmap #16). A read failure here is
+		// soft — the parser will re-encounter and report it.
+		var fileBuildTag string
+		if raw, rerr := os.ReadFile(path); rerr == nil {
+			tags := parser.ExtractBuildTags(raw)
+			include, joined, mderr := evaluateBuildTags(ctx, tags)
+			if mderr != nil {
+				result.Diagnostics = append(result.Diagnostics, diag.Diagnostic{
+					Code:     "HZN1680",
+					Severity: diag.SeverityWarning,
+					Message:  fmt.Sprintf("malformed //hzn:build directive in %s: %v", path, mderr),
+					Suggest:  "check the constraint expression (allowed dimensions: os, arch, kernel comparisons, btf)",
+				})
+				continue
+			}
+			if !include {
+				continue
+			}
+			fileBuildTag = joined
+		}
 		parsed, err := parser.ParsePath(path)
 		if err != nil {
 			hadFrontEndError = true
@@ -107,6 +131,7 @@ func AnalyzePath(root string) (*Result, error) {
 			result.Diagnostics = append(result.Diagnostics, d)
 			continue
 		}
+		file.BuildTag = fileBuildTag
 		fileIndexes = append(fileIndexes, len(result.Files))
 		files = append(files, *file)
 		result.Files = append(result.Files, FileResult{
@@ -449,6 +474,13 @@ func (g ImportGraph) toTypesGraph(root ast.Package) htypes.ImportGraph {
 // Only the per-directory → alias map matters for IR lowering; ir does not
 // look at edges-by-importer or builtin aliases (those are types-layer
 // concerns).
+//
+// v0.3 (#15): we also collect re-exported struct names for each root-side
+// import alias so the IR rewriter can strip qualified references through
+// re-exports (e.g. `mw.ExecEvent` → bare `ExecEvent` when `mw` re-exports
+// `events.ExecEvent`). The walk is structural — re-export *validity*
+// (HZN1690/1691/1692) is the types layer's responsibility; this walk
+// gathers candidates that the merged IR will be able to resolve.
 func (g ImportGraph) toIRGraph(root ast.Package) ir.ImportGraph {
 	aliases := map[string]string{}
 	rootDir := g.lookupPackageDir(root)
@@ -461,7 +493,89 @@ func (g ImportGraph) toIRGraph(root ast.Package) ir.ImportGraph {
 		}
 		aliases[resolvedPath] = alias
 	}
-	return ir.ImportGraph{PackageAliases: aliases}
+	reExports := g.collectRootReExports(rootDir)
+	return ir.ImportGraph{
+		PackageAliases:    aliases,
+		ReExportedStructs: reExports,
+	}
+}
+
+// collectRootReExports walks every root-direct import edge and, for
+// each imported (re-exporting) package, harvests the names of structs
+// re-exported via `export <alias>.<Name>`. The returned map keys are
+// the root-side alias (the one the root used to bind the re-exporting
+// package); the inner map is name → origin package name (informational
+// — the rewriter only consults the name keys).
+//
+// We follow the re-exporting package's own import edges to find the
+// originating package and verify the named struct exists there as a
+// direct declaration. This is a structural walk only — diagnostics
+// for invalid re-exports flow through the types layer's
+// resolvePackageReExports.
+func (g ImportGraph) collectRootReExports(rootDir string) map[string]map[string]string {
+	out := map[string]map[string]string{}
+	rootEdges := g.Edges[rootDir]
+	if len(rootEdges) == 0 {
+		return out
+	}
+	for rootAlias, depDir := range rootEdges {
+		if g.BuiltinAliases[rootAlias] {
+			continue
+		}
+		depPkg, ok := g.Packages[depDir]
+		if !ok {
+			continue
+		}
+		depEdges := g.Edges[depDir]
+		var exportsForAlias map[string]string
+		for _, file := range depPkg.Files {
+			for _, ed := range file.Exports {
+				originDir, edgeOK := depEdges[ed.Alias]
+				if !edgeOK {
+					continue
+				}
+				originPkg, originOK := g.Packages[originDir]
+				if !originOK {
+					continue
+				}
+				if !structDeclaredDirectly(originPkg, ed.Name) {
+					continue
+				}
+				if exportsForAlias == nil {
+					exportsForAlias = map[string]string{}
+				}
+				exportsForAlias[ed.Name] = originPkg.Name
+			}
+		}
+		if len(exportsForAlias) > 0 {
+			out[rootAlias] = exportsForAlias
+		}
+	}
+	return out
+}
+
+// structDeclaredDirectly reports whether pkg directly declares a
+// struct type named target (NOT a type alias, NOT a re-export). Used
+// by collectRootReExports to pre-filter re-export candidates so the
+// IR rewriter only ever sees names it can actually resolve.
+func structDeclaredDirectly(pkg ast.Package, target string) bool {
+	for _, file := range pkg.Files {
+		for _, decl := range file.Decls {
+			switch d := decl.(type) {
+			case ast.TypeDecl:
+				if d.Name == target && !d.IsAlias() {
+					return true
+				}
+			case ast.TypeGroupDecl:
+				for _, t := range d.Types {
+					if t.Name == target && !t.IsAlias() {
+						return true
+					}
+				}
+			}
+		}
+	}
+	return false
 }
 
 // aliasByDepDir returns alias-by-resolved-dir for the root package's

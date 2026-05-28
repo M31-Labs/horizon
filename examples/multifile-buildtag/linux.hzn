@@ -1,0 +1,34 @@
+//hzn:build linux
+package mfbt
+
+import bpf "m31labs.dev/horizon/runtime/kernel"
+
+// LinuxExecEvent is the on-the-wire shape consumed by the linux-only
+// observer in this example. The neighbouring `notlinux.hzn` declares
+// a different struct (`FallbackEvent`) and is filtered out under
+// HORIZON_BUILD_OS=linux — only one of the two contributes to the
+// compiled package per build context, demonstrating file-level
+// constraint resolution (roadmap #16).
+type LinuxExecEvent struct {
+    ts_ns u64
+    pid u32
+    comm [16]u8
+}
+
+map Events ringbuf[LinuxExecEvent]
+
+capability ExecObserve danger observe = "kernel.process.exec.observe"
+
+@capability(ExecObserve)
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    event := Events.reserve()
+    if event == nil {
+        return 0
+    }
+    event.ts_ns = bpf.ktime_get_ns()
+    event.pid = bpf.current_pid()
+    bpf.current_comm(&event.comm)
+    Events.submit(event)
+    return 0
+}

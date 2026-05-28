@@ -29,7 +29,7 @@ func Check(file ast.File) []diag.Diagnostic {
 //
 // (roadmap #20 — Phase 2 Subtask 3b.)
 func CheckPackage(files []ast.File) [][]diag.Diagnostic {
-	return checkPackageInternal(files, nil, nil)
+	return checkPackageInternal(files, nil, nil, nil, nil, nil, nil)
 }
 
 // CheckPackages is the cross-package type-check entrypoint. Each root in
@@ -45,15 +45,55 @@ func CheckPackage(files []ast.File) [][]diag.Diagnostic {
 func CheckPackages(roots []ast.Package, graph ImportGraph) map[string][][]diag.Diagnostic {
 	out := map[string][][]diag.Diagnostic{}
 	dirByPkg := reverseGraphIndex(graph)
+	// v0.3 (#15): pre-compute every package's re-export surface so that
+	// (a) re-export diagnostics land in the originating package's
+	// per-file slice regardless of whether that package is in roots, and
+	// (b) downstream importers can see the augmented surface (a
+	// re-exported symbol becomes addressable as `<reExporterAlias>.<Name>`
+	// from a transitive consumer).
+	reExportSurfaces, reExportDiagsByDir := computeAllReExports(graph)
 	for _, root := range roots {
 		dir := lookupPackageDir(root, dirByPkg)
 		var aliases map[string]bool
 		var importedPkgs map[string]ast.Package
+		var importedDirByAlias map[string]string
 		if dir != "" {
 			aliases = packageAliasSet(graph, dir)
 			importedPkgs = importedPackagesByAlias(graph, dir)
+			importedDirByAlias = importedDirsByAlias(graph, dir)
 		}
-		out[dir] = checkPackageInternal(root.Files, aliases, importedPkgs)
+		out[dir] = checkPackageInternal(
+			root.Files,
+			aliases,
+			importedPkgs,
+			importedDirByAlias,
+			reExportSurfaces,
+			reExportSurfaces[dir],
+			reExportDiagsByDir[dir],
+		)
+	}
+	return out
+}
+
+// importedDirsByAlias mirrors importedPackagesByAlias but returns the
+// resolved directory key (instead of the ast.Package) so the re-export
+// surface lookup for an imported package can be keyed by dir without a
+// reverse walk. Used by checkPackageInternal to look up
+// reExportSurfaces[depDir] for each non-builtin import.
+func importedDirsByAlias(graph ImportGraph, dir string) map[string]string {
+	if graph.Edges == nil {
+		return nil
+	}
+	edges := graph.Edges[dir]
+	if len(edges) == 0 {
+		return nil
+	}
+	out := map[string]string{}
+	for alias, depDir := range edges {
+		if graph.BuiltinAliases[alias] {
+			continue
+		}
+		out[alias] = depDir
 	}
 	return out
 }
@@ -63,8 +103,38 @@ func CheckPackages(roots []ast.Package, graph ImportGraph) map[string][][]diag.D
 // importAliases is the alias set reserved at top-level scope; importedPkgs
 // is the alias → imported-package map used to resolve qualified
 // `<alias>.<TypeName>` selector types and stored-value type checks.
-func checkPackageInternal(files []ast.File, importAliases map[string]bool, importedPkgs map[string]ast.Package) [][]diag.Diagnostic {
+//
+// v0.3 re-export parameters (roadmap #15):
+//   - importedDirByAlias maps each non-builtin alias to the resolved
+//     directory of the dep package, used to look up the dep's
+//     re-export surface.
+//   - reExportsByDir is the graph-wide map of per-dir re-export
+//     surfaces produced by computeAllReExports. Used to augment each
+//     imported package's known-type / func registration so a
+//     re-exported symbol becomes addressable as `<alias>.<Name>` from
+//     a transitive consumer.
+//   - ownReExports is this package's own re-export surface (allows a
+//     package to use its own re-exported symbols without qualifying
+//     them again).
+//   - ownReExportDiags is the per-file diagnostic slice produced by
+//     resolvePackageReExports for this package. These are appended to
+//     the returned per-file diagnostics so HZN1690/1691/1692 land in
+//     the originating file's slice.
+func checkPackageInternal(
+	files []ast.File,
+	importAliases map[string]bool,
+	importedPkgs map[string]ast.Package,
+	importedDirByAlias map[string]string,
+	reExportsByDir map[string]reExportSurface,
+	ownReExports reExportSurface,
+	ownReExportDiags [][]diag.Diagnostic,
+) [][]diag.Diagnostic {
 	importedDecls := buildImportedDecls(importedPkgs)
+	// v0.3 (#15): augment each imported package's decl index with that
+	// package's own re-export surface so qualified references to a
+	// re-exported symbol resolve from the current package without
+	// requiring the current package to also import the original source.
+	augmentImportedDeclsWithReExports(importedDecls, importedDirByAlias, reExportsByDir)
 	diags := make([][]diag.Diagnostic, len(files))
 	index := newPackageDeclIndex()
 	env := NewEnv()
@@ -75,6 +145,10 @@ func checkPackageInternal(files []ast.File, importAliases map[string]bool, impor
 	files = resolveTypeAliasesInFiles(files, index.typeAliases)
 	resolved := indexResolvedDecls(files)
 	registerQualifiedResolvedDecls(&resolved, importedPkgs)
+	// Surface re-exported structs from each imported package under
+	// their `<alias>.<Name>` qualified form in the resolved index — the
+	// existing registerQualifiedResolvedDecls covers only direct decls.
+	registerQualifiedReExportedStructs(&resolved, importedDirByAlias, reExportsByDir)
 	callGraphDiags := validateFunctionCallGraph(resolved.funcs)
 	for i, file := range files {
 		for _, decl := range file.Decls {
@@ -102,7 +176,119 @@ func checkPackageInternal(files []ast.File, importAliases map[string]bool, impor
 	for i, file := range files {
 		diags[i] = append(diags[i], validateQualifiedSelectorRefs(file, importAliases, importedDecls)...)
 	}
+	privacyIndex := buildImportedPrivacyIndex(importedPkgs)
+	// Re-exported funcs need to live in the privacy index too so the
+	// body-walker's qualified-call validation doesn't flag a re-exported
+	// helper as missing/private.
+	augmentImportedPrivacyIndexWithReExports(privacyIndex, importedDirByAlias, reExportsByDir)
+	for i, file := range files {
+		diags[i] = append(diags[i], validateQualifiedPrivacyRefs(file, importAliases, privacyIndex)...)
+	}
+	// Append the package's own re-export diagnostics (HZN1690/1691/1692)
+	// to the file-aligned slice.
+	for i := range diags {
+		if i < len(ownReExportDiags) {
+			diags[i] = append(diags[i], ownReExportDiags[i]...)
+		}
+	}
+	_ = ownReExports
 	return diags
+}
+
+// augmentImportedDeclsWithReExports adds each re-exported symbol from
+// an imported package's surface into the imported package's
+// packageDeclIndex. After this pass, `registerQualifiedKnownTypes`
+// will surface the re-export under `<importerAlias>.<ReExportedName>`
+// in the current package's local known-types map, so a downstream
+// consumer sees the symbol via the re-export chain.
+func augmentImportedDeclsWithReExports(
+	importedDecls map[string]*packageDeclIndex,
+	importedDirByAlias map[string]string,
+	reExportsByDir map[string]reExportSurface,
+) {
+	if len(importedDecls) == 0 || len(reExportsByDir) == 0 {
+		return
+	}
+	for alias, depDir := range importedDirByAlias {
+		surface, ok := reExportsByDir[depDir]
+		if !ok || len(surface) == 0 {
+			continue
+		}
+		idx, ok := importedDecls[alias]
+		if !ok {
+			continue
+		}
+		for name, target := range surface {
+			switch target.Kind {
+			case reExportKindType:
+				idx.knownTypes[name] = true
+			case reExportKindFunc:
+				// Funcs don't live in knownTypes; the privacy index
+				// covers cross-package call resolution. No-op here.
+			}
+		}
+	}
+}
+
+// registerQualifiedReExportedStructs mirrors registerQualifiedResolvedDecls
+// but for re-exported struct types. For each imported package's
+// re-export surface, this registers `<importerAlias>.<ReExportedName>`
+// → the source `ast.TypeDecl` in the current package's resolved.structs
+// / resolved.userStructs maps so validators (validateMapDecl,
+// validateStoredTypeRef, etc.) accept the re-exported name first-class.
+func registerQualifiedReExportedStructs(
+	resolved *resolvedDeclIndex,
+	importedDirByAlias map[string]string,
+	reExportsByDir map[string]reExportSurface,
+) {
+	if len(importedDirByAlias) == 0 || len(reExportsByDir) == 0 {
+		return
+	}
+	for alias, depDir := range importedDirByAlias {
+		surface, ok := reExportsByDir[depDir]
+		if !ok || len(surface) == 0 {
+			continue
+		}
+		for name, target := range surface {
+			if target.Kind != reExportKindType {
+				continue
+			}
+			qualified := alias + "." + name
+			resolved.structs[qualified] = target.StructDecl
+			resolved.userStructs[qualified] = target.StructDecl
+		}
+	}
+}
+
+// augmentImportedPrivacyIndexWithReExports registers each re-exported
+// func from an imported package's surface into the privacy index so
+// the body-walker's qualified-call validation treats the re-exported
+// helper as a known function rather than a missing private symbol.
+// Types and other kinds are out of scope (the privacy walk for types
+// is gated upstream in validateQualifiedSelectorRefs which already
+// consults the augmented knownTypes).
+func augmentImportedPrivacyIndexWithReExports(
+	privacyIndex importedPrivacyIndex,
+	importedDirByAlias map[string]string,
+	reExportsByDir map[string]reExportSurface,
+) {
+	if len(importedDirByAlias) == 0 || len(reExportsByDir) == 0 {
+		return
+	}
+	for alias, depDir := range importedDirByAlias {
+		surface, ok := reExportsByDir[depDir]
+		if !ok || len(surface) == 0 {
+			continue
+		}
+		if privacyIndex[alias] == nil {
+			privacyIndex[alias] = map[string]importedDeclKind{}
+		}
+		for name, target := range surface {
+			if target.Kind == reExportKindFunc {
+				privacyIndex[alias][name] = importedDeclFunc
+			}
+		}
+	}
 }
 
 type packageDeclIndex struct {
@@ -1398,7 +1584,11 @@ func validateFuncDecl(decl ast.FuncDecl, known map[string]bool, maps map[string]
 			diags = append(diags, validateTypeRef(param.Type, known)...)
 		}
 	}
-	diags = append(diags, validateTypeRef(decl.Return, known)...)
+	if isHelper {
+		diags = append(diags, validateHelperReturnTypeRef(decl.Return, known)...)
+	} else {
+		diags = append(diags, validateTypeRef(decl.Return, known)...)
+	}
 	if isHelper {
 		diags = append(diags, validateHelperSignature(decl)...)
 	} else {
@@ -1662,6 +1852,21 @@ func validateCapabilityAttr(attr ast.Attr, capabilities map[string]ast.Capabilit
 			}}
 		}
 		qualified := alias + "." + name
+		// v0.3 alder Phase 2 (roadmap #17): privacy gate. A lowercase
+		// capability name accessed via qualified selector is rejected
+		// with HZN1673 before HZN1321 ("unknown alias"), naming the
+		// privacy reason explicitly when the capability does exist.
+		if !isExported(name) {
+			if _, ok := capabilities[qualified]; ok {
+				return []diag.Diagnostic{{
+					Code:     "HZN1673",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("capability %q is not exported from package %q", name, alias),
+					Primary:  value.Span,
+					Suggest:  fmt.Sprintf("capitalize %q to export it from package %q (e.g. rename to %s and update call sites)", name, alias, suggestExportedRename(name)),
+				}}
+			}
+		}
 		if _, ok := capabilities[qualified]; ok {
 			return nil
 		}
@@ -1711,18 +1916,18 @@ func validateHelperSignature(decl ast.FuncDecl) []diag.Diagnostic {
 		return append(diags, diag.Diagnostic{
 			Code:     "HZN1320",
 			Severity: diag.SeverityError,
-			Message:  fmt.Sprintf("helper function %q must return a scalar or bool value", decl.Name),
+			Message:  fmt.Sprintf("helper function %q must return a scalar, bool, or nullable resource handle pointer", decl.Name),
 			Primary:  decl.Span,
-			Suggest:  "return an explicit scalar value such as i32, u32, u64, or bool",
+			Suggest:  "return an explicit scalar value such as i32, u32, u64, bool, or a single-hop pointer to a Horizon-declared struct (e.g. *Event)",
 		})
 	}
-	if !helperScalarType(decl.Return) {
+	if !helperScalarType(decl.Return) && !helperResourceReturnType(decl.Return) {
 		diags = append(diags, diag.Diagnostic{
 			Code:     "HZN1320",
 			Severity: diag.SeverityError,
-			Message:  fmt.Sprintf("helper function %q return type must be scalar or bool, got %s", decl.Name, decl.Return.Name),
+			Message:  fmt.Sprintf("helper function %q return type must be scalar, bool, or a nullable resource handle pointer, got %s", decl.Name, decl.Return.Name),
 			Primary:  decl.Return.Span,
-			Suggest:  "Horizon v0 user helpers are inline scalar helpers; keep resources and records local to entrypoints",
+			Suggest:  "Horizon user helpers may return scalars, bool, or a single-hop pointer to a named struct (e.g. *Event). Aggregate-by-value and multi-pointer returns are not supported.",
 		})
 	}
 	return diags
@@ -1752,6 +1957,51 @@ func helperResourceParamType(ref ast.TypeRef) bool {
 		return false
 	}
 	return true
+}
+
+// helperResourceReturnType reports whether a helper-function return type ref
+// names a tracked nullable resource handle (e.g. *Event, *Counter, *xdp.Eth).
+// This predicate is the return-position counterpart of helperResourceParamType
+// and is the v0.3 alder relaxation of the v0.2 HZN1320 scalar-only return
+// requirement. The two predicates must classify the same single-hop pointer-
+// to-named-struct shapes — keep them in lockstep when extending. The return
+// predicate is additionally strict on the multi-pointer case (**Event) which
+// the parameter predicate accepts only because validateHelperParamTypeRef's
+// inner recursion catches it via HZN1106 on the inner pointer; the return
+// path rejects it up-front so that HZN1320 fires with a coherent message.
+func helperResourceReturnType(ref ast.TypeRef) bool {
+	if !helperResourceParamType(ref) {
+		return false
+	}
+	if ref.Elem != nil && ref.Elem.Ptr {
+		return false
+	}
+	return true
+}
+
+// validateHelperReturnTypeRef validates a type ref appearing in helper-function
+// return position. It mirrors validateHelperParamTypeRef: a `*<NamedStruct>`
+// shape that matches helperResourceReturnType is admitted without emitting
+// HZN1106. All other `*T` forms continue to flow through validateTypeRef and
+// emit HZN1106 unchanged. The inner elem still passes through validateTypeRef
+// so unknown-name (HZN1102) and any deeper *T continue to fire.
+func validateHelperReturnTypeRef(ref ast.TypeRef, known map[string]bool) []diag.Diagnostic {
+	if !helperResourceReturnType(ref) {
+		return validateTypeRef(ref, known)
+	}
+	var diags []diag.Diagnostic
+	if ref.Elem != nil {
+		diags = append(diags, validateTypeRef(*ref.Elem, known)...)
+	}
+	if ref.Name != "" && !known[ref.Name] {
+		diags = append(diags, diag.Diagnostic{
+			Code:     "HZN1102",
+			Severity: diag.SeverityError,
+			Message:  fmt.Sprintf("unknown type %q", ref.Name),
+			Primary:  ref.Span,
+		})
+	}
+	return diags
 }
 
 func validateFunctionCallGraph(funcs map[string]ast.FuncDecl) map[string][]diag.Diagnostic {
@@ -2259,7 +2509,7 @@ func (c *funcBodyChecker) checkShortVar(s ast.ShortVarStmt, locals map[string]va
 		})
 	case isFixedArray(typ):
 		c.add(fixedArrayLocalDiagnostic(s.Span, s.Name, typ))
-	case len(exprDiags) == 0 && isTrackedPointer(typ) && !directTrackedPointerSource(s.Value, c.maps):
+	case len(exprDiags) == 0 && isTrackedPointer(typ) && !directTrackedPointerSource(s.Value, c.maps) && !userHelperResourceReturnSource(s.Value, c.funcs):
 		c.add(trackedPointerAliasDiagnostic(s.Span, s.Name, typ))
 		if s.Name != "" && !nameInvalid {
 			locals[s.Name] = typ
@@ -2516,6 +2766,24 @@ func validateQualifiedSelectorRefs(file ast.File, importAliases map[string]bool,
 		depIdx, ok := importedDecls[alias]
 		if !ok || depIdx == nil {
 			// Alias resolves to a builtin namespace; nothing to do.
+			return
+		}
+		// v0.3 alder Phase 2 (roadmap #17): privacy gate. A qualified
+		// type reference to a lowercase symbol in another package is
+		// rejected with HZN1670 before the existing HZN1558 ("not
+		// declared") check, so the diagnostic names the actual reason
+		// (the symbol exists but is private) rather than a misleading
+		// "not declared." The gate fires only when the symbol is
+		// actually present in the imported package; an unknown symbol
+		// still falls through to HZN1558.
+		if !isExported(typeName) && depIdx.knownTypes[typeName] {
+			diags = append(diags, diag.Diagnostic{
+				Code:     "HZN1670",
+				Severity: diag.SeverityError,
+				Message:  fmt.Sprintf("type %q is not exported from package %q", typeName, alias),
+				Primary:  ref.Span,
+				Suggest:  fmt.Sprintf("capitalize %q to export it from package %q (e.g. rename to %s and update call sites)", typeName, alias, suggestExportedRename(typeName)),
+			})
 			return
 		}
 		if depIdx.knownTypes[typeName] {
@@ -4055,6 +4323,20 @@ func (t exprTyper) userFunctionCall(fn ast.FuncDecl, call ast.CallExpr) (valueTy
 		}}
 	}
 	result := valueType{Name: fn.Return.Name, Ref: fn.Return, Ptr: fn.Return.Ptr}
+	// v0.3 alder Phase 2 (roadmap #18): if the helper returns a resource
+	// pointer (matches helperResourceReturnType), mark the bound value as a
+	// nullable resource so downstream call sites — notably the HZN1412
+	// "expects a reserved *X" check on Events.submit / discard — accept
+	// `e := MakeExecEvent(); Events.submit(e)` patterns. The validate-layer
+	// state machine tightens the maybe-nil disposition based on the
+	// helper's ReturnEffect verdict (Resource / ResourceMaybe / Alias /
+	// Unknown); the type layer is intentionally conservative — Resource +
+	// MaybeNil — so source-level diagnostics fire when needed and the
+	// validate layer can refine.
+	if helperResourceReturnType(fn.Return) {
+		result.Resource = true
+		result.MaybeNil = true
+	}
 	if len(call.Args) != len(fn.Params) {
 		return result, []diag.Diagnostic{argCountDiagnostic(call.Span, fn.Name, len(fn.Params), len(call.Args))}
 	}
@@ -4611,6 +4893,30 @@ func directTrackedPointerSource(expr ast.Expr, maps map[string]ast.MapDecl) bool
 	default:
 		return false
 	}
+}
+
+// userHelperResourceReturnSource reports whether expr is a call to a user
+// helper whose return type is a resource pointer (single-hop *NamedStruct).
+// This admits the v0.3 alder constructor-helper pattern
+// (`e := MakeExecEvent()`) past the HZN1447 tracked-pointer-alias gate: the
+// helper is the *source* of the tracked pointer, not an alias of another
+// tracked binding. The validate-layer ringbuf state machine consumes the
+// helper's ReturnEffect verdict to bind the result precisely. v0.3 alder
+// Phase 2 (roadmap #18).
+func userHelperResourceReturnSource(expr ast.Expr, funcs map[string]ast.FuncDecl) bool {
+	call, ok := expr.(ast.CallExpr)
+	if !ok {
+		return false
+	}
+	ident, ok := call.Func.(ast.IdentExpr)
+	if !ok {
+		return false
+	}
+	fn, ok := funcs[ident.Name]
+	if !ok {
+		return false
+	}
+	return helperResourceReturnType(fn.Return)
 }
 
 func isXDPPacketHeaderHelper(name string) bool {

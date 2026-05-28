@@ -7,6 +7,15 @@ All notable changes to Horizon are documented in this file. Format follows
 ## [Unreleased]
 
 ### Changed
+- **Breaking:** Horizon now enforces a Go-style capitalization rule for
+  cross-package symbol references. Identifiers whose first letter is
+  upper-case are exported and accessible to importers; lower-case
+  identifiers are package-private and cannot be referenced via a
+  qualified selector (`alias.name`) from another package. New
+  diagnostics `HZN1670` through `HZN1674` cover types, functions, maps,
+  capability attribute references, and constants respectively. Same-
+  package access to lower-case symbols remains legal. See
+  `docs/migrations/v0.2-to-v0.3.md` for the migration. (roadmap: #17 / D6)
 - `fir`: kernel images not yet published at `M31-Labs/horizon-kernel-images`
   (repo returns 404 via `gh api`; horizon issue #2 still OPEN). Phase 2 fir
   proceeds on Path B: capture-script skeleton + internal handoff doc. No CI
@@ -118,6 +127,62 @@ All notable changes to Horizon are documented in this file. Format follows
   (roadmap: #13)
 
 ### Added
+- Remote imports + versioning + lockfile + checksum. Imports of the
+  form `github.com/<org>/<repo>@v1.2.3` (or `@<sha>`, with at least 7
+  hex chars) now resolve via git into a content-addressed cache at
+  `$XDG_CACHE_HOME/horizon/modules/` (or `$HOME/.cache/horizon/modules/`).
+  Pinning lives in `hzn.lock` at the build root and is committed to VCS;
+  every load verifies the cached content's sha256 against the pin. A new
+  `hzn get <repo>@<ref>` subcommand resolves a new dependency, fetches
+  it, and writes/updates the lockfile in one step. Vendoring still works
+  as before — the remote-fetch path is purely additive, so existing
+  projects keep building without changes. The `m31labs.dev/<org>/<repo>`
+  shape with HTTP meta-redirect discovery is defined in ADR-0009 as a
+  stub for now; production discovery iterates without breaking the URL
+  contract. `git+ssh://` paths are out of scope. New diagnostics
+  `HZN1700` (lockfile checksum mismatch), `HZN1701` (lockfile entry
+  missing — run `hzn get`), `HZN1702` (lockfile schema unknown),
+  `HZN1703` (fetch failed), and `HZN1704` (version syntax invalid;
+  `@latest` and `@HEAD` are rejected as non-reproducible). New example
+  `examples/remoteimport-execcount/` exercises the full flow against an
+  in-repo fixture under `testdata/remote-fixtures/`. The hermetic test
+  pattern is documented in `docs/internal/remote-imports-testing.md`;
+  real-network round-trip tests are gated behind `HORIZON_NETWORK_TESTS=1`
+  and default off. See `docs/migrations/v0.2-to-v0.3.md` for the user-
+  facing migration. (roadmap: #14 / D1+D2)
+- Packages may now re-export symbols from their imports via top-level
+  `export <alias>.<Name>` declarations. Re-exports cover types and
+  helper functions; capabilities, maps, and constants are unchanged
+  (capability flow continues to use the existing aggregator). Re-exports
+  are one-hop only — a transitive consumer of `A` cannot rely on `A`
+  re-exporting `B`'s re-exports of `C`; the canonical path is to import
+  the originating package directly. The manifest preserves the
+  *original* symbol origin even when access flows through a re-export
+  chain, so a re-exported `events.ExecEvent` reached as `mw.ExecEvent`
+  still surfaces with `origin: "events"` in `prog.cap.json`. New
+  diagnostics `HZN1690` (re-export target not found in the named
+  import), `HZN1691` (re-export of an un-exported symbol — composes
+  with the v0.3 privacy rule and includes the capitalization
+  suggestion), and `HZN1692` (re-export shadows a local declaration or
+  duplicates an earlier `export`). New example `examples/imported-reexport/`
+  exercises the full path: a vendored `events` package owning a struct,
+  a vendored `middleware` package re-exporting it, and a root program
+  consuming the type through the middleware alias. (roadmap: #15 / D3)
+- File-level build constraints via `//hzn:build <expr>` comment directives
+  at the head of a `.hzn` file. The expression grammar covers `os`, `arch`,
+  `kernel` (with `>=`/`<=`/`==`/`<`/`>` comparisons), and `btf` dimensions,
+  with `!`/`&&`/`||` and parenthesized grouping. Multiple directives in
+  the leading comment block are ANDed. Constraint-excluded files are
+  filtered before parsing — no diagnostics fire for excluded source.
+  The active build context detects from `runtime.GOOS`/`runtime.GOARCH`,
+  `uname -r`, and the presence of `/sys/kernel/btf/vmlinux`; per-
+  dimension env vars (`HORIZON_BUILD_OS`, `HORIZON_BUILD_ARCH`,
+  `HORIZON_BUILD_KERNEL`, `HORIZON_BUILD_BTF`) override for cross-builds.
+  New diagnostic `HZN1680` fires when every file in a reached imported
+  package is excluded under the active context. Files with no directive
+  get an always-true constraint; existing programs are unaffected. See
+  `docs/migrations/v0.2-to-v0.3.md` for the directive shape and the
+  dimension whitelist. (roadmap: #16 / D5)
 - `scripts/kernel-matrix/capture-verifier-logs.sh` skeleton plus
   `docs/internal/kernel-matrix-handoff.md` pickup checklist for the
   real-kernel verifier-log corpus. The script's header comment block
@@ -237,6 +302,17 @@ All notable changes to Horizon are documented in this file. Format follows
   package versioning, re-exports, and per-package published manifests
   are explicitly out of scope. See `docs/migrations/v0.2-package-composition.md`.
   (roadmap: #21)
+- Horizon helper functions may now return resource pointer types
+  (`*Event`, `*Counter`, `*xdp.Eth`). HZN1320 is relaxed for resource-
+  typed returns, mirroring maple's v0.2 HZN1319 relax for resource-typed
+  parameters. The validate layer learns return-value lifetime tracking
+  via a new `ReturnEffect` verdict lattice (`ReturnsResource`,
+  `ReturnsResourceMaybe`, `ReturnsAlias`, `Unknown`) — callers binding a
+  helper's return value treat it as a freshly-created resource
+  (analogous to a `reserve()` call) when the verdict permits. New
+  example `examples/helperctor-execwatch/` exercises a user-defined
+  `MakeExecEvent()` constructor returning `*ExecEvent`.
+  (roadmap: #18 / E1)
 
 ## [v0.1.2] — 2026-05-25
 

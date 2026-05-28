@@ -1,0 +1,10 @@
+package middleware
+
+// middleware re-exports ExecEvent from the events package so root
+// programs consuming `middleware` see the same type without taking
+// a direct dependency on `events`. v0.3 #15 re-exports are one-hop
+// and per-symbol — only the names listed via `export` are reachable
+// from a transitive consumer.
+import events "m31labs.dev/horizon-test/events"
+
+export events.ExecEvent

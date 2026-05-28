@@ -19,6 +19,7 @@ func defineSourceFile(g *grammargen.Grammar) {
 	g.Define("_item", grammargen.Choice(
 		grammargen.Sym("package_clause"),
 		grammargen.Sym("import_declaration"),
+		grammargen.Sym("export_declaration"),
 		grammargen.Sym("type_declaration"),
 		grammargen.Sym("const_declaration"),
 		grammargen.Sym("enum_declaration"),
@@ -42,6 +43,19 @@ func defineDeclarations(g *grammargen.Grammar) {
 		grammargen.Str("import"),
 		grammargen.Optional(grammargen.Field("alias", grammargen.Sym("identifier"))),
 		grammargen.Field("path", grammargen.Sym("string_literal")),
+	))
+
+	// export_declaration is the v0.3 re-export production (roadmap #15).
+	// `export <alias>.<Name>` at the top level lifts an imported symbol
+	// into the re-exporting package's surface so transitive consumers can
+	// address it as `<myAlias>.<Name>`. Sibling to import_declaration and
+	// parsed in the same prelude region of a file. The two fields (alias,
+	// name) flow through ast/build.go into ast.ExportDecl unchanged.
+	g.Define("export_declaration", grammargen.Seq(
+		grammargen.Str("export"),
+		grammargen.Field("alias", grammargen.Sym("identifier")),
+		grammargen.Str("."),
+		grammargen.Field("name", grammargen.Sym("identifier")),
 	))
 
 	g.Define("type_declaration", grammargen.Seq(

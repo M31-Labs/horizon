@@ -5,8 +5,23 @@ import "m31labs.dev/horizon/compiler/span"
 type File struct {
 	Package string
 	Imports []ImportDecl
+	// Exports captures every `export <alias>.<Name>` top-level
+	// re-export declaration in the file (roadmap #15). The list is
+	// populated by ast/build.go from the grammar's `export_declaration`
+	// nodes and consumed by types.CheckPackages to surface re-exported
+	// symbols in the re-exporting package's declaration index.
+	Exports []ExportDecl
 	Decls   []Decl
 	Span    span.Span
+	// BuildTag is the raw `//hzn:build <expr>` constraint expression
+	// recorded by the compiler when the file passed the active
+	// BuildContext filter. Empty when the file declared no
+	// `//hzn:build` directive. When multiple directives are present
+	// they are joined with " && " in source order, mirroring the
+	// caller-side AND semantics. Informational only — the filter
+	// decision already happened by the time the file lands in
+	// ast.Package.
+	BuildTag string
 }
 
 type Decl interface {
@@ -14,9 +29,34 @@ type Decl interface {
 	GetSpan() span.Span
 }
 
+// ImportDecl is one `import [alias] "<path>[@<version>]"` declaration.
+// Path is the user-facing import path with any `@<version>` suffix
+// stripped (e.g. `github.com/m31labs/horizon-events`). Version is the
+// suffix the user supplied (e.g. `v1.2.3` or a 7+ char SHA prefix)
+// or empty if no `@` was present. The split happens in ast/build.go
+// rather than in the grammar so the existing string_literal token can
+// stay unchanged — the grammar accepts any string and the AST builder
+// peels off the version tail. Empty Version preserves v0.2 semantics
+// exactly; non-empty Version routes resolution through the lockfile +
+// content-addressed cache path introduced in roadmap #14.
 type ImportDecl struct {
+	Alias   string
+	Path    string
+	Version string
+	Span    span.Span
+}
+
+// ExportDecl is one `export <alias>.<Name>` re-export declaration
+// (roadmap #15). Alias names an import bound elsewhere in the file;
+// Name names a symbol exported (per the v0.3 capitalization rule)
+// from that import. The type-checker resolves each ExportDecl against
+// the named import's package and surfaces the symbol in the
+// re-exporting package's declaration index — composing with the v0.3
+// privacy gate (HZN1670–HZN1674) so a lowercase target produces
+// HZN1691.
+type ExportDecl struct {
 	Alias string
-	Path  string
+	Name  string
 	Span  span.Span
 }
 

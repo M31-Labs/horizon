@@ -268,6 +268,150 @@ type Wrapper struct {
 	}
 }
 
+// TestResolveImportsFiltersByBuildTag pins O-4: two files in the same
+// package directory with mutually exclusive `//hzn:build` constraints
+// is legal. Under HORIZON_BUILD_OS=linux only the linux-tagged file
+// contributes to the package; the darwin-tagged file is filtered out
+// before parsing and produces no diagnostics.
+func TestResolveImportsFiltersByBuildTag(t *testing.T) {
+	t.Setenv("HORIZON_BUILD_OS", "linux")
+	t.Setenv("HORIZON_BUILD_ARCH", "amd64")
+	t.Setenv("HORIZON_BUILD_KERNEL", "5.15")
+	t.Setenv("HORIZON_BUILD_BTF", "0")
+	resetContextCache()
+	t.Cleanup(resetContextCache)
+
+	dir := t.TempDir()
+	writeFile(t, dir, "linux.hzn", `//hzn:build linux
+
+package mfbt
+
+type LinuxOnly struct {
+    x u32
+}
+`)
+	writeFile(t, dir, "darwin.hzn", `//hzn:build darwin
+
+package mfbt
+
+type DarwinOnly struct {
+    x u32
+}
+`)
+	root, _, _, diags, err := ResolveImports(dir)
+	if err != nil {
+		t.Fatalf("ResolveImports: %v", err)
+	}
+	if diag.HasErrors(diags) {
+		t.Fatalf("diagnostics = %#v, want none", diags)
+	}
+	if len(root.Files) != 1 {
+		t.Fatalf("root.Files = %d, want 1 (darwin file should be filtered out)", len(root.Files))
+	}
+	// The surviving file should be linux.hzn — assert by checking its
+	// recorded BuildTag.
+	if root.Files[0].BuildTag != "linux" {
+		t.Fatalf("surviving file BuildTag = %q, want %q", root.Files[0].BuildTag, "linux")
+	}
+}
+
+// TestResolveImportsEmitsHZN1680WhenAllFilesExcluded covers the diagnostic
+// that fires when an *imported* package directory has every file filtered
+// out by the active build context.
+func TestResolveImportsEmitsHZN1680WhenAllFilesExcluded(t *testing.T) {
+	t.Setenv("HORIZON_BUILD_OS", "linux")
+	t.Setenv("HORIZON_BUILD_ARCH", "amd64")
+	t.Setenv("HORIZON_BUILD_KERNEL", "5.15")
+	t.Setenv("HORIZON_BUILD_BTF", "0")
+	resetContextCache()
+	t.Cleanup(resetContextCache)
+
+	dir := t.TempDir()
+	writeFile(t, dir, "main.hzn", `package main
+
+import other "./other"
+
+type Wrapper struct {
+    a u32
+}
+`)
+	writeFile(t, dir, "other/other.hzn", `//hzn:build darwin
+
+package other
+
+type Foo struct {
+    x u32
+}
+`)
+	_, _, _, diags, err := ResolveImports(dir)
+	if err != nil {
+		t.Fatalf("ResolveImports: %v", err)
+	}
+	var found bool
+	for _, d := range diags {
+		if d.Code == "HZN1680" && d.Severity == diag.SeverityError {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected HZN1680 error, got diagnostics: %#v", diags)
+	}
+}
+
+// TestResolveImportsBuildTagSurvivesPartialExclusion pins that when at
+// least one file in a package survives the filter, HZN1680 does NOT fire
+// (only-all-files-excluded triggers it).
+func TestResolveImportsBuildTagSurvivesPartialExclusion(t *testing.T) {
+	t.Setenv("HORIZON_BUILD_OS", "linux")
+	t.Setenv("HORIZON_BUILD_ARCH", "amd64")
+	t.Setenv("HORIZON_BUILD_KERNEL", "5.15")
+	t.Setenv("HORIZON_BUILD_BTF", "0")
+	resetContextCache()
+	t.Cleanup(resetContextCache)
+
+	dir := t.TempDir()
+	writeFile(t, dir, "main.hzn", `package main
+
+import other "./other"
+
+type Wrapper struct {
+    a u32
+}
+`)
+	writeFile(t, dir, "other/linux.hzn", `//hzn:build linux
+
+package other
+
+type Foo struct {
+    x u32
+}
+`)
+	writeFile(t, dir, "other/darwin.hzn", `//hzn:build darwin
+
+package other
+
+type Bar struct {
+    x u32
+}
+`)
+	_, deps, _, diags, err := ResolveImports(dir)
+	if err != nil {
+		t.Fatalf("ResolveImports: %v", err)
+	}
+	for _, d := range diags {
+		if d.Code == "HZN1680" {
+			t.Fatalf("HZN1680 should not fire when at least one file survives the filter: %#v", d)
+		}
+	}
+	if len(deps) != 1 {
+		t.Fatalf("deps = %d, want 1", len(deps))
+	}
+	if len(deps[0].Files) != 1 {
+		t.Fatalf("deps[0].Files = %d, want 1 (only linux.hzn should survive)", len(deps[0].Files))
+	}
+}
+
 func TestResolveImportsErrorImportCycle(t *testing.T) {
 	dir := t.TempDir()
 	// root imports A, A imports B, B imports A -> cycle.
@@ -308,6 +452,244 @@ type BT struct {
 	}
 	if !found {
 		t.Fatalf("expected HZN1555 cycle error, got diagnostics: %#v", diags)
+	}
+}
+
+// --- Remote-import resolver tests (roadmap #14) ---
+
+// seedFixture pre-populates the content-addressed cache for `repo@ref`
+// with one .hzn file declaring the requested package name. Returns the
+// cache root path (for use as HORIZON_CACHE_ROOT) and the resulting
+// content sha256.
+func seedFixture(t *testing.T, repo, ref, pkgName, body string) (string, string) {
+	t.Helper()
+	root := t.TempDir()
+	t.Setenv("HORIZON_CACHE_ROOT", root)
+	dest := filepath.Join(root, cacheKey(repo), ref)
+	if err := os.MkdirAll(dest, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	contents := "package " + pkgName + "\n\n" + body
+	if err := os.WriteFile(filepath.Join(dest, pkgName+".hzn"), []byte(contents), 0o644); err != nil {
+		t.Fatalf("WriteFile fixture: %v", err)
+	}
+	sum, err := hashDirSHA256(dest)
+	if err != nil {
+		t.Fatalf("hash fixture: %v", err)
+	}
+	return root, sum
+}
+
+func TestResolveImportsResolvesGithubURLWithLockfile(t *testing.T) {
+	repo := "github.com/m31labs/horizon-test-events"
+	ref := "abc1234567890abcdef1234567890abcdef12345"
+	_, sum := seedFixture(t, repo, ref, "events", `type Exec struct {
+    pid u32
+}
+`)
+	dir := t.TempDir()
+	writeFile(t, dir, "main.hzn", `package main
+
+import events "github.com/m31labs/horizon-test-events@v1.0.0"
+
+type Wrapper struct {
+    pid u32
+}
+`)
+	writeFile(t, dir, "hzn.lock", `{
+  "schema": "m31labs.dev/horizon/lockfile/v1",
+  "entries": [
+    {
+      "path": "`+repo+`",
+      "version": "v1.0.0",
+      "ref_resolved": "`+ref+`",
+      "sha256": "`+sum+`"
+    }
+  ]
+}
+`)
+	_, deps, graph, diags, err := ResolveImports(dir)
+	if err != nil {
+		t.Fatalf("ResolveImports: %v", err)
+	}
+	if diag.HasErrors(diags) {
+		t.Fatalf("diagnostics = %#v, want none", diags)
+	}
+	if len(deps) != 1 {
+		t.Fatalf("deps = %d, want 1", len(deps))
+	}
+	if deps[0].Name != "events" {
+		t.Fatalf("deps[0].Name = %q, want events", deps[0].Name)
+	}
+	rootAbs, _ := filepath.Abs(dir)
+	if _, ok := graph.Edges[rootAbs]["events"]; !ok {
+		t.Fatalf("graph.Edges missing events alias: %#v", graph.Edges)
+	}
+}
+
+func TestResolveImportsLockfileMissingEntryHZN1701(t *testing.T) {
+	repo := "github.com/m31labs/horizon-test-events"
+	ref := "abc1234567890abcdef1234567890abcdef12345"
+	seedFixture(t, repo, ref, "events", "")
+	dir := t.TempDir()
+	writeFile(t, dir, "main.hzn", `package main
+
+import events "github.com/m31labs/horizon-test-events@v1.0.0"
+
+type Wrapper struct {
+    x u32
+}
+`)
+	// No hzn.lock at all — entry missing.
+	_, _, _, diags, err := ResolveImports(dir)
+	if err != nil {
+		t.Fatalf("ResolveImports: %v", err)
+	}
+	found := false
+	for _, d := range diags {
+		if d.Code == "HZN1701" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected HZN1701 (lockfile entry missing), got %#v", diags)
+	}
+}
+
+func TestResolveImportsLockfileChecksumMismatchHZN1700(t *testing.T) {
+	repo := "github.com/m31labs/horizon-test-events"
+	ref := "abc1234567890abcdef1234567890abcdef12345"
+	seedFixture(t, repo, ref, "events", `type Exec struct {
+    pid u32
+}
+`)
+	dir := t.TempDir()
+	writeFile(t, dir, "main.hzn", `package main
+
+import events "github.com/m31labs/horizon-test-events@v1.0.0"
+
+type Wrapper struct {
+    pid u32
+}
+`)
+	bogusSum := strings.Repeat("0", 64)
+	writeFile(t, dir, "hzn.lock", `{
+  "schema": "m31labs.dev/horizon/lockfile/v1",
+  "entries": [
+    {
+      "path": "`+repo+`",
+      "version": "v1.0.0",
+      "ref_resolved": "`+ref+`",
+      "sha256": "`+bogusSum+`"
+    }
+  ]
+}
+`)
+	_, _, _, diags, err := ResolveImports(dir)
+	if err != nil {
+		t.Fatalf("ResolveImports: %v", err)
+	}
+	found := false
+	for _, d := range diags {
+		if d.Code == "HZN1700" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected HZN1700 (checksum mismatch), got %#v", diags)
+	}
+}
+
+func TestResolveImportsInvalidVersionSyntaxHZN1704(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "main.hzn", `package main
+
+import events "github.com/m31labs/horizon-test-events@latest"
+
+type Wrapper struct {
+    x u32
+}
+`)
+	_, _, _, diags, err := ResolveImports(dir)
+	if err != nil {
+		t.Fatalf("ResolveImports: %v", err)
+	}
+	found := false
+	for _, d := range diags {
+		if d.Code == "HZN1704" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected HZN1704 (invalid version syntax), got %#v", diags)
+	}
+}
+
+func TestResolveImportsLockfileUpdateAppendsEntry(t *testing.T) {
+	repo := "github.com/m31labs/horizon-test-events"
+	// Tag we'd resolve to a SHA in production; we'll stub gitClone +
+	// resolveRef to make this deterministic.
+	tag := "v1.0.0"
+	resolvedRef := "abc1234567890abcdef1234567890abcdef12345"
+
+	// Pre-seed the cache as if the fetch had already run.
+	cacheR := t.TempDir()
+	t.Setenv("HORIZON_CACHE_ROOT", cacheR)
+	dest := filepath.Join(cacheR, cacheKey(repo), resolvedRef)
+	if err := os.MkdirAll(dest, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dest, "events.hzn"), []byte("package events\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	// Stub resolveRef so lockfile-update mode doesn't try ls-remote.
+	prevResolve := resolveRef
+	resolveRef = func(repoURL, ver string) (string, error) {
+		if ver == tag {
+			return resolvedRef, nil
+		}
+		return "", nil
+	}
+	defer func() { resolveRef = prevResolve }()
+
+	dir := t.TempDir()
+	writeFile(t, dir, "main.hzn", `package main
+
+import events "`+repo+`@`+tag+`"
+
+type Wrapper struct {
+    x u32
+}
+`)
+	res, err := ResolveImportsOpts(dir, ResolveOpts{
+		Ctx:            DetectContext(),
+		LockfileUpdate: true,
+	})
+	if err != nil {
+		t.Fatalf("ResolveImportsOpts: %v", err)
+	}
+	if diag.HasErrors(res.Diagnostics) {
+		t.Fatalf("diagnostics = %#v", res.Diagnostics)
+	}
+	if len(res.LockfileUpdate) != 1 {
+		t.Fatalf("LockfileUpdate = %d, want 1", len(res.LockfileUpdate))
+	}
+	entry := res.LockfileUpdate[0]
+	if entry.Path != repo {
+		t.Fatalf("entry.Path = %q, want %q", entry.Path, repo)
+	}
+	if entry.Version != tag {
+		t.Fatalf("entry.Version = %q", entry.Version)
+	}
+	if entry.RefResolved != resolvedRef {
+		t.Fatalf("entry.RefResolved = %q", entry.RefResolved)
+	}
+	if len(entry.SHA256) != 64 {
+		t.Fatalf("entry.SHA256 should be 64-char hex, got %q", entry.SHA256)
 	}
 }
 

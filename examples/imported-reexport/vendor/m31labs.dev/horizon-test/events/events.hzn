@@ -1,0 +1,13 @@
+package events
+
+// Shared event type owned by the events package. The middleware
+// package vendored alongside this file re-exports ExecEvent under
+// its own surface so transitive consumers can address it as
+// `mw.ExecEvent` — the manifest still carries `origin: "events"`
+// per the v0.3 #15 manifest-origin-preservation contract.
+type ExecEvent struct {
+    ts_ns u64
+    pid u32
+    uid u32
+    comm [16]u8
+}
