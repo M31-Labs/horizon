@@ -102,6 +102,10 @@ func checkPackageInternal(files []ast.File, importAliases map[string]bool, impor
 	for i, file := range files {
 		diags[i] = append(diags[i], validateQualifiedSelectorRefs(file, importAliases, importedDecls)...)
 	}
+	privacyIndex := buildImportedPrivacyIndex(importedPkgs)
+	for i, file := range files {
+		diags[i] = append(diags[i], validateQualifiedPrivacyRefs(file, importAliases, privacyIndex)...)
+	}
 	return diags
 }
 
@@ -1666,6 +1670,21 @@ func validateCapabilityAttr(attr ast.Attr, capabilities map[string]ast.Capabilit
 			}}
 		}
 		qualified := alias + "." + name
+		// v0.3 alder Phase 2 (roadmap #17): privacy gate. A lowercase
+		// capability name accessed via qualified selector is rejected
+		// with HZN1673 before HZN1321 ("unknown alias"), naming the
+		// privacy reason explicitly when the capability does exist.
+		if !isExported(name) {
+			if _, ok := capabilities[qualified]; ok {
+				return []diag.Diagnostic{{
+					Code:     "HZN1673",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("capability %q is not exported from package %q", name, alias),
+					Primary:  value.Span,
+					Suggest:  fmt.Sprintf("capitalize %q to export it from package %q (e.g. rename to %s and update call sites)", name, alias, suggestExportedRename(name)),
+				}}
+			}
+		}
 		if _, ok := capabilities[qualified]; ok {
 			return nil
 		}
@@ -2565,6 +2584,24 @@ func validateQualifiedSelectorRefs(file ast.File, importAliases map[string]bool,
 		depIdx, ok := importedDecls[alias]
 		if !ok || depIdx == nil {
 			// Alias resolves to a builtin namespace; nothing to do.
+			return
+		}
+		// v0.3 alder Phase 2 (roadmap #17): privacy gate. A qualified
+		// type reference to a lowercase symbol in another package is
+		// rejected with HZN1670 before the existing HZN1558 ("not
+		// declared") check, so the diagnostic names the actual reason
+		// (the symbol exists but is private) rather than a misleading
+		// "not declared." The gate fires only when the symbol is
+		// actually present in the imported package; an unknown symbol
+		// still falls through to HZN1558.
+		if !isExported(typeName) && depIdx.knownTypes[typeName] {
+			diags = append(diags, diag.Diagnostic{
+				Code:     "HZN1670",
+				Severity: diag.SeverityError,
+				Message:  fmt.Sprintf("type %q is not exported from package %q", typeName, alias),
+				Primary:  ref.Span,
+				Suggest:  fmt.Sprintf("capitalize %q to export it from package %q (e.g. rename to %s and update call sites)", typeName, alias, suggestExportedRename(typeName)),
+			})
 			return
 		}
 		if depIdx.knownTypes[typeName] {

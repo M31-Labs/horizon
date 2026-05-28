@@ -238,6 +238,306 @@ func hasDiagCode(perFile [][]diag.Diagnostic, code string) bool {
 	return false
 }
 
+// TestQualifiedLookupRejectsLowercaseType pins the v0.3 privacy gate
+// (roadmap #17): a qualified type reference to a lowercase symbol in an
+// imported package is rejected with HZN1670. The companion uppercase test
+// just below pins the negative — no HZN1670 fires when the symbol is
+// already exported.
+func TestQualifiedLookupRejectsLowercaseType(t *testing.T) {
+	root := parseTestPackage(t, "/root", "main", map[string]string{
+		"prog.hzn": `package main
+
+import bpf "m31labs.dev/horizon/runtime/kernel"
+import events "m31labs.dev/horizon-test/events"
+
+map Events ringbuf[events.execEvent]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    return 0
+}
+`,
+	})
+	dep := parseTestPackage(t, "/dep/events", "events", map[string]string{
+		"events.hzn": `package events
+
+type execEvent struct {
+    pid u32
+}
+`,
+	})
+	graph := ImportGraph{
+		Edges: map[string]map[string]string{
+			"/root": {
+				"bpf":    "m31labs.dev/horizon/runtime/kernel",
+				"events": "/dep/events",
+			},
+		},
+		Packages: map[string]ast.Package{
+			"/root":       root,
+			"/dep/events": dep,
+		},
+		BuiltinAliases: map[string]bool{"bpf": true},
+	}
+	results := CheckPackages([]ast.Package{root, dep}, graph)
+	if !hasDiagCode(results["/root"], "HZN1670") {
+		t.Fatalf("expected HZN1670 for lowercase qualified type reference; got %#v", results["/root"])
+	}
+}
+
+// TestQualifiedLookupAcceptsUppercaseType pins the negative side of #17:
+// an uppercase qualified type reference must NOT trip the privacy gate.
+func TestQualifiedLookupAcceptsUppercaseType(t *testing.T) {
+	root := parseTestPackage(t, "/root", "main", map[string]string{
+		"prog.hzn": `package main
+
+import bpf "m31labs.dev/horizon/runtime/kernel"
+import events "m31labs.dev/horizon-test/events"
+
+map Events ringbuf[events.ExecEvent]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    return 0
+}
+`,
+	})
+	dep := parseTestPackage(t, "/dep/events", "events", map[string]string{
+		"events.hzn": `package events
+
+type ExecEvent struct {
+    pid u32
+}
+`,
+	})
+	graph := ImportGraph{
+		Edges: map[string]map[string]string{
+			"/root": {
+				"bpf":    "m31labs.dev/horizon/runtime/kernel",
+				"events": "/dep/events",
+			},
+		},
+		Packages: map[string]ast.Package{
+			"/root":       root,
+			"/dep/events": dep,
+		},
+		BuiltinAliases: map[string]bool{"bpf": true},
+	}
+	results := CheckPackages([]ast.Package{root, dep}, graph)
+	if hasDiagCode(results["/root"], "HZN1670") {
+		t.Fatalf("HZN1670 fired for uppercase qualified type reference; got %#v", results["/root"])
+	}
+}
+
+// TestQualifiedLookupRejectsLowercaseFunc pins #17 for qualified function
+// calls: `events.helper()` produces HZN1671. The current language does not
+// resolve cross-package func calls positively (that arrives with #15
+// re-exports), so the privacy gate is the only diagnostic surfacing here —
+// and it must surface with the specific HZN1671 code, not a generic fallback.
+func TestQualifiedLookupRejectsLowercaseFunc(t *testing.T) {
+	root := parseTestPackage(t, "/root", "main", map[string]string{
+		"prog.hzn": `package main
+
+import bpf "m31labs.dev/horizon/runtime/kernel"
+import events "m31labs.dev/horizon-test/events"
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    events.helper()
+    return 0
+}
+`,
+	})
+	dep := parseTestPackage(t, "/dep/events", "events", map[string]string{
+		"events.hzn": `package events
+
+func helper() i32 {
+    return 0
+}
+`,
+	})
+	graph := ImportGraph{
+		Edges: map[string]map[string]string{
+			"/root": {
+				"bpf":    "m31labs.dev/horizon/runtime/kernel",
+				"events": "/dep/events",
+			},
+		},
+		Packages: map[string]ast.Package{
+			"/root":       root,
+			"/dep/events": dep,
+		},
+		BuiltinAliases: map[string]bool{"bpf": true},
+	}
+	results := CheckPackages([]ast.Package{root, dep}, graph)
+	if !hasDiagCode(results["/root"], "HZN1671") {
+		t.Fatalf("expected HZN1671 for lowercase qualified function call; got %#v", results["/root"])
+	}
+}
+
+// TestQualifiedLookupRejectsLowercaseMap pins #17 for qualified map
+// references: `events.events.lookup(...)` (where the imported map is
+// lowercase) produces HZN1672.
+func TestQualifiedLookupRejectsLowercaseMap(t *testing.T) {
+	root := parseTestPackage(t, "/root", "main", map[string]string{
+		"prog.hzn": `package main
+
+import bpf "m31labs.dev/horizon/runtime/kernel"
+import events "m31labs.dev/horizon-test/events"
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    events.events.lookup(0)
+    return 0
+}
+`,
+	})
+	dep := parseTestPackage(t, "/dep/events", "events", map[string]string{
+		"events.hzn": `package events
+
+map events hash[u32]u64
+`,
+	})
+	graph := ImportGraph{
+		Edges: map[string]map[string]string{
+			"/root": {
+				"bpf":    "m31labs.dev/horizon/runtime/kernel",
+				"events": "/dep/events",
+			},
+		},
+		Packages: map[string]ast.Package{
+			"/root":       root,
+			"/dep/events": dep,
+		},
+		BuiltinAliases: map[string]bool{"bpf": true},
+	}
+	results := CheckPackages([]ast.Package{root, dep}, graph)
+	if !hasDiagCode(results["/root"], "HZN1672") {
+		t.Fatalf("expected HZN1672 for lowercase qualified map reference; got %#v", results["/root"])
+	}
+}
+
+// TestQualifiedLookupRejectsLowercaseCapAttribute pins #17 for capability
+// attribute references: `@capability(events.execobserve)` produces HZN1673.
+func TestQualifiedLookupRejectsLowercaseCapAttribute(t *testing.T) {
+	root := parseTestPackage(t, "/root", "main", map[string]string{
+		"prog.hzn": `package main
+
+import bpf "m31labs.dev/horizon/runtime/kernel"
+import events "m31labs.dev/horizon-test/events"
+
+@capability(events.execobserve)
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    return 0
+}
+`,
+	})
+	dep := parseTestPackage(t, "/dep/events", "events", map[string]string{
+		"events.hzn": `package events
+
+capability execobserve danger observe = "kernel.process.exec.observe"
+`,
+	})
+	graph := ImportGraph{
+		Edges: map[string]map[string]string{
+			"/root": {
+				"bpf":    "m31labs.dev/horizon/runtime/kernel",
+				"events": "/dep/events",
+			},
+		},
+		Packages: map[string]ast.Package{
+			"/root":       root,
+			"/dep/events": dep,
+		},
+		BuiltinAliases: map[string]bool{"bpf": true},
+	}
+	results := CheckPackages([]ast.Package{root, dep}, graph)
+	if !hasDiagCode(results["/root"], "HZN1673") {
+		t.Fatalf("expected HZN1673 for lowercase qualified capability attribute reference; got %#v", results["/root"])
+	}
+}
+
+// TestQualifiedLookupRejectsLowercaseConst pins #17 for qualified const
+// references: `events.threshold` (where the imported const is lowercase)
+// produces HZN1674.
+func TestQualifiedLookupRejectsLowercaseConst(t *testing.T) {
+	root := parseTestPackage(t, "/root", "main", map[string]string{
+		"prog.hzn": `package main
+
+import bpf "m31labs.dev/horizon/runtime/kernel"
+import events "m31labs.dev/horizon-test/events"
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    x := events.threshold
+    return x
+}
+`,
+	})
+	dep := parseTestPackage(t, "/dep/events", "events", map[string]string{
+		"events.hzn": `package events
+
+const threshold i32 = 42
+`,
+	})
+	graph := ImportGraph{
+		Edges: map[string]map[string]string{
+			"/root": {
+				"bpf":    "m31labs.dev/horizon/runtime/kernel",
+				"events": "/dep/events",
+			},
+		},
+		Packages: map[string]ast.Package{
+			"/root":       root,
+			"/dep/events": dep,
+		},
+		BuiltinAliases: map[string]bool{"bpf": true},
+	}
+	results := CheckPackages([]ast.Package{root, dep}, graph)
+	if !hasDiagCode(results["/root"], "HZN1674") {
+		t.Fatalf("expected HZN1674 for lowercase qualified const reference; got %#v", results["/root"])
+	}
+}
+
+// TestQualifiedLookupAllowsSamePackageLowercase pins the intra-package
+// negative: privacy is a cross-package gate only — a same-package reference
+// to a lowercase symbol stays legal. The fixture declares a lowercase
+// helper and calls it from a sibling file in the same package; no HZN1671
+// must fire.
+func TestQualifiedLookupAllowsSamePackageLowercase(t *testing.T) {
+	pkg := parseTestPackage(t, "/root", "main", map[string]string{
+		"a.hzn": `package main
+
+import bpf "m31labs.dev/horizon/runtime/kernel"
+
+func helper() i32 {
+    return 0
+}
+`,
+		"b.hzn": `package main
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    return helper()
+}
+`,
+	})
+	graph := ImportGraph{
+		Edges:          map[string]map[string]string{"/root": {"bpf": "m31labs.dev/horizon/runtime/kernel"}},
+		Packages:       map[string]ast.Package{"/root": pkg},
+		BuiltinAliases: map[string]bool{"bpf": true},
+	}
+	results := CheckPackages([]ast.Package{pkg}, graph)
+	for _, perFile := range results["/root"] {
+		for _, d := range perFile {
+			if d.Code == "HZN1670" || d.Code == "HZN1671" || d.Code == "HZN1672" || d.Code == "HZN1673" || d.Code == "HZN1674" {
+				t.Fatalf("intra-package lowercase reference must not trip privacy gates; got %#v", d)
+			}
+		}
+	}
+}
+
 // TestCapabilityAttributeAcceptsQualifiedReference verifies the Subtask 3c
 // shape: `@capability(events.ExecObserve)` parses and resolves through
 // CheckPackages when ExecObserve is declared in the imported `events`
