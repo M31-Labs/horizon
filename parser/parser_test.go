@@ -463,6 +463,47 @@ func DropAll(ctx xdp.Context) i32 {
 	}
 }
 
+// TestParsesExportDecl pins the v0.3 re-export grammar (roadmap #15). A
+// `export <alias>.<Name>` declaration at the top level parses to a single
+// `export_declaration` named node sibling to `import_declaration`. The
+// node exposes `alias` and `name` fields so ast/build can lift each into
+// `ast.ExportDecl{Alias, Name}` without source re-parsing. Multiple
+// `export` decls in one file each surface as their own named node.
+func TestParsesExportDecl(t *testing.T) {
+	src := SourceFile{Path: "inline.hzn", Bytes: []byte(`package middleware
+
+import events "m31labs.dev/horizon-test/events"
+
+export events.ExecEvent
+export events.MakeExecEvent
+`)}
+	file, err := ParseSource(src)
+	if err != nil {
+		t.Fatalf("ParseSource: %v", err)
+	}
+	if got := countNamedDescendants(file.Tree.RootNode(), file.Lang, "export_declaration"); got != 2 {
+		t.Fatalf("export_declaration count = %d, want 2; tree: %s", got, file.Tree.RootNode().SExpr(file.Lang))
+	}
+	first := firstNamedDescendant(file.Tree.RootNode(), file.Lang, "export_declaration")
+	if first == nil {
+		t.Fatal("first export_declaration missing")
+	}
+	aliasNode := first.ChildByFieldName("alias", file.Lang)
+	if aliasNode == nil {
+		t.Fatalf("export_declaration missing alias field; tree: %s", first.SExpr(file.Lang))
+	}
+	if alias := NodeText(aliasNode, file.Source.Bytes); alias != "events" {
+		t.Fatalf("alias = %q, want events", alias)
+	}
+	nameNode := first.ChildByFieldName("name", file.Lang)
+	if nameNode == nil {
+		t.Fatalf("export_declaration missing name field; tree: %s", first.SExpr(file.Lang))
+	}
+	if name := NodeText(nameNode, file.Source.Bytes); name != "ExecEvent" {
+		t.Fatalf("name = %q, want ExecEvent", name)
+	}
+}
+
 func TestParseRejectsTrailingInvalidSource(t *testing.T) {
 	src := SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
 

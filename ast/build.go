@@ -19,6 +19,8 @@ func Build(parsed *parser.File) (*File, error) {
 		switch child.Type(parsed.Lang) {
 		case "import_declaration":
 			file.Imports = append(file.Imports, buildImport(parsed, child))
+		case "export_declaration":
+			file.Exports = append(file.Exports, buildExport(parsed, child))
 		case "type_declaration":
 			file.Decls = append(file.Decls, buildTypeDecl(parsed, child))
 		case "map_declaration":
@@ -40,6 +42,18 @@ func buildImport(parsed *parser.File, n *gotreesitter.Node) ImportDecl {
 	return ImportDecl{
 		Alias: text(parsed, n.ChildByFieldName("alias", parsed.Lang)),
 		Path:  strings.Trim(text(parsed, n.ChildByFieldName("path", parsed.Lang)), `"`),
+		Span:  spanForNode(parsed.Source.FileID, n),
+	}
+}
+
+// buildExport lifts a grammar `export_declaration` node into an
+// ast.ExportDecl. Symmetric with buildImport — pulls the `alias` and
+// `name` fields the grammar exposes and records the source span for
+// downstream diagnostics. (roadmap #15.)
+func buildExport(parsed *parser.File, n *gotreesitter.Node) ExportDecl {
+	return ExportDecl{
+		Alias: text(parsed, n.ChildByFieldName("alias", parsed.Lang)),
+		Name:  text(parsed, n.ChildByFieldName("name", parsed.Lang)),
 		Span:  spanForNode(parsed.Source.FileID, n),
 	}
 }

@@ -5,6 +5,12 @@ import "m31labs.dev/horizon/compiler/span"
 type File struct {
 	Package string
 	Imports []ImportDecl
+	// Exports captures every `export <alias>.<Name>` top-level
+	// re-export declaration in the file (roadmap #15). The list is
+	// populated by ast/build.go from the grammar's `export_declaration`
+	// nodes and consumed by types.CheckPackages to surface re-exported
+	// symbols in the re-exporting package's declaration index.
+	Exports []ExportDecl
 	Decls   []Decl
 	Span    span.Span
 	// BuildTag is the raw `//hzn:build <expr>` constraint expression
@@ -26,6 +32,20 @@ type Decl interface {
 type ImportDecl struct {
 	Alias string
 	Path  string
+	Span  span.Span
+}
+
+// ExportDecl is one `export <alias>.<Name>` re-export declaration
+// (roadmap #15). Alias names an import bound elsewhere in the file;
+// Name names a symbol exported (per the v0.3 capitalization rule)
+// from that import. The type-checker resolves each ExportDecl against
+// the named import's package and surfaces the symbol in the
+// re-exporting package's declaration index — composing with the v0.3
+// privacy gate (HZN1670–HZN1674) so a lowercase target produces
+// HZN1691.
+type ExportDecl struct {
+	Alias string
+	Name  string
 	Span  span.Span
 }
 
