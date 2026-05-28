@@ -5,13 +5,16 @@ name: kernel-matrix
 # images are the LVH "complexity-test" flavor (BTF + bpftool), pinned by
 # dated tag in scripts/kernel-matrix/images.json.
 #
-# Trigger is `workflow_dispatch` only while the matrix is being validated on
-# real runs. Once it is green end-to-end, add `pull_request` + `push` (with a
-# paths filter over examples/**, compiler/**, emitc/**, capability/**,
-# clang/**, bindgen/**, Makefile, scripts/kernel-matrix/**, go.{mod,sum}, and
-# this workflow) so it gates changes that can affect generated objects.
+# Invoked two ways: manual `workflow_dispatch`, and as a reusable workflow
+# (`workflow_call`) that release.yml runs as a GATE before publishing a
+# GitHub Release — a required-kernel mismatch (6.1 / 6.6) fails this workflow
+# and therefore blocks the release. It deliberately does NOT trigger on tag
+# push itself: release.yml owns the tag trigger and calls this, so it runs
+# once per release, not twice. Gating every PR on a ~20-minute four-VM boot
+# is intentionally avoided.
 on:
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
