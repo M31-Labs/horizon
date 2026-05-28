@@ -6,12 +6,13 @@ import "m31labs.dev/horizon/ir"
 // an ir.Program. Task 3b will migrate per-validator walks to consume this
 // instead of each re-walking the tree independently.
 type Sites struct {
-	Loops          []LoopSite
-	RingbufReserve []RingbufReserveSite
-	MapLookup      []MapLookupSite
-	HelperCall     []HelperCallSite
-	PacketHeader   []PacketHeaderSite
-	StackLocals    []StackLocalSite
+	Loops               []LoopSite
+	RingbufReserve      []RingbufReserveSite
+	RingbufHelperReturn []RingbufHelperReturnSite
+	MapLookup           []MapLookupSite
+	HelperCall          []HelperCallSite
+	PacketHeader        []PacketHeaderSite
+	StackLocals         []StackLocalSite
 }
 
 // LoopSite is a for-statement.
@@ -25,6 +26,20 @@ type RingbufReserveSite struct {
 	Function *ir.Function
 	Stmt     *ir.Statement
 	MapName  string
+}
+
+// RingbufHelperReturnSite is a short_var whose RHS is a user-helper call
+// whose target function has a resource-pointer return type. The validate-
+// layer ringbuf walker consults HelperEffects.ReturnEffectFor at the call
+// site to decide whether to bind the result as a tracked reservation
+// (analogous to a RingbufReserveSite). v0.3 alder Phase 2 (roadmap #18).
+//
+// HelperName is the bare ident name of the called helper — used by
+// validateTypedRingbuf to look up the ReturnEffect verdict.
+type RingbufHelperReturnSite struct {
+	Function   *ir.Function
+	Stmt       *ir.Statement
+	HelperName string
 }
 
 // MapLookupSite is a short_var whose RHS is a map.lookup() call on a
@@ -163,6 +178,22 @@ func collectStmt(fn *ir.Function, stmt *ir.Statement, ctx *collectCtx, sites *Si
 				MapName:  mapName,
 			})
 			ctx.locals[stmt.Name] = ptrToType(ctx.mapValues[mapName])
+		} else if helperName, ok := userHelperReturningResource(stmt.Value, ctx); ok {
+			// v0.3 alder Phase 2 (roadmap #18): short_var whose RHS is a
+			// user-helper call that returns a resource pointer. The function
+			// gets walked by AnalyzeRingbuf (alongside RingbufReserve-bearing
+			// functions) so validateTypedRingbuf can bind the result as a
+			// tracked reservation by consulting HelperEffects.ReturnEffectFor.
+			sites.RingbufHelperReturn = append(sites.RingbufHelperReturn, RingbufHelperReturnSite{
+				Function:   fn,
+				Stmt:       stmt,
+				HelperName: helperName,
+			})
+			// Seed locals with the return type so subsequent inference passes
+			// (StackLocals, downstream short_vars) can resolve references.
+			if calledFn, found := ctx.funcs[helperName]; found {
+				ctx.locals[stmt.Name] = calledFn.Return
+			}
 		} else if mapName, ok := mapLookupCall(stmt.Value); ok && ctx.lookupMaps[mapName] {
 			sites.MapLookup = append(sites.MapLookup, MapLookupSite{
 				Function: fn,
@@ -327,6 +358,43 @@ func inferStackLocalType(expr *ir.Expr, ctx *collectCtx) (ir.Type, bool) {
 func ptrToType(elem ir.Type) ir.Type {
 	e := elem
 	return ir.Type{Name: elem.Name, Ptr: true, Elem: &e}
+}
+
+// userHelperReturningResource reports whether expr is a call to a user
+// helper whose return type is a resource pointer (single-hop *NamedStruct).
+// Returns (helperName, true) on match. Used by Collect to register
+// RingbufHelperReturnSite entries — see Sites.RingbufHelperReturn.
+//
+// The verdict (ReturnsResource / Maybe / Alias / Unknown) is consulted at
+// validateTypedRingbuf time via HelperEffects.ReturnEffectFor; Collect
+// only filters by *return-type shape* because HelperEffects has not been
+// built yet at collection time.
+func userHelperReturningResource(expr *ir.Expr, ctx *collectCtx) (string, bool) {
+	if expr == nil || expr.Kind != "call" || expr.Func == nil {
+		return "", false
+	}
+	if expr.Func.Kind != "ident" {
+		return "", false
+	}
+	name := expr.Func.Name
+	fn, ok := ctx.funcs[name]
+	if !ok {
+		return "", false
+	}
+	// Mirror the types-layer helperResourceReturnType predicate at the IR
+	// level: single-hop pointer-to-named-struct, no nested pointers.
+	t := fn.Return
+	if !t.Ptr || t.Name == "" || t.Len != "" {
+		return "", false
+	}
+	switch t.Name {
+	case "bool", "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "f32", "f64":
+		return "", false
+	}
+	if t.Elem != nil && t.Elem.Ptr {
+		return "", false
+	}
+	return name, true
 }
 
 // collectHelperCallExprs walks all expressions directly owned by stmt and
