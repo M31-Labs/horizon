@@ -7,6 +7,14 @@ All notable changes to Horizon are documented in this file. Format follows
 ## [Unreleased]
 
 ### Changed
+- **Breaking:** v0 capability manifests are no longer loadable. The
+  in-memory v0→v1 migration that shipped through the v0.2.x deprecation
+  window (emitting an `HZN3303` warning) has been removed;
+  `capability.LoadManifest()` now rejects schema
+  `m31labs.dev/horizon/capability/v0` with a new `HZN3304` error pointing
+  at the migration guide. Horizon has emitted only v1 manifests since
+  v0.2, so this affects only vendored or cached pre-v0.2 artifacts. See
+  `docs/migrations/v0.2-to-v0.3.md`. (roadmap: #C1)
 - **Breaking:** Horizon now enforces a Go-style capitalization rule for
   cross-package symbol references. Identifiers whose first letter is
   upper-case are exported and accessible to importers; lower-case

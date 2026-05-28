@@ -78,28 +78,26 @@ func TestLoadManifestAcceptsV0AndV1(t *testing.T) {
 		}
 	})
 
-	t.Run("valid v0 migrated to v1 with deprecation warning", func(t *testing.T) {
+	t.Run("v0 rejected with HZN3304 error", func(t *testing.T) {
 		raw := validV0JSON()
-		m, diags, err := LoadManifest(raw)
+		_, diags, err := LoadManifest(raw)
+		// Consistent with the unknown/empty-schema cases: the rejection is
+		// surfaced as an error-severity diagnostic, not a returned error.
 		if err != nil {
-			t.Fatalf("LoadManifest(v0): %v", err)
+			t.Fatalf("LoadManifest(v0): got error %v, want nil error with HZN3304 diagnostic", err)
 		}
-		// Must produce the HZN3303 deprecation warning.
-		var foundWarn bool
+		var foundErr bool
 		for _, d := range diags {
-			if d.Code == "HZN3303" && d.Severity == diag.SeverityWarning {
-				foundWarn = true
+			if d.Code == "HZN3304" && d.Severity == diag.SeverityError {
+				foundErr = true
+			}
+			// The deprecation-era warning must be gone.
+			if d.Code == "HZN3303" {
+				t.Errorf("LoadManifest(v0) still emits deprecated HZN3303: %v", d)
 			}
 		}
-		if !foundWarn {
-			t.Errorf("LoadManifest(v0) diagnostics = %v, want HZN3303 warning", diags)
-		}
-		// After migration the schema must be v1.
-		if m.Schema != SchemaV1 {
-			t.Errorf("migrated schema = %q, want %q", m.Schema, SchemaV1)
-		}
-		if m.Package != "testpkg" {
-			t.Errorf("migrated package = %q, want testpkg", m.Package)
+		if !foundErr {
+			t.Errorf("LoadManifest(v0) diagnostics = %v, want HZN3304 error", diags)
 		}
 	})
 

@@ -139,9 +139,10 @@ func LoadManifest(raw []byte) (Manifest, []diag.Diagnostic, error)
 ```
 
 - **v1 input**: parsed, validated, and returned with no diagnostics.
-- **v0 input**: migrated to v1 in memory, returned with a `HZN3303`
-  deprecation warning in the diagnostics slice. The returned `Manifest` is
-  already v1 — consumers do not need to inspect the schema field.
+- **v0 input**: rejected with an `HZN3304` error-severity diagnostic. The
+  in-memory v0→v1 migration shipped through the v0.2.x deprecation window
+  (emitting an `HZN3303` warning) and was removed in v0.3. Regenerate the
+  manifest as v1 from source — see the reshaping rules below.
 - **Unknown schema**: returns an error containing "upgrade Horizon or downgrade
   Continuum".
 
@@ -250,8 +251,10 @@ populate it from the current source.
 
 ## v0 manifest handling
 
-`capability.LoadManifest` accepts v0 JSON, auto-migrates in memory, and
-emits an `HZN3303` deprecation warning. Horizon itself emits only v1
-manifests as of v0.2. If you vendor pre-v0.2 manifests (e.g., from a
-build cache or a third-party artifact), call `LoadManifest` to migrate
-them in memory and regenerate the stored JSON as v1.
+As of v0.3, `capability.LoadManifest` rejects v0 JSON with an `HZN3304`
+error — the in-memory auto-migration (which emitted an `HZN3303` warning
+through the v0.2.x deprecation window) has been removed. Horizon itself
+has emitted only v1 manifests since v0.2. If you vendor pre-v0.2
+manifests (e.g., from a build cache or a third-party artifact),
+regenerate them as v1 from source using the reshaping rules above, or
+re-run the originating Horizon build under a current toolchain.

@@ -952,8 +952,9 @@ manifest is the contract Horizon hands to Continuum for governance and
 deployment.
 
 The current manifest schema is `m31labs.dev/horizon/capability/v1`.
-v0 manifests remain loadable through `capability.LoadManifest()`
-(auto-migrated in memory, emits an `HZN3303` deprecation warning).
+v0 manifests are rejected by `capability.LoadManifest()` with an
+`HZN3304` error; regenerate them as v1 (see
+`docs/migrations/v0-to-v1-manifest.md`).
 
 A manifest contains:
 

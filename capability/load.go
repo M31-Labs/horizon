@@ -8,14 +8,14 @@ import (
 )
 
 // LoadManifest parses and validates a capability manifest from raw JSON.
-// It accepts both v0 and v1 schema manifests:
 //   - v1 manifests are validated and returned directly.
-//   - v0 manifests are migrated to v1 in memory and returned with a
-//     HZN3303 deprecation warning. v0 support will be removed in v0.3.
-//   - Unknown schemas produce an error.
+//   - v0 manifests are rejected with an HZN3304 error pointing at the
+//     migration guide. The in-memory v0→v1 migration shipped through the
+//     v0.2.x deprecation window and was removed in v0.3.
+//   - Unknown or missing schemas produce an error.
 //
-// The returned diagnostics slice may be non-empty even on success (e.g.,
-// a deprecation warning when loading a v0 manifest). Callers should
+// The returned diagnostics slice may be non-empty even when err is nil
+// (rejections are surfaced as error-severity diagnostics). Callers should
 // inspect diagnostics regardless of whether err is nil.
 func LoadManifest(raw []byte) (Manifest, []diag.Diagnostic, error) {
 	// Peek the schema field without full unmarshalling.
@@ -38,24 +38,17 @@ func LoadManifest(raw []byte) (Manifest, []diag.Diagnostic, error) {
 		return m, nil, nil
 
 	case SchemaV0:
-		m, err := migrateV0ToV1(raw)
-		if err != nil {
-			return Manifest{}, nil, fmt.Errorf("capability manifest: v0 migration failed: %w", err)
-		}
-		if err := Validate(m); err != nil {
-			return Manifest{}, nil, err
-		}
-		warn := diag.Diagnostic{
-			Code:     "HZN3303",
-			Severity: diag.SeverityWarning,
-			Message:  "manifest schema v0 is deprecated; will be removed in v0.3",
+		errDiag := diag.Diagnostic{
+			Code:     "HZN3304",
+			Severity: diag.SeverityError,
+			Message:  "manifest schema v0 is no longer supported; regenerate the manifest as schema \"m31labs.dev/horizon/capability/v1\"",
 			Notes: []string{
-				"Call capability.LoadManifest() to load v0 manifests — they are migrated to v1 in memory.",
-				"Update manifests to emit schema \"m31labs.dev/horizon/capability/v1\" to suppress this warning.",
+				"The in-memory v0→v1 migration shipped through the v0.2.x deprecation window and was removed in v0.3.",
+				"See docs/migrations/v0.2-to-v0.3.md for the v0→v1 manifest migration.",
 			},
 			Suggest: "bump the schema field to \"m31labs.dev/horizon/capability/v1\" and reshape danger to an axes object",
 		}
-		return m, []diag.Diagnostic{warn}, nil
+		return Manifest{}, []diag.Diagnostic{errDiag}, nil
 
 	case "":
 		errDiag := diag.Diagnostic{
