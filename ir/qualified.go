@@ -23,6 +23,24 @@ type ImportGraph struct {
 	// always uses the alias when populating Origin to keep manifest names
 	// stable against future package renames.
 	PackageAliases map[string]string
+
+	// ReExportedStructs records v0.3 (#15) re-exports for the root
+	// package's direct import edges. The outer key is the root-side
+	// alias under which the importer addresses the re-exporting
+	// package (e.g. `mw` when the root has `import mw "..."`). The
+	// inner key is the re-exported struct name. The value is the
+	// *original* origin package name — what the manifest should
+	// surface so the type's Origin tag stays faithful to where the
+	// struct was actually declared, independent of the re-export
+	// path the consumer used. (See decisions/0007 §"Manifest origin
+	// preservation".)
+	//
+	// FromPackages consults this map during rewriteRootQualifiedTypes
+	// so a root-side `mw.ExecEvent` reference rewrites to bare
+	// `ExecEvent` even though `mw` does not directly declare it — the
+	// merged IR's struct list still carries the original
+	// `events.ExecEvent` with Origin="events".
+	ReExportedStructs map[string]map[string]string
 }
 
 // FromPackages lowers a root package and its dependency packages into a
@@ -60,6 +78,22 @@ func FromPackages(root ast.Package, deps []ast.Package, graph ImportGraph) (Prog
 		}
 		for _, s := range depProg.Structs {
 			depStructsByAlias[alias][s.Name] = true
+		}
+	}
+	// v0.3 (#15) — re-exported struct names from the root's direct
+	// imports flow through depStructsByAlias too, so a root-side
+	// `<reExporterAlias>.<Name>` rewrites to bare `<Name>` and the
+	// merged IR's existing `<Name>` (lowered from the original source
+	// package, with Origin set to the source package's name) becomes
+	// the match. The OriginalOrigin string in the value position is
+	// informational here — the rewriter only needs the name to know
+	// the rewrite is sound.
+	for alias, names := range graph.ReExportedStructs {
+		if depStructsByAlias[alias] == nil {
+			depStructsByAlias[alias] = map[string]bool{}
+		}
+		for name := range names {
+			depStructsByAlias[alias][name] = true
 		}
 	}
 

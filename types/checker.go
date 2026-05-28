@@ -29,7 +29,7 @@ func Check(file ast.File) []diag.Diagnostic {
 //
 // (roadmap #20 — Phase 2 Subtask 3b.)
 func CheckPackage(files []ast.File) [][]diag.Diagnostic {
-	return checkPackageInternal(files, nil, nil)
+	return checkPackageInternal(files, nil, nil, nil, nil, nil, nil)
 }
 
 // CheckPackages is the cross-package type-check entrypoint. Each root in
@@ -45,15 +45,55 @@ func CheckPackage(files []ast.File) [][]diag.Diagnostic {
 func CheckPackages(roots []ast.Package, graph ImportGraph) map[string][][]diag.Diagnostic {
 	out := map[string][][]diag.Diagnostic{}
 	dirByPkg := reverseGraphIndex(graph)
+	// v0.3 (#15): pre-compute every package's re-export surface so that
+	// (a) re-export diagnostics land in the originating package's
+	// per-file slice regardless of whether that package is in roots, and
+	// (b) downstream importers can see the augmented surface (a
+	// re-exported symbol becomes addressable as `<reExporterAlias>.<Name>`
+	// from a transitive consumer).
+	reExportSurfaces, reExportDiagsByDir := computeAllReExports(graph)
 	for _, root := range roots {
 		dir := lookupPackageDir(root, dirByPkg)
 		var aliases map[string]bool
 		var importedPkgs map[string]ast.Package
+		var importedDirByAlias map[string]string
 		if dir != "" {
 			aliases = packageAliasSet(graph, dir)
 			importedPkgs = importedPackagesByAlias(graph, dir)
+			importedDirByAlias = importedDirsByAlias(graph, dir)
 		}
-		out[dir] = checkPackageInternal(root.Files, aliases, importedPkgs)
+		out[dir] = checkPackageInternal(
+			root.Files,
+			aliases,
+			importedPkgs,
+			importedDirByAlias,
+			reExportSurfaces,
+			reExportSurfaces[dir],
+			reExportDiagsByDir[dir],
+		)
+	}
+	return out
+}
+
+// importedDirsByAlias mirrors importedPackagesByAlias but returns the
+// resolved directory key (instead of the ast.Package) so the re-export
+// surface lookup for an imported package can be keyed by dir without a
+// reverse walk. Used by checkPackageInternal to look up
+// reExportSurfaces[depDir] for each non-builtin import.
+func importedDirsByAlias(graph ImportGraph, dir string) map[string]string {
+	if graph.Edges == nil {
+		return nil
+	}
+	edges := graph.Edges[dir]
+	if len(edges) == 0 {
+		return nil
+	}
+	out := map[string]string{}
+	for alias, depDir := range edges {
+		if graph.BuiltinAliases[alias] {
+			continue
+		}
+		out[alias] = depDir
 	}
 	return out
 }
@@ -63,8 +103,38 @@ func CheckPackages(roots []ast.Package, graph ImportGraph) map[string][][]diag.D
 // importAliases is the alias set reserved at top-level scope; importedPkgs
 // is the alias → imported-package map used to resolve qualified
 // `<alias>.<TypeName>` selector types and stored-value type checks.
-func checkPackageInternal(files []ast.File, importAliases map[string]bool, importedPkgs map[string]ast.Package) [][]diag.Diagnostic {
+//
+// v0.3 re-export parameters (roadmap #15):
+//   - importedDirByAlias maps each non-builtin alias to the resolved
+//     directory of the dep package, used to look up the dep's
+//     re-export surface.
+//   - reExportsByDir is the graph-wide map of per-dir re-export
+//     surfaces produced by computeAllReExports. Used to augment each
+//     imported package's known-type / func registration so a
+//     re-exported symbol becomes addressable as `<alias>.<Name>` from
+//     a transitive consumer.
+//   - ownReExports is this package's own re-export surface (allows a
+//     package to use its own re-exported symbols without qualifying
+//     them again).
+//   - ownReExportDiags is the per-file diagnostic slice produced by
+//     resolvePackageReExports for this package. These are appended to
+//     the returned per-file diagnostics so HZN1690/1691/1692 land in
+//     the originating file's slice.
+func checkPackageInternal(
+	files []ast.File,
+	importAliases map[string]bool,
+	importedPkgs map[string]ast.Package,
+	importedDirByAlias map[string]string,
+	reExportsByDir map[string]reExportSurface,
+	ownReExports reExportSurface,
+	ownReExportDiags [][]diag.Diagnostic,
+) [][]diag.Diagnostic {
 	importedDecls := buildImportedDecls(importedPkgs)
+	// v0.3 (#15): augment each imported package's decl index with that
+	// package's own re-export surface so qualified references to a
+	// re-exported symbol resolve from the current package without
+	// requiring the current package to also import the original source.
+	augmentImportedDeclsWithReExports(importedDecls, importedDirByAlias, reExportsByDir)
 	diags := make([][]diag.Diagnostic, len(files))
 	index := newPackageDeclIndex()
 	env := NewEnv()
@@ -75,6 +145,10 @@ func checkPackageInternal(files []ast.File, importAliases map[string]bool, impor
 	files = resolveTypeAliasesInFiles(files, index.typeAliases)
 	resolved := indexResolvedDecls(files)
 	registerQualifiedResolvedDecls(&resolved, importedPkgs)
+	// Surface re-exported structs from each imported package under
+	// their `<alias>.<Name>` qualified form in the resolved index — the
+	// existing registerQualifiedResolvedDecls covers only direct decls.
+	registerQualifiedReExportedStructs(&resolved, importedDirByAlias, reExportsByDir)
 	callGraphDiags := validateFunctionCallGraph(resolved.funcs)
 	for i, file := range files {
 		for _, decl := range file.Decls {
@@ -103,10 +177,118 @@ func checkPackageInternal(files []ast.File, importAliases map[string]bool, impor
 		diags[i] = append(diags[i], validateQualifiedSelectorRefs(file, importAliases, importedDecls)...)
 	}
 	privacyIndex := buildImportedPrivacyIndex(importedPkgs)
+	// Re-exported funcs need to live in the privacy index too so the
+	// body-walker's qualified-call validation doesn't flag a re-exported
+	// helper as missing/private.
+	augmentImportedPrivacyIndexWithReExports(privacyIndex, importedDirByAlias, reExportsByDir)
 	for i, file := range files {
 		diags[i] = append(diags[i], validateQualifiedPrivacyRefs(file, importAliases, privacyIndex)...)
 	}
+	// Append the package's own re-export diagnostics (HZN1690/1691/1692)
+	// to the file-aligned slice.
+	for i := range diags {
+		if i < len(ownReExportDiags) {
+			diags[i] = append(diags[i], ownReExportDiags[i]...)
+		}
+	}
+	_ = ownReExports
 	return diags
+}
+
+// augmentImportedDeclsWithReExports adds each re-exported symbol from
+// an imported package's surface into the imported package's
+// packageDeclIndex. After this pass, `registerQualifiedKnownTypes`
+// will surface the re-export under `<importerAlias>.<ReExportedName>`
+// in the current package's local known-types map, so a downstream
+// consumer sees the symbol via the re-export chain.
+func augmentImportedDeclsWithReExports(
+	importedDecls map[string]*packageDeclIndex,
+	importedDirByAlias map[string]string,
+	reExportsByDir map[string]reExportSurface,
+) {
+	if len(importedDecls) == 0 || len(reExportsByDir) == 0 {
+		return
+	}
+	for alias, depDir := range importedDirByAlias {
+		surface, ok := reExportsByDir[depDir]
+		if !ok || len(surface) == 0 {
+			continue
+		}
+		idx, ok := importedDecls[alias]
+		if !ok {
+			continue
+		}
+		for name, target := range surface {
+			switch target.Kind {
+			case reExportKindType:
+				idx.knownTypes[name] = true
+			case reExportKindFunc:
+				// Funcs don't live in knownTypes; the privacy index
+				// covers cross-package call resolution. No-op here.
+			}
+		}
+	}
+}
+
+// registerQualifiedReExportedStructs mirrors registerQualifiedResolvedDecls
+// but for re-exported struct types. For each imported package's
+// re-export surface, this registers `<importerAlias>.<ReExportedName>`
+// → the source `ast.TypeDecl` in the current package's resolved.structs
+// / resolved.userStructs maps so validators (validateMapDecl,
+// validateStoredTypeRef, etc.) accept the re-exported name first-class.
+func registerQualifiedReExportedStructs(
+	resolved *resolvedDeclIndex,
+	importedDirByAlias map[string]string,
+	reExportsByDir map[string]reExportSurface,
+) {
+	if len(importedDirByAlias) == 0 || len(reExportsByDir) == 0 {
+		return
+	}
+	for alias, depDir := range importedDirByAlias {
+		surface, ok := reExportsByDir[depDir]
+		if !ok || len(surface) == 0 {
+			continue
+		}
+		for name, target := range surface {
+			if target.Kind != reExportKindType {
+				continue
+			}
+			qualified := alias + "." + name
+			resolved.structs[qualified] = target.StructDecl
+			resolved.userStructs[qualified] = target.StructDecl
+		}
+	}
+}
+
+// augmentImportedPrivacyIndexWithReExports registers each re-exported
+// func from an imported package's surface into the privacy index so
+// the body-walker's qualified-call validation treats the re-exported
+// helper as a known function rather than a missing private symbol.
+// Types and other kinds are out of scope (the privacy walk for types
+// is gated upstream in validateQualifiedSelectorRefs which already
+// consults the augmented knownTypes).
+func augmentImportedPrivacyIndexWithReExports(
+	privacyIndex importedPrivacyIndex,
+	importedDirByAlias map[string]string,
+	reExportsByDir map[string]reExportSurface,
+) {
+	if len(importedDirByAlias) == 0 || len(reExportsByDir) == 0 {
+		return
+	}
+	for alias, depDir := range importedDirByAlias {
+		surface, ok := reExportsByDir[depDir]
+		if !ok || len(surface) == 0 {
+			continue
+		}
+		if privacyIndex[alias] == nil {
+			privacyIndex[alias] = map[string]importedDeclKind{}
+		}
+		for name, target := range surface {
+			if target.Kind == reExportKindFunc {
+				privacyIndex[alias][name] = importedDeclFunc
+			}
+		}
+	}
 }
 
 type packageDeclIndex struct {
