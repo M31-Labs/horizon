@@ -718,3 +718,126 @@ func captureStderr(t *testing.T, fn func()) string {
 	os.Stderr = orig
 	return buf.String()
 }
+
+// ── ReturnEffect tests (v0.3 alder Phase 2, roadmap #18) ───────────────────────
+
+// resourceReturnHelperFn builds a sectionless user helper whose return type is
+// flagged as a resource pointer (e.g. *Event). Mirrors what ir.build sets for
+// a `*Event` return once HZN1320 is relaxed.
+func resourceReturnHelperFn(name string, params []ir.Param, body []ir.Statement, returnTypeName string) ir.Function {
+	return ir.Function{
+		Name:   name,
+		Params: params,
+		Return: ir.Type{Name: returnTypeName, Ptr: true},
+		Body:   []ir.Block{{Statements: body}},
+	}
+}
+
+// TestBuildHelperEffectsReturnsResourceForFreshConstructor pins that a helper
+// whose body unconditionally returns a fresh resource (e.g. Events.reserve())
+// summarizes to ReturnEffectReturnsResource. This is the constructor pattern
+// the v0.3 alder relax enables.
+func TestBuildHelperEffectsReturnsResourceForFreshConstructor(t *testing.T) {
+	// func make() *Event { return Events.reserve() }
+	fn := resourceReturnHelperFn("make",
+		nil,
+		[]ir.Statement{
+			{Kind: "return", Value: reserveExpr("Events")},
+		},
+		"Event",
+	)
+	prog := programWith(fn)
+	effects := validate.BuildHelperEffects(prog)
+	got := effects.ReturnEffectFor("make")
+	if got != validate.ReturnEffectReturnsResource {
+		t.Fatalf("ReturnEffectFor(make) = %v, want ReturnEffectReturnsResource", got)
+	}
+}
+
+// TestBuildHelperEffectsReturnsResourceMaybeForSometimesNil pins that a helper
+// with one branch returning nil and another returning a fresh resource
+// summarizes to ReturnEffectReturnsResourceMaybe. The caller binds the result
+// as maybe_live.
+func TestBuildHelperEffectsReturnsResourceMaybeForSometimesNil(t *testing.T) {
+	// func maybeMake(cond bool) *Event {
+	//   if cond { return nil }
+	//   return Events.reserve()
+	// }
+	fn := resourceReturnHelperFn("maybeMake",
+		[]ir.Param{scalarParam("cond", "bool")},
+		[]ir.Statement{
+			{
+				Kind: "if",
+				Cond: &ir.Expr{Kind: "ident", Name: "cond"},
+				Then: []ir.Statement{
+					{Kind: "return", Value: nilExpr()},
+				},
+			},
+			{Kind: "return", Value: reserveExpr("Events")},
+		},
+		"Event",
+	)
+	prog := programWith(fn)
+	effects := validate.BuildHelperEffects(prog)
+	got := effects.ReturnEffectFor("maybeMake")
+	if got != validate.ReturnEffectReturnsResourceMaybe {
+		t.Fatalf("ReturnEffectFor(maybeMake) = %v, want ReturnEffectReturnsResourceMaybe", got)
+	}
+}
+
+// TestBuildHelperEffectsReturnsAliasForArgumentReturn pins that a helper that
+// returns one of its parameters unchanged summarizes to
+// ReturnEffectReturnsAlias. The caller will mark the matching argument as
+// escaped and bind the return as a live-but-aliased reference.
+func TestBuildHelperEffectsReturnsAliasForArgumentReturn(t *testing.T) {
+	// func passthrough(e *Event) *Event { return e }
+	fn := resourceReturnHelperFn("passthrough",
+		[]ir.Param{resourceParam("e", "Event")},
+		[]ir.Statement{
+			{Kind: "return", Value: &ir.Expr{Kind: "ident", Name: "e"}},
+		},
+		"Event",
+	)
+	prog := programWith(fn)
+	effects := validate.BuildHelperEffects(prog)
+	got := effects.ReturnEffectFor("passthrough")
+	if got != validate.ReturnEffectReturnsAlias {
+		t.Fatalf("ReturnEffectFor(passthrough) = %v, want ReturnEffectReturnsAlias", got)
+	}
+}
+
+// TestBuildHelperEffectsReturnsUnknownForOpaqueReturn pins that a helper that
+// returns the result of another helper call (one not classifiable as fresh or
+// alias) summarizes to ReturnEffectUnknown. The caller treats the result as
+// escaped.
+func TestBuildHelperEffectsReturnsUnknownForOpaqueReturn(t *testing.T) {
+	// func opaque() *Event { return delegate() }
+	// where delegate is itself a user helper whose return is also opaque
+	// (we return the result of yet another call so the inner is not a
+	// straight reserve/nil/param — testing the lattice-join fallback).
+	delegate := resourceReturnHelperFn("delegate",
+		nil,
+		[]ir.Statement{
+			// delegate returns Events.reserve() — classifiable as ReturnsResource
+			{Kind: "return", Value: reserveExpr("Events")},
+		},
+		"Event",
+	)
+	// opaque returns the result of calling delegate(). At classification time
+	// we currently can't trust an arbitrary user-helper call (the verdict
+	// would require flowing the callee's return verdict through), so this
+	// should fall to Unknown for v0.3.
+	opaque := resourceReturnHelperFn("opaque",
+		nil,
+		[]ir.Statement{
+			{Kind: "return", Value: userCallExpr("delegate")},
+		},
+		"Event",
+	)
+	prog := programWith(delegate, opaque)
+	effects := validate.BuildHelperEffects(prog)
+	got := effects.ReturnEffectFor("opaque")
+	if got != validate.ReturnEffectUnknown {
+		t.Fatalf("ReturnEffectFor(opaque) = %v, want ReturnEffectUnknown", got)
+	}
+}
