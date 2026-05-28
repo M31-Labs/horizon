@@ -123,6 +123,21 @@ All notable changes to Horizon are documented in this file. Format follows
   (roadmap: #13)
 
 ### Added
+- File-level build constraints via `//hzn:build <expr>` comment directives
+  at the head of a `.hzn` file. The expression grammar covers `os`, `arch`,
+  `kernel` (with `>=`/`<=`/`==`/`<`/`>` comparisons), and `btf` dimensions,
+  with `!`/`&&`/`||` and parenthesized grouping. Multiple directives in
+  the leading comment block are ANDed. Constraint-excluded files are
+  filtered before parsing — no diagnostics fire for excluded source.
+  The active build context detects from `runtime.GOOS`/`runtime.GOARCH`,
+  `uname -r`, and the presence of `/sys/kernel/btf/vmlinux`; per-
+  dimension env vars (`HORIZON_BUILD_OS`, `HORIZON_BUILD_ARCH`,
+  `HORIZON_BUILD_KERNEL`, `HORIZON_BUILD_BTF`) override for cross-builds.
+  New diagnostic `HZN1680` fires when every file in a reached imported
+  package is excluded under the active context. Files with no directive
+  get an always-true constraint; existing programs are unaffected. See
+  `docs/migrations/v0.2-to-v0.3.md` for the directive shape and the
+  dimension whitelist. (roadmap: #16 / D5)
 - Helper-effect annotations extended to cover context accessors
   (`kprobe.arg1..arg5`, `kretprobe.ret`,
   `cgroup.{family,sock_type,protocol,dst_port,dst_ip4,src_ip4,ip4}`),
