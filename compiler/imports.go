@@ -401,9 +401,10 @@ func resolveOne(
 	}
 
 	// 4. Remote import — URL-shaped path with `@<version>` suffix.
-	// Only `github.com/<org>/<repo>` direct shape is wired in v0.3;
-	// m31labs.dev meta-redirect is documented but stub-only (resolves
-	// to HZN1554 if no vendor entry exists, per the decision memo).
+	// `github.com/<org>/<repo>` resolves directly to its clone URL;
+	// `m31labs.dev/<org>/<repo>` resolves via HTTP meta-redirect
+	// discovery (v0.4 C1 — see resolveCloneURL). Other hosts are not
+	// remote-import shapes and fall through to the vendor walk.
 	if imp.Version != "" && isRemoteImportShape(imp.Path) {
 		dep, ds, addLock, err := resolveRemote(imp, state, visit)
 		// resolveRemote sets edge.ResolvedPath via the visit

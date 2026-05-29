@@ -270,16 +270,17 @@ func cacheKey(repo string) string {
 }
 
 // repoURL translates an import-path-shaped repo identifier into a
-// clone URL. Today only github.com is supported directly — that
-// covers the entire v0.3 surface. Other shapes flow through the
-// vendor walk and never reach Fetch.
+// clone URL by direct syntactic rewrite. It stays pure (no network):
+// only github.com is rewritten directly. The m31labs.dev shape does
+// NOT pass through here — resolveCloneURL routes it to httpDiscover
+// instead, so repoURL keeps its pure github translation.
 func repoURL(importPath string) string {
 	if strings.HasPrefix(importPath, "github.com/") {
 		return "https://" + importPath + ".git"
 	}
-	// Fallback: assume https scheme. Reachable only via direct
-	// `Fetch(...)` calls; the resolver gates on github.com before
-	// invoking us in v0.3.
+	// Fallback: assume https scheme. Reached only for non-github paths
+	// handed to repoURL directly (e.g. a bare Fetch call); the resolver
+	// routes meta-redirect hosts through resolveCloneURL → httpDiscover.
 	return "https://" + importPath
 }
 
