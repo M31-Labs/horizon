@@ -24,6 +24,13 @@ All notable changes to Horizon are documented in this file. Format follows
   `@version` imports and rewrites `hzn.lock` in one pass — complementing
   the per-dependency `hzn get` for version-bump workflows. Default
   `hzn check` stays verify-only and never mutates the lockfile.
+- Re-exports now flow a second hop: a package that re-exports a symbol
+  which is itself a re-export resolves transitively (bounded to two
+  hops; the third hop is still rejected). The manifest preserves the
+  *original* symbol origin through both hops. Wildcard
+  `export <alias>.*` re-exports a source package's full exportable
+  surface (capitalized types and helpers); new diagnostic HZN1693 fires
+  when it matches no exportable symbols.
 
 ## [v0.3.0] — 2026-05-28
 
