@@ -6,6 +6,14 @@ All notable changes to Horizon are documented in this file. Format follows
 
 ## [Unreleased]
 
+### Added
+- The kernel-matrix now guards each example's declared `summary.min_kernel`
+  against the observed verifier floor across the boot matrix (5.10 / 5.15 /
+  6.1 / 6.6). A codegen change that shifts an example's real minimum kernel
+  without updating its declared floor is now a tracked matrix failure. The
+  guard is a regression check only — it never auto-derives or rewrites
+  `min_kernel`.
+
 ### Fixed
 - `struct_ops` programs now attach at runtime. Horizon gained an IR
   struct_ops map kind (`MapKindStructOps`) that emits a `SEC(".struct_ops")`
