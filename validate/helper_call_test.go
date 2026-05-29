@@ -937,3 +937,251 @@ func TestCallerFallsBackToUnknownForNonLiteralFlag(t *testing.T) {
 		t.Fatalf("HZN2101 count = %d, want 0 (escaped binding suppresses downstream diagnostics): %#v", got, diags)
 	}
 }
+
+// ── B1: single-hop interprocedural arg-effect on short_var-RHS helper calls ───
+//
+// Step 3.1 survey finding: the ringbuf walk applies a helper's per-argument
+// effect to the *caller's* binding ONLY when the helper call appears as a bare
+// `expr` statement (`record(event)`). When the same call is the RHS of a
+// short_var binding (`ok := record(event)`), the dispatcher binds the LHS via
+// trackHelperReturnStatement but NEVER ran applyHelperEffectRingbuf on the
+// call's arguments — so the *argument's* state was left untouched. This is the
+// single remaining `escaped`-widening / state-transition gap for ringbuf:
+//
+//   - A ReturnsAlias helper called as a short_var RHS left its arg `live`,
+//     firing a spurious HZN2104 (the arg was exfiltrated; it should escape).
+//   - A Consumes helper called as a short_var RHS left its arg `live`, so a
+//     trailing submit cleanly consumed it instead of firing the genuine
+//     double-consume HZN2102 (a false NEGATIVE — the helper already consumed).
+//
+// B1 closes the gap by applying the helper effect to the call's args in the
+// short_var branch, exactly as the expr branch does. Each relaxation ships a
+// matched SAFE-accept / UNSAFE-reject pair. The soundness line is unchanged:
+// only definite Preserves/Consumes/Mixed/ReturnsAlias transitions apply;
+// Escapes/Unknown keep widening to escaped.
+
+// recordConsumeHelperFn builds `func record(ev *Event) bool { Events.submit(ev); return true }`
+// — verdict Consumes on ev.
+func recordConsumeHelperFn() ir.Function {
+	return helperFn("record",
+		[]ir.Param{resourceParam("ev", "Event")},
+		[]ir.Statement{
+			{Kind: "expr", Expr: submitExpr("Events", "ev")},
+			{Kind: "return", Value: &ir.Expr{Kind: "bool", Value: "true"}},
+		},
+	)
+}
+
+// passthroughAliasHelperFn builds `func passthrough(e *Event) *Event { return e }`
+// — verdict ReturnsAlias (returns its argument).
+func passthroughAliasHelperFn() ir.Function {
+	return resourceReturnHelperFnLocal("passthrough",
+		[]ir.Param{resourceParam("e", "Event")},
+		[]ir.Statement{
+			{Kind: "return", Value: &ir.Expr{Kind: "ident", Name: "e"}},
+		},
+		"Event",
+	)
+}
+
+// TestCallerArgConsumedThroughShortVarHelper — SAFE-accept (Pair B, short_var
+// form). The entrypoint binds `ok := record(event)` where record Consumes its
+// argument. The argument `event` must transition live → consumed across the
+// call boundary even though the call is a short_var RHS, so the bare return
+// after it does NOT fire HZN2104 (the helper consumed it). Before B1 the arg
+// stayed live and HZN2104 fired spuriously.
+func TestCallerArgConsumedThroughShortVarHelper(t *testing.T) {
+	record := recordConsumeHelperFn()
+	// entry:
+	//   event := Events.reserve()
+	//   if event == nil { return 0 }
+	//   ok := record(event)   // Consumes ev → event becomes consumed
+	//   return 0              // no HZN2104 — consumed in the helper
+	entry := []ir.Statement{
+		{Kind: "short_var", Name: "event", Value: reserveExpr("Events")},
+		{Kind: "if", Cond: eqNilCond("event"), Then: []ir.Statement{returnZero()}},
+		{Kind: "short_var", Name: "ok", Value: userCallExpr("record", ir.Expr{Kind: "ident", Name: "event"})},
+		returnZero(),
+	}
+	prog := ringbufProgWithHelper(entry, record)
+	diags := validate.Program(prog)
+	if got := countDiag(diags, "HZN2104"); got != 0 {
+		t.Fatalf("HZN2104 count = %d, want 0 (Consumes arg through short_var-RHS helper consumes event): %#v", got, diags)
+	}
+}
+
+// TestCallerDoubleConsumeThroughShortVarHelperFires — UNSAFE-reject sibling
+// (Pair B, short_var form). Same `ok := record(event)` Consumes call, but the
+// entrypoint also submits `event` again afterward. The argument was consumed in
+// the helper, so the trailing submit is a genuine double-consume and HZN2102
+// MUST fire. Before B1 the arg stayed live, the trailing submit consumed it
+// cleanly, and HZN2102 did NOT fire — a soundness false negative.
+func TestCallerDoubleConsumeThroughShortVarHelperFires(t *testing.T) {
+	record := recordConsumeHelperFn()
+	// entry:
+	//   event := Events.reserve()
+	//   if event == nil { return 0 }
+	//   ok := record(event)        // Consumes ev → event consumed
+	//   Events.submit(event)        // HZN2102 — second consume
+	//   return 0
+	entry := []ir.Statement{
+		{Kind: "short_var", Name: "event", Value: reserveExpr("Events")},
+		{Kind: "if", Cond: eqNilCond("event"), Then: []ir.Statement{returnZero()}},
+		{Kind: "short_var", Name: "ok", Value: userCallExpr("record", ir.Expr{Kind: "ident", Name: "event"})},
+		{Kind: "expr", Expr: submitExpr("Events", "event")},
+		returnZero(),
+	}
+	prog := ringbufProgWithHelper(entry, record)
+	diags := validate.Program(prog)
+	if got := countDiag(diags, "HZN2102"); got != 1 {
+		t.Fatalf("HZN2102 count = %d, want 1 (double-consume after short_var-RHS Consumes helper must fire)", got)
+	}
+}
+
+// TestCallerArgEscapesThroughShortVarAliasBackHelper — SAFE-accept (Pair D).
+// The entrypoint binds `out := passthrough(src)` where passthrough returns its
+// argument (ReturnsAlias). The argument `src` is exfiltrated, so it must widen
+// to escaped across the short_var-RHS boundary; the bare return then does NOT
+// fire HZN2104 on src (escape suppresses, matching the conservative
+// exfiltration posture). Before B1 the short_var branch left src live and
+// HZN2104 fired spuriously. The returned `out` binds escaped via
+// trackHelperReturnStatement, so submitting it once raises no diagnostic.
+func TestCallerArgEscapesThroughShortVarAliasBackHelper(t *testing.T) {
+	passthrough := passthroughAliasHelperFn()
+	// entry:
+	//   src := Events.reserve()
+	//   if src == nil { return 0 }
+	//   out := passthrough(src)   // ReturnsAlias → src escapes; out binds escaped
+	//   Events.submit(out)         // out is escaped → silently consumed, no diag
+	//   return 0                   // no HZN2104 — src exfiltrated
+	entry := []ir.Statement{
+		{Kind: "short_var", Name: "src", Value: reserveExpr("Events")},
+		{Kind: "if", Cond: eqNilCond("src"), Then: []ir.Statement{returnZero()}},
+		{Kind: "short_var", Name: "out", Value: userCallExpr("passthrough", ir.Expr{Kind: "ident", Name: "src"})},
+		{Kind: "expr", Expr: submitExpr("Events", "out")},
+		returnZero(),
+	}
+	prog := ringbufProgWithHelper(entry, passthrough)
+	diags := validate.Program(prog)
+	if got := countDiag(diags, "HZN2104"); got != 0 {
+		t.Fatalf("HZN2104 count = %d, want 0 (ReturnsAlias through short_var-RHS escapes src): %#v", got, diags)
+	}
+	if got := countDiag(diags, "HZN2101"); got != 0 {
+		t.Fatalf("HZN2101 count = %d, want 0 (out binds escaped, not unknown): %#v", got, diags)
+	}
+}
+
+// TestCallerArgPreservedThroughShortVarHelperStillLeaks — UNSAFE-reject sibling
+// for the Preserves direction (Pair A, short_var form, false-negative-closing).
+// The entrypoint binds `ok := inspect(event)` where inspect Preserves its
+// argument (reads but does not consume). The argument `event` stays live (the
+// helper provably did not consume it), so the caller still owes a submit — the
+// bare return MUST fire HZN2104. This proves applying the Preserves effect in
+// the short_var branch does NOT silence the caller's genuine leak obligation.
+func TestCallerArgPreservedThroughShortVarHelperStillLeaks(t *testing.T) {
+	// helper: func inspect(ev *Event) bool { return true }  (Preserves)
+	inspect := helperFn("inspect",
+		[]ir.Param{resourceParam("ev", "Event")},
+		[]ir.Statement{
+			{Kind: "return", Value: &ir.Expr{Kind: "bool", Value: "true"}},
+		},
+	)
+	// entry:
+	//   event := Events.reserve()
+	//   if event == nil { return 0 }
+	//   ok := inspect(event)   // Preserves → event stays live
+	//   return 0               // HZN2104 — caller still owes a submit
+	entry := []ir.Statement{
+		{Kind: "short_var", Name: "event", Value: reserveExpr("Events")},
+		{Kind: "if", Cond: eqNilCond("event"), Then: []ir.Statement{returnZero()}},
+		{Kind: "short_var", Name: "ok", Value: userCallExpr("inspect", ir.Expr{Kind: "ident", Name: "event"})},
+		returnZero(),
+	}
+	prog := ringbufProgWithHelper(entry, inspect)
+	diags := validate.Program(prog)
+	if got := countDiag(diags, "HZN2104"); got != 1 {
+		t.Fatalf("HZN2104 count = %d, want 1 (Preserves through short_var-RHS leaves caller owing a submit)", got)
+	}
+}
+
+// TestCallerArgPreservedThroughShortVarHelperCleanSubmit — SAFE-accept sibling
+// (Pair A, short_var form). Same `ok := inspect(event)` Preserves call, but the
+// entrypoint submits `event` afterward. The single legitimate submit consumes
+// the still-live binding cleanly: no HZN2104, no HZN2102.
+func TestCallerArgPreservedThroughShortVarHelperCleanSubmit(t *testing.T) {
+	inspect := helperFn("inspect",
+		[]ir.Param{resourceParam("ev", "Event")},
+		[]ir.Statement{
+			{Kind: "return", Value: &ir.Expr{Kind: "bool", Value: "true"}},
+		},
+	)
+	// entry:
+	//   event := Events.reserve()
+	//   if event == nil { return 0 }
+	//   ok := inspect(event)   // Preserves → event stays live
+	//   Events.submit(event)   // single legitimate consume
+	//   return 0
+	entry := []ir.Statement{
+		{Kind: "short_var", Name: "event", Value: reserveExpr("Events")},
+		{Kind: "if", Cond: eqNilCond("event"), Then: []ir.Statement{returnZero()}},
+		{Kind: "short_var", Name: "ok", Value: userCallExpr("inspect", ir.Expr{Kind: "ident", Name: "event"})},
+		{Kind: "expr", Expr: submitExpr("Events", "event")},
+		returnZero(),
+	}
+	prog := ringbufProgWithHelper(entry, inspect)
+	diags := validate.Program(prog)
+	if got := countDiag(diags, "HZN2104"); got != 0 {
+		t.Fatalf("HZN2104 count = %d, want 0 (clean submit consumes the live binding): %#v", got, diags)
+	}
+	if got := countDiag(diags, "HZN2102"); got != 0 {
+		t.Fatalf("HZN2102 count = %d, want 0 (single submit is not a double-consume): %#v", got, diags)
+	}
+}
+
+// TestCallerArgMixedThroughShortVarHelperDoubleConsumeFires — UNSAFE-reject
+// sibling (Pair C, short_var form). The entrypoint binds `ok := maybe(event)`
+// where maybe conditionally consumes its argument (Mixed). The argument
+// transitions live → maybe_consumed across the short_var-RHS boundary, so a
+// trailing submit is a possible double-consume and HZN2102 MUST fire (the
+// maybe_consumed lattice state already drives the double-submit diagnostic).
+// Before B1 the arg stayed live and HZN2102 did not fire — a false negative.
+func TestCallerArgMixedThroughShortVarHelperDoubleConsumeFires(t *testing.T) {
+	// helper: func maybe(ev *Event) bool {
+	//     if cond { Events.submit(ev) } else { return ev }
+	//     return true
+	// }  — verdict Mixed on ev.
+	maybe := helperFn("maybe",
+		[]ir.Param{resourceParam("ev", "Event")},
+		[]ir.Statement{
+			{
+				Kind: "if",
+				Cond: &ir.Expr{Kind: "ident", Name: "cond"},
+				Then: []ir.Statement{
+					{Kind: "expr", Expr: submitExpr("Events", "ev")},
+				},
+				Else: []ir.Statement{
+					{Kind: "return", Value: &ir.Expr{Kind: "ident", Name: "ev"}},
+				},
+			},
+			{Kind: "return", Value: &ir.Expr{Kind: "bool", Value: "true"}},
+		},
+	)
+	// entry:
+	//   event := Events.reserve()
+	//   if event == nil { return 0 }
+	//   ok := maybe(event)         // Mixed → event maybe_consumed
+	//   Events.submit(event)        // HZN2102 — maybe_consumed + submit
+	//   return 0
+	entry := []ir.Statement{
+		{Kind: "short_var", Name: "event", Value: reserveExpr("Events")},
+		{Kind: "if", Cond: eqNilCond("event"), Then: []ir.Statement{returnZero()}},
+		{Kind: "short_var", Name: "ok", Value: userCallExpr("maybe", ir.Expr{Kind: "ident", Name: "event"})},
+		{Kind: "expr", Expr: submitExpr("Events", "event")},
+		returnZero(),
+	}
+	prog := ringbufProgWithHelper(entry, maybe)
+	diags := validate.Program(prog)
+	if got := countDiag(diags, "HZN2102"); got != 1 {
+		t.Fatalf("HZN2102 count = %d, want 1 (Mixed through short_var-RHS then submit is a possible double-consume)", got)
+	}
+}

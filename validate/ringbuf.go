@@ -119,6 +119,21 @@ func validateTypedRingbuf(fn ir.Function, ringMaps map[string]ir.Map, effects He
 				// None → do not track (downstream behavior matches Phase 1
 				// "unknown" — no spurious diagnostics on the bound value).
 				trackHelperReturnStatement(stmt, ringMaps, states, effects)
+				// v0.4 B1 (single-hop interprocedural): apply the helper's
+				// per-argument effect to the *caller's* binding of each arg
+				// when the helper call is the RHS of a short_var. Previously
+				// this only ran for bare `expr` statements (below), so a
+				// reservation passed to a Consumes/Mixed/ReturnsAlias helper as
+				// a short_var RHS (`ok := record(event)`) left the argument
+				// `live` — masking a genuine double-consume (false negative)
+				// and firing a spurious HZN2104 on an exfiltrated arg (false
+				// positive). trackHelperReturnStatement (above) handles the LHS
+				// binding; this handles the call's ARGUMENTS. The two operate on
+				// disjoint names. Soundness is unchanged: applyHelperEffect-
+				// Ringbuf only transitions on definite Preserves/Consumes/
+				// Mixed/ReturnsAlias verdicts; Escapes/Unknown keep widening to
+				// escaped.
+				applyHelperEffectRingbuf(stmt.Value, states, aliases, effects)
 				// Register alias if the RHS is a plain ident of an already-tracked name.
 				if src := aliasOf(stmt); src != "" {
 					if _, ok := states[aliases.root(src)]; ok {
