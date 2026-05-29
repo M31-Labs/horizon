@@ -445,9 +445,15 @@ func applyHelperEffectRingbuf(expr *ir.Expr, states map[string]reserveState, ali
 			// (the helper may have leaked it onward). For Unknown, keep
 			// Phase 1 escape behavior (already handled by the param switch
 			// default below).
+			// v0.4 B2: consult the per-call-site return verdict so a helper
+			// whose return shape is gated on a literal flag resolves precisely
+			// (ReturnsAlias / ReturnsResource) instead of the flat Unknown
+			// join. ReturnEffectForCall falls back to the flat verdict for
+			// non-literal / over-budget / no-body sites, preserving the v0.3
+			// posture on every un-analyzable path.
 			returnVerdict := ReturnEffectNone
 			if helperName != "" {
-				returnVerdict = effects.ReturnEffectFor(helperName)
+				returnVerdict = effects.ReturnEffectForCall(helperName, expr.Args)
 			}
 			for i := range expr.Args {
 				arg := &expr.Args[i]
@@ -632,7 +638,11 @@ func trackHelperReturnStatement(stmt ir.Statement, ringMaps map[string]ir.Map, s
 		return
 	}
 	helperName := stmt.Value.Func.Name
-	switch effects.ReturnEffectFor(helperName) {
+	// v0.4 B2: use the per-call-site return verdict (literal args drive a
+	// precise verdict) instead of the flat per-helper verdict.
+	// ReturnEffectForCall falls back to the flat verdict for non-literal /
+	// over-budget / no-body sites, preserving the v0.3 binding posture.
+	switch effects.ReturnEffectForCall(helperName, stmt.Value.Args) {
 	case ReturnEffectReturnsResource:
 		// Definitely-live freshly-created resource. Bind as "live" so callers
 		// may submit without a nil-check.

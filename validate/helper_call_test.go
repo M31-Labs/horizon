@@ -628,8 +628,60 @@ func TestCallerBindsHelperReturnAsMaybeLiveResource(t *testing.T) {
 		"Event",
 	)
 	// entry:
-	//   e := maybeMake(false)
+	//   cond := <dynamic>
+	//   e := maybeMake(cond)    // non-literal cond → flat ReturnsResourceMaybe
 	//   Events.submit(e)        // HZN2100 — submitted without nil-check
+	//   return 0
+	//
+	// The cond is intentionally NON-literal so the per-call-site return
+	// specialization (v0.4 B2) cannot prune the `if cond { return nil }`
+	// branch — the call site keeps the flat ReturnsResourceMaybe verdict this
+	// test was written to pin. The literal-arg case (where false prunes the
+	// nil branch to a precise ReturnsResource and HZN2100 correctly does NOT
+	// fire) is covered by TestCallerSpecializedReturnResourceNeedsNoNilCheck.
+	entry := []ir.Statement{
+		{Kind: "short_var", Name: "cond", Value: &ir.Expr{Kind: "bool", Value: "true"}},
+		{Kind: "short_var", Name: "e", Value: userCallExpr("maybeMake", ir.Expr{Kind: "ident", Name: "cond"})},
+		{Kind: "expr", Expr: submitExpr("Events", "e")},
+		returnZero(),
+	}
+	prog := ringbufProgWithHelper(entry, maybeMake)
+	diags := validate.Program(prog)
+	if got := countDiag(diags, "HZN2100"); got != 1 {
+		t.Fatalf("HZN2100 count = %d, want 1 (ReturnsResourceMaybe must require nil-check before submit): %#v", got, diags)
+	}
+}
+
+// TestCallerSpecializedReturnResourceNeedsNoNilCheck — SAFE-accept for the
+// maybe→resource specialization. Calling `e := maybeMake(false)` prunes the
+// `if cond { return nil }` branch (cond=false is infeasible for the nil path),
+// so the per-call-site verdict resolves to the precise ReturnsResource: e is a
+// definitely-live, never-nil handle. Submitting it without a nil-check must NOT
+// fire HZN2100 — the conservative flat ReturnsResourceMaybe nil-check
+// requirement is correctly relaxed for this literal-arg context because the
+// helper provably returns a fresh non-nil resource under cond=false.
+//
+// Soundness sibling: TestCallerBindsHelperReturnAsMaybeLiveResource (above)
+// proves the nil-check IS still required when the cond is non-literal and the
+// nil branch cannot be pruned.
+func TestCallerSpecializedReturnResourceNeedsNoNilCheck(t *testing.T) {
+	maybeMake := resourceReturnHelperFnLocal("maybeMake",
+		[]ir.Param{scalarParam("cond", "bool")},
+		[]ir.Statement{
+			{
+				Kind: "if",
+				Cond: &ir.Expr{Kind: "ident", Name: "cond"},
+				Then: []ir.Statement{
+					{Kind: "return", Value: nilExpr()},
+				},
+			},
+			{Kind: "return", Value: reserveExpr("Events")},
+		},
+		"Event",
+	)
+	// entry:
+	//   e := maybeMake(false)   // false prunes nil branch → ReturnsResource
+	//   Events.submit(e)        // no HZN2100 — provably non-nil
 	//   return 0
 	entry := []ir.Statement{
 		{Kind: "short_var", Name: "e", Value: userCallExpr("maybeMake", ir.Expr{Kind: "bool", Value: "false"})},
@@ -638,8 +690,11 @@ func TestCallerBindsHelperReturnAsMaybeLiveResource(t *testing.T) {
 	}
 	prog := ringbufProgWithHelper(entry, maybeMake)
 	diags := validate.Program(prog)
-	if got := countDiag(diags, "HZN2100"); got != 1 {
-		t.Fatalf("HZN2100 count = %d, want 1 (ReturnsResourceMaybe must require nil-check before submit): %#v", got, diags)
+	if got := countDiag(diags, "HZN2100"); got != 0 {
+		t.Fatalf("HZN2100 count = %d, want 0 (cond=false prunes the nil branch → ReturnsResource, no nil-check required): %#v", got, diags)
+	}
+	if got := countDiag(diags, "HZN2104"); got != 0 {
+		t.Fatalf("HZN2104 count = %d, want 0 (submit consumed the live binding): %#v", got, diags)
 	}
 }
 
@@ -712,5 +767,173 @@ func TestCallerUnknownReturnSuppressesDiagnostics(t *testing.T) {
 	diags := validate.Program(prog)
 	if got := countDiag(diags, "HZN2101"); got != 0 {
 		t.Fatalf("HZN2101 count = %d, want 0 (Unknown return verdict must suppress downstream diagnostics on the bound value): %#v", got, diags)
+	}
+}
+
+// ── Per-call-site ReturnEffect specialization, caller-side (v0.4 B2) ──────────
+//
+// These tests pin the consumer rewire: trackHelperReturnStatement and
+// applyHelperEffectRingbuf now consult ReturnEffectForCall(helper, args)
+// instead of the flat ReturnEffectFor(helper). A `flag`-gated helper whose flat
+// verdict is Unknown resolves precisely under a literal flag, so the caller
+// binds / escapes per the specialized verdict instead of the conservative
+// Unknown→escaped posture. Each relaxation ships with its conservative sibling.
+
+// chooseReturnHelperFnLocal builds the flag-gated return-specialization fixture
+// used by the caller-side tests:
+//
+//	func choose(flag bool, e *Event) *Event {
+//	    if flag { return e } else { return Events.reserve() }
+//	}
+//
+// Flat classifyHelperReturns joins ReturnsAlias ⊔ ReturnsResource = Unknown.
+// Under flag=false the only feasible return is the fresh Events.reserve()
+// (ReturnsResource); under flag=true it is the alias return (ReturnsAlias).
+func chooseReturnHelperFnLocal() ir.Function {
+	return resourceReturnHelperFnLocal("choose",
+		[]ir.Param{
+			scalarParam("flag", "bool"),
+			resourceParam("e", "Event"),
+		},
+		[]ir.Statement{
+			{
+				Kind: "if",
+				Cond: &ir.Expr{Kind: "ident", Name: "flag"},
+				Then: []ir.Statement{
+					{Kind: "return", Value: &ir.Expr{Kind: "ident", Name: "e"}},
+				},
+				Else: []ir.Statement{
+					{Kind: "return", Value: reserveExpr("Events")},
+				},
+			},
+		},
+		"Event",
+	)
+}
+
+// The `src` reservation is always submitted explicitly in the entrypoint
+// before/after the choose() call so it carries no leak obligation of its own.
+// This isolates the assertion onto `e` (the binding produced by the return
+// verdict) without HZN2104 noise from src. Passing an already-submitted ident
+// as a short_var RHS arg is not itself a consume, so it raises no diagnostic.
+
+// TestCallerBindsSpecializedReturnAsLiveUnderLiteral — SAFE-accept. The
+// entrypoint binds `e := choose(false, src)`. Under flag=false the helper
+// returns a fresh Events.reserve(), so ReturnEffectForCall specializes to
+// ReturnsResource and trackHelperReturnStatement binds `e` as live. The
+// entrypoint submits src (clearing its obligation) but NOT e, so HZN2104
+// (live-on-return) fires for e — proving the binding is genuinely live. Under
+// the v0.3 flat-Unknown verdict e would bind escaped, suppressing HZN2104.
+func TestCallerBindsSpecializedReturnAsLiveUnderLiteral(t *testing.T) {
+	choose := chooseReturnHelperFnLocal()
+	// entry:
+	//   src := Events.reserve()
+	//   if src == nil { return 0 }
+	//   Events.submit(src)        // clear src's own obligation
+	//   e := choose(false, src)   // ReturnsResource under flag=false → e live
+	//   return 0                  // HZN2104 — e is live on return
+	entry := []ir.Statement{
+		{Kind: "short_var", Name: "src", Value: reserveExpr("Events")},
+		{Kind: "if", Cond: eqNilCond("src"), Then: []ir.Statement{returnZero()}},
+		{Kind: "expr", Expr: submitExpr("Events", "src")},
+		{Kind: "short_var", Name: "e", Value: userCallExpr("choose",
+			ir.Expr{Kind: "bool", Value: "false"},
+			ir.Expr{Kind: "ident", Name: "src"},
+		)},
+		returnZero(),
+	}
+	prog := ringbufProgWithHelper(entry, choose)
+	diags := validate.Program(prog)
+	if got := countDiag(diags, "HZN2104"); got != 1 {
+		t.Fatalf("HZN2104 count = %d, want 1 (specialized ReturnsResource binds e live; missing submit must leak): %#v", got, diags)
+	}
+}
+
+// TestCallerBindsSpecializedReturnLiveCleanSubmit — SAFE-accept companion.
+// Same `e := choose(false, src)` binding, but the entrypoint also submits `e`.
+// The live binding is cleanly consumed: no HZN2104, no HZN2101 (e is a known
+// reservation, not an unknown/escaped value).
+func TestCallerBindsSpecializedReturnLiveCleanSubmit(t *testing.T) {
+	choose := chooseReturnHelperFnLocal()
+	entry := []ir.Statement{
+		{Kind: "short_var", Name: "src", Value: reserveExpr("Events")},
+		{Kind: "if", Cond: eqNilCond("src"), Then: []ir.Statement{returnZero()}},
+		{Kind: "expr", Expr: submitExpr("Events", "src")},
+		{Kind: "short_var", Name: "e", Value: userCallExpr("choose",
+			ir.Expr{Kind: "bool", Value: "false"},
+			ir.Expr{Kind: "ident", Name: "src"},
+		)},
+		{Kind: "expr", Expr: submitExpr("Events", "e")},
+		returnZero(),
+	}
+	prog := ringbufProgWithHelper(entry, choose)
+	diags := validate.Program(prog)
+	if got := countDiag(diags, "HZN2104"); got != 0 {
+		t.Fatalf("HZN2104 count = %d, want 0 (submit consumed the live binding): %#v", got, diags)
+	}
+	if got := countDiag(diags, "HZN2101"); got != 0 {
+		t.Fatalf("HZN2101 count = %d, want 0 (e is a known reservation, not escaped): %#v", got, diags)
+	}
+}
+
+// TestCallerEscapesSpecializedAliasReturnUnderLiteral — UNSAFE-reject sibling.
+// A statement-level call `choose(true, src)` specializes the return verdict to
+// ReturnsAlias (the helper returns its arg), so applyHelperEffectRingbuf widens
+// `src` to escaped — the helper may have exfiltrated it. The trailing bare
+// return therefore does NOT fire HZN2104 on src (escape suppresses), matching
+// the conservative posture for an exfiltrated resource. This proves the
+// specialization correctly identifies the alias-escape rather than spuriously
+// leaving src live. (Under the v0.3 flat-Unknown verdict src also escapes — via
+// the param default — so the conservative posture is preserved either way; the
+// win is that the escape is now driven by the *precise* ReturnsAlias verdict.)
+func TestCallerEscapesSpecializedAliasReturnUnderLiteral(t *testing.T) {
+	choose := chooseReturnHelperFnLocal()
+	// entry:
+	//   src := Events.reserve()
+	//   if src == nil { return 0 }
+	//   choose(true, src)   // ReturnsAlias under flag=true → src escapes
+	//   return 0            // no HZN2104 — src exfiltrated via alias return
+	entry := []ir.Statement{
+		{Kind: "short_var", Name: "src", Value: reserveExpr("Events")},
+		{Kind: "if", Cond: eqNilCond("src"), Then: []ir.Statement{returnZero()}},
+		{Kind: "expr", Expr: userCallExpr("choose",
+			ir.Expr{Kind: "bool", Value: "true"},
+			ir.Expr{Kind: "ident", Name: "src"},
+		)},
+		returnZero(),
+	}
+	prog := ringbufProgWithHelper(entry, choose)
+	diags := validate.Program(prog)
+	if got := countDiag(diags, "HZN2104"); got != 0 {
+		t.Fatalf("HZN2104 count = %d, want 0 (specialized ReturnsAlias escapes src; suppression matches the exfiltration posture): %#v", got, diags)
+	}
+}
+
+// TestCallerFallsBackToUnknownForNonLiteralFlag — conservative-fallback sibling.
+// With a non-literal flag the return verdict cannot specialize; it stays the
+// flat Unknown, so `e := choose(dynFlag, src)` binds e as escaped (the v0.3
+// posture). src is submitted to clear its own obligation. The missing submit
+// on e does NOT fire HZN2104 (escaped suppresses) — no unsound `live` binding
+// on the un-prunable path. This pins the conservative fallback.
+func TestCallerFallsBackToUnknownForNonLiteralFlag(t *testing.T) {
+	choose := chooseReturnHelperFnLocal()
+	entry := []ir.Statement{
+		{Kind: "short_var", Name: "src", Value: reserveExpr("Events")},
+		{Kind: "if", Cond: eqNilCond("src"), Then: []ir.Statement{returnZero()}},
+		{Kind: "expr", Expr: submitExpr("Events", "src")},
+		{Kind: "short_var", Name: "dynFlag", Value: &ir.Expr{Kind: "bool", Value: "true"}},
+		{Kind: "short_var", Name: "e", Value: userCallExpr("choose",
+			ir.Expr{Kind: "ident", Name: "dynFlag"},
+			ir.Expr{Kind: "ident", Name: "src"},
+		)},
+		returnZero(),
+	}
+	prog := ringbufProgWithHelper(entry, choose)
+	diags := validate.Program(prog)
+	if got := countDiag(diags, "HZN2104"); got != 0 {
+		t.Fatalf("HZN2104 count = %d, want 0 (non-literal flag → flat Unknown → e bound escaped, no unsound live binding): %#v", got, diags)
+	}
+	if got := countDiag(diags, "HZN2101"); got != 0 {
+		t.Fatalf("HZN2101 count = %d, want 0 (escaped binding suppresses downstream diagnostics): %#v", got, diags)
 	}
 }
