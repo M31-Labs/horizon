@@ -6,6 +6,14 @@ All notable changes to Horizon are documented in this file. Format follows
 
 ## [Unreleased]
 
+### Added
+- New `hzn cache prune` subcommand evicts content-addressed module cache
+  entries under `$XDG_CACHE_HOME/horizon/modules/`. Eviction is by age
+  (`-older-than <dur>`) or by total-size LRU (`-max-size <bytes>`),
+  informed by the per-entry `.horizon-meta.json` fetch metadata.
+  `-dry-run` previews; the bare `hzn cache prune` lists entries without
+  deleting.
+
 ## [v0.3.0] — 2026-05-28
 
 ### Changed
