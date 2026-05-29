@@ -137,6 +137,56 @@ func resolvePackageReExports(
 			continue
 		}
 
+		// 3b. v0.4 (C4, stretch) wildcard re-export. `export <alias>.*`
+		//     lifts the source package's *full exportable surface* —
+		//     every capitalized direct type/func plus (in pass 2) the
+		//     source's own pass-1 re-exports. Origin is preserved per
+		//     entry: a direct decl's origin is the source package, a
+		//     re-exported entry keeps the original defining package.
+		//     An empty surface emits HZN1693. Wildcard expansion is
+		//     single-level: it does NOT recurse into the source's own
+		//     wildcard re-exports.
+		if ed.Name == "*" {
+			expanded := wildcardSurface(depPkg, ed.Alias, depDir, pass1Surfaces)
+			if len(expanded) == 0 {
+				perFileDiags[pe.fileIdx] = append(perFileDiags[pe.fileIdx], diag.Diagnostic{
+					Code:     "HZN1693",
+					Severity: diag.SeverityError,
+					Message:  fmt.Sprintf("wildcard re-export %q matched no exportable symbols", ed.Alias+".*"),
+					Primary:  ed.Span,
+					Suggest:  fmt.Sprintf("package %q exports no top-level types or helpers — re-export named symbols, or capitalize a declaration to export it", ed.Alias),
+				})
+				continue
+			}
+			for name, target := range expanded {
+				// Local-decl shadow (HZN1692) and duplicate (HZN1692)
+				// checks apply per expanded name, mirroring the named
+				// re-export path below.
+				if localDeclNames[name] {
+					perFileDiags[pe.fileIdx] = append(perFileDiags[pe.fileIdx], diag.Diagnostic{
+						Code:     "HZN1692",
+						Severity: diag.SeverityError,
+						Message:  fmt.Sprintf("wildcard re-export of %q shadows a local declaration in package %q", name, pkg.Name),
+						Primary:  ed.Span,
+						Suggest:  fmt.Sprintf("rename the local %q or re-export named symbols instead of `export %s.*`", name, ed.Alias),
+					})
+					continue
+				}
+				if _, dup := surface[name]; dup {
+					perFileDiags[pe.fileIdx] = append(perFileDiags[pe.fileIdx], diag.Diagnostic{
+						Code:     "HZN1692",
+						Severity: diag.SeverityError,
+						Message:  fmt.Sprintf("wildcard re-export of %q duplicates an earlier `export` in package %q", name, pkg.Name),
+						Primary:  ed.Span,
+						Suggest:  fmt.Sprintf("remove the duplicate `export %s.%s` or the conflicting `export %s.*`", ed.Alias, name, ed.Alias),
+					})
+					continue
+				}
+				surface[name] = target
+			}
+			continue
+		}
+
 		// 4. Look up the target name in the source package's
 		//    *declared* (direct) decls.
 		kind, structDecl, funcDecl, found := lookupDirectDecl(depPkg, ed.Name)
@@ -236,6 +286,76 @@ func resolvePackageReExports(
 	}
 
 	return surface, perFileDiags
+}
+
+// wildcardSurface enumerates the full exportable surface of source
+// package depPkg for an `export <alias>.*` re-export (v0.4 C4, Q-C4.3).
+// It includes every capitalized direct type and helper func, plus
+// (when pass1Surfaces is non-nil) the source package's own pass-1
+// re-export surface — so a wildcard composes with the second hop while
+// preserving each entry's original origin. Lowercase (unexported)
+// declarations are excluded per the capitalization privacy rule. The
+// expansion is single-level: it does NOT pull the source's own
+// wildcard re-exports recursively. Returns a name → target map keyed
+// by the bare symbol name (the same shape recorded in reExportSurface).
+func wildcardSurface(
+	depPkg ast.Package,
+	alias string,
+	depDir string,
+	pass1Surfaces map[string]reExportSurface,
+) reExportSurface {
+	out := reExportSurface{}
+	// Direct exported decls of the source package.
+	for _, file := range depPkg.Files {
+		for _, decl := range file.Decls {
+			switch d := decl.(type) {
+			case ast.TypeDecl:
+				if d.Name != "" && !d.IsAlias() && isExported(d.Name) {
+					out[d.Name] = reExportTarget{
+						Kind:          reExportKindType,
+						OriginPackage: depPkg.Name,
+						OriginAlias:   alias,
+						StructDecl:    d,
+					}
+				}
+			case ast.TypeGroupDecl:
+				for _, t := range d.Types {
+					if t.Name != "" && !t.IsAlias() && isExported(t.Name) {
+						out[t.Name] = reExportTarget{
+							Kind:          reExportKindType,
+							OriginPackage: depPkg.Name,
+							OriginAlias:   alias,
+							StructDecl:    t,
+						}
+					}
+				}
+			case ast.FuncDecl:
+				if d.Name != "" && isExported(d.Name) {
+					out[d.Name] = reExportTarget{
+						Kind:          reExportKindFunc,
+						OriginPackage: depPkg.Name,
+						OriginAlias:   alias,
+						FuncDecl:      d,
+					}
+				}
+			}
+		}
+	}
+	// Second-hop: the source package's own pass-1 re-exports also
+	// belong to its exportable surface. Preserve the original origin
+	// from the pass-1 entry; rebind the alias to this re-exporter.
+	if pass1Surfaces != nil {
+		if srcSurface, ok := pass1Surfaces[depDir]; ok {
+			for name, t := range srcSurface {
+				if _, exists := out[name]; exists {
+					continue
+				}
+				t.OriginAlias = alias
+				out[name] = t
+			}
+		}
+	}
+	return out
 }
 
 // lookupDirectDecl scans the direct (non-re-exported) declarations of

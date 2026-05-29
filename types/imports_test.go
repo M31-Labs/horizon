@@ -1144,6 +1144,122 @@ func MakeExecEvent() *ExecEvent {
 	}
 }
 
+// TestWildcardReExportExpandsSurface pins v0.4 Track C (C4) wildcard
+// re-export (Q-C4.3, stretch). A package `b` declares
+// `export events.*`, which expands to the events package's full
+// exportable surface — both the `ExecEvent` type and the
+// `MakeExecEvent` helper. A consumer of `b` reaches both via `b.`.
+func TestWildcardReExportExpandsSurface(t *testing.T) {
+	events := parseTestPackage(t, "/dep/events", "events", map[string]string{
+		"events.hzn": `package events
+
+type ExecEvent struct {
+    pid u32
+}
+
+func MakeExecEvent() *ExecEvent {
+    return nil
+}
+`,
+	})
+	b := parseTestPackage(t, "/dep/b", "b", map[string]string{
+		"b.hzn": `package b
+
+import events "m31labs.dev/horizon-test/events"
+
+export events.*
+`,
+	})
+	root := parseTestPackage(t, "/root", "main", map[string]string{
+		"prog.hzn": `package main
+
+import bpf "m31labs.dev/horizon/runtime/kernel"
+import b "m31labs.dev/horizon-test/b"
+
+map Events ringbuf[b.ExecEvent]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    e := b.MakeExecEvent()
+    if e == nil { return 0 }
+    return 0
+}
+`,
+	})
+	graph := ImportGraph{
+		Edges: map[string]map[string]string{
+			"/dep/b": {"events": "/dep/events"},
+			"/root": {
+				"bpf": "m31labs.dev/horizon/runtime/kernel",
+				"b":   "/dep/b",
+			},
+		},
+		Packages: map[string]ast.Package{
+			"/dep/events": events,
+			"/dep/b":      b,
+			"/root":       root,
+		},
+		BuiltinAliases: map[string]bool{"bpf": true},
+	}
+	results := CheckPackages([]ast.Package{events, b, root}, graph)
+	if hasDiagCode(results["/dep/b"], "HZN1690") || hasDiagCode(results["/dep/b"], "HZN1693") {
+		t.Fatalf("did not expect HZN1690/HZN1693 for wildcard re-export; got %#v", results["/dep/b"])
+	}
+	// Both the wildcard-expanded type (`b.ExecEvent`, used in the map)
+	// and the wildcard-expanded helper (`b.MakeExecEvent`) must resolve
+	// — no error names either symbol as unknown.
+	for _, perFile := range results["/root"] {
+		for _, d := range perFile {
+			if d.Severity != diag.SeverityError {
+				continue
+			}
+			if containsAll(d.Message, "ExecEvent") {
+				t.Fatalf("wildcard re-exported type unreachable from root: %#v", d)
+			}
+			if containsAll(d.Message, "MakeExecEvent") {
+				t.Fatalf("wildcard re-exported function unreachable from root: %#v", d)
+			}
+		}
+	}
+}
+
+// TestWildcardReExportEmptySourceEmitsHZN1693 pins that an
+// `export <alias>.*` whose source package has no exportable surface
+// emits HZN1693 ("wildcard re-export matched no exportable symbols").
+// The source package `empty` declares only a lowercase (unexported)
+// type, so its exportable surface is empty.
+func TestWildcardReExportEmptySourceEmitsHZN1693(t *testing.T) {
+	empty := parseTestPackage(t, "/dep/empty", "empty", map[string]string{
+		"empty.hzn": `package empty
+
+type internalEvent struct {
+    pid u32
+}
+`,
+	})
+	b := parseTestPackage(t, "/dep/b", "b", map[string]string{
+		"b.hzn": `package b
+
+import empty "m31labs.dev/horizon-test/empty"
+
+export empty.*
+`,
+	})
+	graph := ImportGraph{
+		Edges: map[string]map[string]string{
+			"/dep/b": {"empty": "/dep/empty"},
+		},
+		Packages: map[string]ast.Package{
+			"/dep/empty": empty,
+			"/dep/b":     b,
+		},
+	}
+	results := CheckPackages([]ast.Package{empty, b}, graph)
+	if !hasDiagCode(results["/dep/b"], "HZN1693") {
+		t.Fatalf("expected HZN1693 for empty-source wildcard re-export; got %#v", results["/dep/b"])
+	}
+}
+
 func containsAll(haystack string, needles ...string) bool {
 	for _, n := range needles {
 		if !sliceContains(haystack, n) {

@@ -45,17 +45,25 @@ func defineDeclarations(g *grammargen.Grammar) {
 		grammargen.Field("path", grammargen.Sym("string_literal")),
 	))
 
-	// export_declaration is the v0.3 re-export production (roadmap #15).
+	// export_declaration is the re-export production (roadmap #15).
 	// `export <alias>.<Name>` at the top level lifts an imported symbol
 	// into the re-exporting package's surface so transitive consumers can
 	// address it as `<myAlias>.<Name>`. Sibling to import_declaration and
 	// parsed in the same prelude region of a file. The two fields (alias,
 	// name) flow through ast/build.go into ast.ExportDecl unchanged.
+	//
+	// v0.4 (C4): the `name` field also accepts `*` — `export <alias>.*`
+	// re-exports the source package's full exportable surface. The AST
+	// lift records the literal `*` as ExportDecl.Name; the type checker
+	// expands it at resolution time.
 	g.Define("export_declaration", grammargen.Seq(
 		grammargen.Str("export"),
 		grammargen.Field("alias", grammargen.Sym("identifier")),
 		grammargen.Str("."),
-		grammargen.Field("name", grammargen.Sym("identifier")),
+		grammargen.Field("name", grammargen.Choice(
+			grammargen.Sym("identifier"),
+			grammargen.Str("*"),
+		)),
 	))
 
 	g.Define("type_declaration", grammargen.Seq(
