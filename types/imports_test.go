@@ -770,18 +770,18 @@ type ExecEvent struct {
 	}
 }
 
-// TestReExportIsOneHopOnly pins the v0.3 non-goal: re-exports do NOT
-// cascade transitively. Package `b` re-exports `events.ExecEvent`; a
-// root package that wants `ExecEvent` from a downstream-of-b
-// re-exporter must reach for `b` directly (or import `events`). When a
-// further-downstream package `c` declares `export b.ExecEvent` (i.e.
-// re-exporting the re-export), the type-checker rejects the second
-// hop because `ExecEvent` is not a *direct* declaration in `b`'s
-// surface for the purpose of re-exporting onward. The chosen
-// diagnostic is HZN1690 (target not found in named import) — the same
-// code as a missing symbol — because re-export traversal is bounded
-// to a single hop by construction.
-func TestReExportIsOneHopOnly(t *testing.T) {
+// TestReExportSecondHopResolves pins v0.4 Track C (C4): re-exports now
+// flow a SECOND hop. This is the deliberate inversion of v0.3's
+// `TestReExportIsOneHopOnly` — the prior one-hop-only behavior was a
+// documented non-goal (decisions/0007 §"One-hop only"), superseded by
+// the §"v0.4 re-export reach" two-pass design.
+//
+// Package `events` declares `ExecEvent`. Package `b` re-exports
+// `events.ExecEvent`. Package `c` then declares `export b.ExecEvent`
+// — re-exporting the re-export. The two-pass surface resolution
+// consults `b`'s pass-1 surface, so `c.ExecEvent` resolves with NO
+// HZN1690, and a consumer of `c` can reach the symbol.
+func TestReExportSecondHopResolves(t *testing.T) {
 	events := parseTestPackage(t, "/dep/events", "events", map[string]string{
 		"events.hzn": `package events
 
@@ -806,20 +806,233 @@ import b "m31labs.dev/horizon-test/b"
 export b.ExecEvent
 `,
 	})
+	root := parseTestPackage(t, "/root", "main", map[string]string{
+		"prog.hzn": `package main
+
+import bpf "m31labs.dev/horizon/runtime/kernel"
+import c "m31labs.dev/horizon-test/c"
+
+map Events ringbuf[c.ExecEvent]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    return 0
+}
+`,
+	})
 	graph := ImportGraph{
 		Edges: map[string]map[string]string{
 			"/dep/b": {"events": "/dep/events"},
 			"/dep/c": {"b": "/dep/b"},
+			"/root": {
+				"bpf": "m31labs.dev/horizon/runtime/kernel",
+				"c":   "/dep/c",
+			},
 		},
 		Packages: map[string]ast.Package{
 			"/dep/events": events,
 			"/dep/b":      b,
 			"/dep/c":      c,
+			"/root":       root,
+		},
+		BuiltinAliases: map[string]bool{"bpf": true},
+	}
+	results := CheckPackages([]ast.Package{events, b, c, root}, graph)
+	// The second hop must NOT be rejected.
+	if hasDiagCode(results["/dep/c"], "HZN1690") {
+		t.Fatalf("did not expect HZN1690 for second-hop re-export; got %#v", results["/dep/c"])
+	}
+	// And the symbol must be reachable from a consumer of `c`: the
+	// `map Events ringbuf[c.ExecEvent]` must type-check without an
+	// unknown-type diagnostic naming ExecEvent.
+	for _, perFile := range results["/root"] {
+		for _, d := range perFile {
+			if d.Severity == diag.SeverityError && containsAll(d.Message, "ExecEvent") {
+				t.Fatalf("second-hop re-exported type unreachable from root: %#v", d)
+			}
+		}
+	}
+}
+
+// TestReExportThirdHopRejected pins the new bound: the two-pass design
+// extends re-exports to exactly TWO hops. A fourth package `d` that
+// declares `export c.ExecEvent` — where `c` is itself a second-hop
+// re-exporter — is rejected with HZN1690. There is no pass 3, so the
+// third hop never resolves.
+func TestReExportThirdHopRejected(t *testing.T) {
+	events := parseTestPackage(t, "/dep/events", "events", map[string]string{
+		"events.hzn": `package events
+
+type ExecEvent struct {
+    pid u32
+}
+`,
+	})
+	b := parseTestPackage(t, "/dep/b", "b", map[string]string{
+		"b.hzn": `package b
+
+import events "m31labs.dev/horizon-test/events"
+
+export events.ExecEvent
+`,
+	})
+	c := parseTestPackage(t, "/dep/c", "c", map[string]string{
+		"c.hzn": `package c
+
+import b "m31labs.dev/horizon-test/b"
+
+export b.ExecEvent
+`,
+	})
+	d := parseTestPackage(t, "/dep/d", "d", map[string]string{
+		"d.hzn": `package d
+
+import c "m31labs.dev/horizon-test/c"
+
+export c.ExecEvent
+`,
+	})
+	graph := ImportGraph{
+		Edges: map[string]map[string]string{
+			"/dep/b": {"events": "/dep/events"},
+			"/dep/c": {"b": "/dep/b"},
+			"/dep/d": {"c": "/dep/c"},
+		},
+		Packages: map[string]ast.Package{
+			"/dep/events": events,
+			"/dep/b":      b,
+			"/dep/c":      c,
+			"/dep/d":      d,
 		},
 	}
-	results := CheckPackages([]ast.Package{events, b, c}, graph)
-	if !hasDiagCode(results["/dep/c"], "HZN1690") {
-		t.Fatalf("expected HZN1690 for second-hop re-export; got %#v", results["/dep/c"])
+	results := CheckPackages([]ast.Package{events, b, c, d}, graph)
+	if !hasDiagCode(results["/dep/d"], "HZN1690") {
+		t.Fatalf("expected HZN1690 for third-hop re-export; got %#v", results["/dep/d"])
+	}
+}
+
+// TestReExportSecondHopFuncResolves pins that the second hop applies to
+// re-exported helper FUNCTIONS, not only types. `events` declares
+// `MakeExecEvent`; `b` re-exports it; `c` re-exports `b.MakeExecEvent`;
+// a consumer of `c` calls `c.MakeExecEvent()` without an
+// unknown-helper diagnostic.
+func TestReExportSecondHopFuncResolves(t *testing.T) {
+	events := parseTestPackage(t, "/dep/events", "events", map[string]string{
+		"events.hzn": `package events
+
+type ExecEvent struct {
+    pid u32
+}
+
+func MakeExecEvent() *ExecEvent {
+    return nil
+}
+`,
+	})
+	b := parseTestPackage(t, "/dep/b", "b", map[string]string{
+		"b.hzn": `package b
+
+import events "m31labs.dev/horizon-test/events"
+
+export events.ExecEvent
+export events.MakeExecEvent
+`,
+	})
+	c := parseTestPackage(t, "/dep/c", "c", map[string]string{
+		"c.hzn": `package c
+
+import b "m31labs.dev/horizon-test/b"
+
+export b.ExecEvent
+export b.MakeExecEvent
+`,
+	})
+	root := parseTestPackage(t, "/root", "main", map[string]string{
+		"prog.hzn": `package main
+
+import bpf "m31labs.dev/horizon/runtime/kernel"
+import c "m31labs.dev/horizon-test/c"
+
+map Events ringbuf[c.ExecEvent]
+
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    e := c.MakeExecEvent()
+    if e == nil { return 0 }
+    Events.submit(e)
+    return 0
+}
+`,
+	})
+	graph := ImportGraph{
+		Edges: map[string]map[string]string{
+			"/dep/b": {"events": "/dep/events"},
+			"/dep/c": {"b": "/dep/b"},
+			"/root": {
+				"bpf": "m31labs.dev/horizon/runtime/kernel",
+				"c":   "/dep/c",
+			},
+		},
+		Packages: map[string]ast.Package{
+			"/dep/events": events,
+			"/dep/b":      b,
+			"/dep/c":      c,
+			"/root":       root,
+		},
+		BuiltinAliases: map[string]bool{"bpf": true},
+	}
+	results := CheckPackages([]ast.Package{events, b, c, root}, graph)
+	if hasDiagCode(results["/dep/c"], "HZN1690") {
+		t.Fatalf("did not expect HZN1690 for second-hop func re-export; got %#v", results["/dep/c"])
+	}
+	for _, perFile := range results["/root"] {
+		for _, d := range perFile {
+			if d.Severity == diag.SeverityError && containsAll(d.Message, "MakeExecEvent") {
+				t.Fatalf("second-hop re-exported function unreachable from root: %#v", d)
+			}
+		}
+	}
+}
+
+// TestReExportCycleDoesNotHang pins that a re-export cycle terminates.
+// Package `x` re-exports `y.Foo` and `y` re-exports `x.Foo` — neither
+// names a direct declaration anywhere, so the two-pass walk fails to
+// resolve at pass 2 (there is no pass 3 to chase the cycle) and emits
+// HZN1690 without looping. The test failing here would manifest as a
+// hang rather than an assertion failure.
+func TestReExportCycleDoesNotHang(t *testing.T) {
+	x := parseTestPackage(t, "/dep/x", "x", map[string]string{
+		"x.hzn": `package x
+
+import y "m31labs.dev/horizon-test/y"
+
+export y.Foo
+`,
+	})
+	y := parseTestPackage(t, "/dep/y", "y", map[string]string{
+		"y.hzn": `package y
+
+import x "m31labs.dev/horizon-test/x"
+
+export x.Foo
+`,
+	})
+	graph := ImportGraph{
+		Edges: map[string]map[string]string{
+			"/dep/x": {"y": "/dep/y"},
+			"/dep/y": {"x": "/dep/x"},
+		},
+		Packages: map[string]ast.Package{
+			"/dep/x": x,
+			"/dep/y": y,
+		},
+	}
+	results := CheckPackages([]ast.Package{x, y}, graph)
+	if !hasDiagCode(results["/dep/x"], "HZN1690") {
+		t.Fatalf("expected HZN1690 for unresolved cyclic re-export in x; got %#v", results["/dep/x"])
+	}
+	if !hasDiagCode(results["/dep/y"], "HZN1690") {
+		t.Fatalf("expected HZN1690 for unresolved cyclic re-export in y; got %#v", results["/dep/y"])
 	}
 }
 

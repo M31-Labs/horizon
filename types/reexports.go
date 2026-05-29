@@ -45,26 +45,39 @@ type reExportSurface map[string]reExportTarget
 // resolvePackageReExports walks every ExportDecl in a package's files
 // and resolves each against the package's import graph. It returns
 // the surface (valid re-exports keyed by name) plus per-file
-// diagnostics. The walk implements §Step 4.5:
+// diagnostics. It resolves:
 //
 //   - HZN1690 if the target name is not declared in the named import
-//     (covers missing targets, same-package exports without an alias
-//     match, and second-hop re-exports — per O-3 / one-hop-only).
+//     and (in pass 2) is not present in the source package's own
+//     pass-1 re-export surface either (covers missing targets,
+//     same-package exports without an alias match, third-hop+, and
+//     cyclic re-exports).
 //   - HZN1691 if the target is present but not exported per the v0.3
 //     capitalization rule. Composes with #17 privacy.
 //   - HZN1692 if the re-exported name collides with a local
 //     declaration in the re-exporting package.
 //
-// Per Q-15.2, only types and helper functions are re-exportable in
-// v0.3. Maps, capabilities, and constants in the source package are
+// Per Q-15.2, only types and helper functions are re-exportable.
+// Maps, capabilities, and constants in the source package are
 // invisible to the re-export resolver — referencing them surfaces
 // HZN1690 because the re-exporter's allowed shape is "types and
 // helpers only."
+//
+// v0.4 (C4) two-pass second-hop resolution (Q-C4.1): when
+// pass1Surfaces is nil, this performs PASS 1 — direct-only
+// resolution (the v0.3 behavior). When pass1Surfaces is non-nil, this
+// performs PASS 2: a target that is not a direct declaration of the
+// named source package is rescued by consulting that source package's
+// pass-1 surface, recording the entry against the *original*
+// OriginPackage/decl so origin is preserved through both hops. There
+// is no pass 3, so the third hop and cyclic chains stay rejected
+// (HZN1690) with no risk of an infinite loop.
 func resolvePackageReExports(
 	pkgDir string,
 	pkg ast.Package,
 	graph ImportGraph,
 	localDeclNames map[string]bool,
+	pass1Surfaces map[string]reExportSurface,
 ) (reExportSurface, [][]diag.Diagnostic) {
 	perFileDiags := make([][]diag.Diagnostic, len(pkg.Files))
 	if len(pkg.Files) == 0 {
@@ -125,18 +138,45 @@ func resolvePackageReExports(
 		}
 
 		// 4. Look up the target name in the source package's
-		//    *declared* (NOT re-exported) decls. Per the one-hop-only
-		//    rule, we walk only direct declarations — the source
-		//    package's own `export` decls are not visible to a
-		//    second-hop re-exporter (test TestReExportIsOneHopOnly).
+		//    *declared* (direct) decls.
 		kind, structDecl, funcDecl, found := lookupDirectDecl(depPkg, ed.Name)
+		// originPackage/originAlias default to the immediate source;
+		// a second-hop rescue overwrites them with the *original*
+		// origin so the manifest preserves it through both hops.
+		originPackage := depPkg.Name
+		originAlias := ed.Alias
+
+		// 4b. v0.4 (C4) second-hop rescue. In PASS 2, if the target
+		//     is not a direct decl of the named source package,
+		//     consult that source package's *pass-1* re-export
+		//     surface. A match there means the target is itself a
+		//     (one-hop) re-export in the source package — so this
+		//     `export` is the SECOND hop, which now resolves. Origin
+		//     is carried from the pass-1 entry so it stays the
+		//     ORIGINAL defining package across both hops. Because
+		//     pass1Surfaces only ever holds direct-only (one-hop)
+		//     entries, this rescue is bounded to exactly one extra
+		//     hop — no recursion, no pass 3, so third-hop and cyclic
+		//     chains fall through to the HZN1690 below.
+		if !found && pass1Surfaces != nil {
+			if srcSurface, ok := pass1Surfaces[depDir]; ok {
+				if t, ok := srcSurface[ed.Name]; ok {
+					kind = t.Kind
+					structDecl = t.StructDecl
+					funcDecl = t.FuncDecl
+					originPackage = t.OriginPackage
+					found = true
+				}
+			}
+		}
+
 		if !found {
 			perFileDiags[pe.fileIdx] = append(perFileDiags[pe.fileIdx], diag.Diagnostic{
 				Code:     "HZN1690",
 				Severity: diag.SeverityError,
 				Message:  fmt.Sprintf("re-exported symbol %q not found in package %q", ed.Name, ed.Alias),
 				Primary:  ed.Span,
-				Suggest:  fmt.Sprintf("re-exports flow one hop only — if %s.%s itself comes from another re-export, import the original package directly", ed.Alias, ed.Name),
+				Suggest:  fmt.Sprintf("re-exports flow at most two hops — if %s.%s is reached through a longer re-export chain, import the original package directly", ed.Alias, ed.Name),
 			})
 			continue
 		}
@@ -183,11 +223,13 @@ func resolvePackageReExports(
 			continue
 		}
 
-		// 8. Valid re-export. Record the surface entry.
+		// 8. Valid re-export. Record the surface entry, preserving the
+		//    original origin (which a second-hop rescue may have
+		//    rewritten to the original defining package).
 		surface[ed.Name] = reExportTarget{
 			Kind:          kind,
-			OriginPackage: depPkg.Name,
-			OriginAlias:   ed.Alias,
+			OriginPackage: originPackage,
+			OriginAlias:   originAlias,
 			StructDecl:    structDecl,
 			FuncDecl:      funcDecl,
 		}
@@ -283,15 +325,39 @@ func packageLocalDeclNames(pkg ast.Package) map[string]bool {
 // re-exporter's effective surface), and the per-pkg diagnostics map
 // flows back through CheckPackages so each package's diagnostics
 // land in its own per-file slice.
+// v0.4 (C4): runs a two-pass walk so a re-export can flow a second hop
+// (Q-C4.1). Pass 1 resolves every package's *direct-only* re-export
+// surface (the v0.3 behavior; pass1Surfaces == nil). Pass 2 re-resolves
+// each package, this time letting a non-direct target be rescued from
+// the named source package's pass-1 surface — recording the entry
+// against the *original* OriginPackage so origin is preserved through
+// both hops. The pass-2 surfaces and diagnostics are the final result:
+// they are a strict superset of pass 1 (every pass-1 entry re-resolves
+// identically; the only additions are second-hop rescues), so a single
+// extra pass is sufficient and there is no pass 3 — third-hop and
+// cyclic chains stay rejected (HZN1690) with no loop.
 func computeAllReExports(graph ImportGraph) (
 	surfaces map[string]reExportSurface,
 	diagsByDir map[string][][]diag.Diagnostic,
 ) {
+	// Pass 1: direct-only surfaces. Diagnostics are discarded here —
+	// the pass-2 walk reproduces every direct resolution and is the
+	// authoritative diagnostic source.
+	pass1 := map[string]reExportSurface{}
+	for dir, pkg := range graph.Packages {
+		locals := packageLocalDeclNames(pkg)
+		surf, _ := resolvePackageReExports(dir, pkg, graph, locals, nil)
+		if len(surf) > 0 {
+			pass1[dir] = surf
+		}
+	}
+
+	// Pass 2: consult pass-1 surfaces to rescue second-hop targets.
 	surfaces = map[string]reExportSurface{}
 	diagsByDir = map[string][][]diag.Diagnostic{}
 	for dir, pkg := range graph.Packages {
 		locals := packageLocalDeclNames(pkg)
-		surf, perFile := resolvePackageReExports(dir, pkg, graph, locals)
+		surf, perFile := resolvePackageReExports(dir, pkg, graph, locals, pass1)
 		if len(surf) > 0 {
 			surfaces[dir] = surf
 		}
