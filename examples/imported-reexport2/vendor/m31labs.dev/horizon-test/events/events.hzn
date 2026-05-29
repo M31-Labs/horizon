@@ -1,0 +1,14 @@
+package events
+
+// Shared event type owned by the events package — the ORIGINAL
+// defining package. Two re-export hops separate it from the root
+// program: `middleware` re-exports it, then `facade` re-exports
+// `middleware`'s re-export. The manifest still carries
+// `origin: "events"` through BOTH hops per the v0.4 second-hop
+// re-export contract (decisions/0007 §"v0.4 re-export reach").
+type ExecEvent struct {
+    ts_ns u64
+    pid u32
+    uid u32
+    comm [16]u8
+}

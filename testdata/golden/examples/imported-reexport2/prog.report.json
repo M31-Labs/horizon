@@ -1,0 +1,59 @@
+{
+  "compile": false,
+  "diagnostic_count": 0,
+  "diagnostics": [],
+  "generator": "hzn workbench",
+  "package": "main",
+  "schema": "m31labs.dev/horizon/report/v0",
+  "sources": [
+    {
+      "package": "main",
+      "path": "examples/imported-reexport2/prog.hzn",
+      "sha256": "1f9beef762f41d7f08479a60e0603a7b168a8594b74b940a7afb0e49cf5dd5ec",
+      "size": 578
+    },
+    {
+      "package": "events",
+      "path": "examples/imported-reexport2/vendor/m31labs.dev/horizon-test/events/events.hzn",
+      "sha256": "6ea3781a09239725afd76f5c33d175dd98820380744c2194bd49bf1bbbf961ee",
+      "size": 478
+    },
+    {
+      "package": "middleware",
+      "path": "examples/imported-reexport2/vendor/m31labs.dev/horizon-test/middleware/middleware.hzn",
+      "sha256": "543aaab985883f0ff456b88cd3ebfe11c3a904e4a193a21f48f3fdfa60d8f555",
+      "size": 343
+    },
+    {
+      "package": "facade",
+      "path": "examples/imported-reexport2/vendor/m31labs.dev/horizon-test/facade/facade.hzn",
+      "sha256": "9c05a9a0951ba8c47c1c598a665ac61bfa76a3d1f1afc0effc4260311f185392",
+      "size": 489
+    }
+  ],
+  "status": "generated",
+  "summary": {
+    "capability_count": 1,
+    "capability_dangers": [
+      "observe"
+    ],
+    "features": [
+      "tracefs"
+    ],
+    "map_count": 1,
+    "map_kinds": [
+      "ringbuf"
+    ],
+    "min_kernel": "5.8",
+    "permissions": [
+      "bpf_program_load",
+      "perf_event_open"
+    ],
+    "program_count": 1,
+    "program_kinds": [
+      "tracepoint"
+    ],
+    "source_count": 4,
+    "type_count": 1
+  }
+}

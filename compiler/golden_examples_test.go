@@ -43,6 +43,7 @@ var examples = []exampleFixture{
 	{Name: "multifile-execcount"},
 	{Name: "imported-execcount"},
 	{Name: "imported-reexport"},
+	{Name: "imported-reexport2"},
 	{Name: "helperctor-execwatch"},
 	{
 		Name: "multifile-buildtag",

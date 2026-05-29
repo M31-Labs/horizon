@@ -538,13 +538,23 @@ func (g ImportGraph) collectRootReExports(rootDir string) map[string]map[string]
 				if !originOK {
 					continue
 				}
-				if !structDeclaredDirectly(originPkg, ed.Name) {
+				// v0.4 (C4): resolve the struct origin through up to
+				// TWO hops. If the named struct is a direct declaration
+				// of the immediately-named source package, that package
+				// IS the origin (one hop). Otherwise follow ONE more
+				// re-export hop — when the source package itself
+				// re-exports the struct, the *original* defining
+				// package is the origin (second hop). Anything beyond
+				// two hops (or a cycle) returns "" and is skipped,
+				// matching the types-layer HZN1690 bound.
+				originName := g.resolveReExportOrigin(originDir, originPkg, ed.Name, 2)
+				if originName == "" {
 					continue
 				}
 				if exportsForAlias == nil {
 					exportsForAlias = map[string]string{}
 				}
-				exportsForAlias[ed.Name] = originPkg.Name
+				exportsForAlias[ed.Name] = originName
 			}
 		}
 		if len(exportsForAlias) > 0 {
@@ -552,6 +562,44 @@ func (g ImportGraph) collectRootReExports(rootDir string) map[string]map[string]
 		}
 	}
 	return out
+}
+
+// resolveReExportOrigin returns the name of the package that *directly*
+// declares struct `target`, reachable from `pkg` (resolved at `pkgDir`)
+// through at most `hopsLeft` re-export hops. If `pkg` declares the
+// struct directly, that is the origin. Otherwise it follows `pkg`'s own
+// `export <alias>.<target>` edges one hop at a time. Returns "" when
+// the struct is not reachable within the hop budget (also terminating a
+// cycle, since each step decrements the budget). The budget mirrors the
+// types-layer two-pass bound (Q-C4.1): the root-side IR rewrite must
+// accept exactly the same second-hop re-exports the type checker does.
+func (g ImportGraph) resolveReExportOrigin(pkgDir string, pkg ast.Package, target string, hopsLeft int) string {
+	if structDeclaredDirectly(pkg, target) {
+		return pkg.Name
+	}
+	if hopsLeft <= 1 {
+		return ""
+	}
+	edges := g.Edges[pkgDir]
+	for _, file := range pkg.Files {
+		for _, ed := range file.Exports {
+			if ed.Name != target {
+				continue
+			}
+			nextDir, ok := edges[ed.Alias]
+			if !ok {
+				continue
+			}
+			nextPkg, ok := g.Packages[nextDir]
+			if !ok {
+				continue
+			}
+			if origin := g.resolveReExportOrigin(nextDir, nextPkg, target, hopsLeft-1); origin != "" {
+				return origin
+			}
+		}
+	}
+	return ""
 }
 
 // structDeclaredDirectly reports whether pkg directly declares a

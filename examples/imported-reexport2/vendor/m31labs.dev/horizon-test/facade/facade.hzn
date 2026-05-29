@@ -1,0 +1,11 @@
+package facade
+
+// facade re-exports ExecEvent from middleware — the SECOND hop.
+// middleware itself only re-exports `events.ExecEvent`, so this
+// `export middleware.ExecEvent` resolves transitively through the
+// two-pass surface resolution introduced in v0.4 (C4). The root
+// program importing `facade` addresses the symbol as
+// `facade.ExecEvent`, yet the manifest preserves `origin: "events"`.
+import middleware "m31labs.dev/horizon-test/middleware"
+
+export middleware.ExecEvent

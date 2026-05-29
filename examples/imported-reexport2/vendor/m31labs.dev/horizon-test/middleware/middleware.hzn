@@ -1,0 +1,9 @@
+package middleware
+
+// middleware re-exports ExecEvent from the events package — the FIRST
+// hop. `facade` (vendored alongside) re-exports this re-export, and
+// the root program consumes `facade.ExecEvent` two hops removed from
+// the original `events` declaration.
+import events "m31labs.dev/horizon-test/events"
+
+export events.ExecEvent
