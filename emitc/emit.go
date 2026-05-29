@@ -107,7 +107,7 @@ func (e *cEmitter) emitDeclarations() {
 	}
 	for _, m := range e.program.Maps {
 		e.emitMapped(m.Span, "map", "", "", func() {
-			emitMap(&e.b, m)
+			emitMap(&e.b, m, e.program.Functions)
 		})
 	}
 	for _, m := range e.program.Maps {
@@ -1220,8 +1220,11 @@ func emitStructLayoutAssertions(b *strings.Builder, decl ir.Struct, structs map[
 	}
 }
 
-func emitMap(b *strings.Builder, m ir.Map) {
+func emitMap(b *strings.Builder, m ir.Map, functions []ir.Function) {
 	switch m.Kind {
+	case ir.MapKindStructOps:
+		emitStructOpsMap(b, m, functions)
+		return
 	case ir.MapKindRingbuf:
 		fmt.Fprintf(b, `
 struct {
@@ -1259,6 +1262,49 @@ func mapMaxEntries(m ir.Map, fallback string) string {
 		return m.MaxEntries
 	}
 	return fallback
+}
+
+// emitStructOpsMap emits a struct_ops map as an ops-struct instance in the
+// SEC(".struct_ops") section. The map's value type names the kernel ops struct
+// (e.g. tcp_congestion_ops). Each struct_ops program function — a function
+// whose Section.Kind is ir.ProgramStructOps and whose Section.Attach is the op
+// name — binds to the corresponding ops-struct function-pointer field. libbpf
+// and the verifier resolve the field layout from BTF at load time. We emit the
+// portable legacy .struct_ops form; the runtime's AttachStructOps handles
+// link-based attach where the kernel supports it (v0.4 Track A A2, decision
+// 0010).
+func emitStructOpsMap(b *strings.Builder, m ir.Map, functions []ir.Function) {
+	opsType := m.Val.Name
+	if opsType == "" {
+		// validateMapDecl (HZN1214) rejects a struct_ops map without a value
+		// type before emit; guard defensively so we never emit `struct  X`.
+		return
+	}
+	// The ops type names a kernel BTF struct (e.g. tcp_congestion_ops); emit
+	// its raw kernel name, NOT the hzn_type_-prefixed Horizon struct name.
+	fmt.Fprintf(b, "\nSEC(\".struct_ops\")\nstruct %s %s = {\n", cIdent(opsType), m.Name)
+	for _, fn := range functions {
+		if fn.Section.Kind != ir.ProgramStructOps || fn.Section.Attach == "" {
+			continue
+		}
+		field := structOpsFieldName(opsType, fn.Section.Attach)
+		fmt.Fprintf(b, "    .%s = (void *)%s,\n", field, fn.Name)
+	}
+	b.WriteString("};\n")
+}
+
+// structOpsFieldName maps a struct_ops op name (from @struct_ops("op")) to the
+// ops-struct field name. For tcp_congestion_ops the op names carry a `tcp_`
+// prefix that the field names drop (e.g. tcp_init → init). A2 targets
+// tcp_congestion_ops; other subsystems pass the op name through unchanged until
+// a user needs one (decision 0010 §4).
+func structOpsFieldName(opsType, op string) string {
+	if opsType == "tcp_congestion_ops" {
+		if stripped, ok := strings.CutPrefix(op, "tcp_"); ok {
+			return cIdent(stripped)
+		}
+	}
+	return cIdent(op)
 }
 
 func emitMapWrappers(b *strings.Builder, sourceMap *ir.SourceMap, m ir.Map, methods map[string]bool, origins map[string]cUsageOrigin) {

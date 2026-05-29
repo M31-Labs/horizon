@@ -45,6 +45,15 @@ func AnalyzeMaps(program ir.Program, sites Sites, effects HelperEffects) []diag.
 					Message:  fmt.Sprintf("%s map %q requires key and value types", m.Kind, m.Name),
 				})
 			}
+		case ir.MapKindStructOps:
+			// A struct_ops map registers a kernel ops struct (e.g.
+			// tcp_congestion_ops) whose value type names that kernel BTF struct.
+			// It has no key. The source-level type checker (validateMapDecl,
+			// HZN1214) already enforces the value-type-present rule, so the
+			// validator accepts a well-formed struct_ops map without a further
+			// rule here (v0.4 Track A A2, decision 0010). This is an additive
+			// accept-arm: the map-kind taxonomy lived in the validator's default
+			// HZN2402 reject before struct_ops was a recognized kind.
 		default:
 			diags = append(diags, diag.Diagnostic{
 				Code:     "HZN2402",

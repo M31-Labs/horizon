@@ -1823,3 +1823,47 @@ func helperCall(name string) *ir.Expr {
 		},
 	}
 }
+
+// TestEmitStructOpsMap verifies that a struct_ops map declaration emits a
+// SEC(".struct_ops") ops-struct instance whose op field binds to the
+// struct_ops program function, while the program function still emits its
+// SEC("struct_ops") body. v0.4 Track A A2 (decision 0010).
+func TestEmitStructOpsMap(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "congestion.hzn")
+	if err := os.WriteFile(path, []byte(`package probes
+
+capability TCPCongestionMutate danger mutate = "kernel.network.tcp.congestion.mutate"
+
+map Ops struct_ops[tcp_congestion_ops]
+
+@capability(TCPCongestionMutate)
+@struct_ops("tcp_init")
+func OnTCPInit(ctx struct_ops.Context) i32 {
+    return 0
+}
+`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	result, err := compiler.AnalyzePath(dir)
+	if err != nil {
+		t.Fatalf("AnalyzePath: %v", err)
+	}
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+	out, err := Emit(result.Program)
+	if err != nil {
+		t.Fatalf("Emit: %v", err)
+	}
+	for _, want := range []string{
+		`SEC(".struct_ops")`,
+		`struct tcp_congestion_ops Ops`,
+		`.init = (void *)OnTCPInit,`,
+		"SEC(\"struct_ops\")\nint OnTCPInit(",
+	} {
+		if !strings.Contains(out.Code, want) {
+			t.Fatalf("generated C missing %q:\n%s", want, out.Code)
+		}
+	}
+}

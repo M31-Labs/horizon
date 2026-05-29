@@ -199,6 +199,14 @@ func validateCSectionName(section string, lineNo int) error {
 	switch section {
 	case "license", ".maps", "xdp":
 		return nil
+	// .struct_ops holds the ops-struct map instance emitted for a struct_ops
+	// map (ir.MapKindStructOps). It is distinct from the bare "struct_ops"
+	// program section below: the program functions live in SEC("struct_ops"),
+	// while the registered ops struct lives in SEC(".struct_ops"). libbpf and
+	// the verifier resolve the ops-struct field layout from BTF at load time
+	// (v0.4 Track A A2, decision 0010).
+	case ".struct_ops":
+		return nil
 	case "tc/ingress", "tc/egress", "cgroup/connect4", "cgroup/connect6":
 		return nil
 	// uprobe and uretprobe use a bare section name; the binary/symbol are
@@ -217,9 +225,11 @@ func validateCSectionName(section string, lineNo int) error {
 	// via link.AttachCgroup(CgroupOptions{Path: cgroupPath, Attach: ebpf.AttachCGroupSockOps}).
 	case "sockops":
 		return nil
-	// struct_ops uses a bare section name; the op name is recorded in the Horizon
-	// manifest Attach field and resolved at load time via BTF-based struct_ops map
-	// pinning. Userspace auto-attach is stubbed (see roadmap #9 follow-up).
+	// struct_ops uses a bare section name for the program functions; the op name
+	// is recorded in the Horizon manifest Attach field and bound to the
+	// registered ops struct in SEC(".struct_ops") (see above), which libbpf
+	// resolves via BTF at load time. The generated AttachOn<Fn> helper attaches
+	// the struct_ops map at runtime (v0.4 Track A A2, decision 0010).
 	case "struct_ops":
 		return nil
 	}
