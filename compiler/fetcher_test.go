@@ -251,6 +251,102 @@ func TestCacheEntriesEmptyCache(t *testing.T) {
 	}
 }
 
+// withHTTPDiscoverStub swaps the package-level httpDiscover variable for
+// the duration of a single test and resets the per-process discovery
+// memo so each test starts from a clean cache. Returns a restore func to
+// defer.
+func withHTTPDiscoverStub(t *testing.T, stub func(host, path string) (string, error)) func() {
+	t.Helper()
+	prev := httpDiscover
+	httpDiscover = stub
+	resetCloneURLMemo()
+	return func() {
+		httpDiscover = prev
+		resetCloneURLMemo()
+	}
+}
+
+func TestResolveCloneURLGithubPassthrough(t *testing.T) {
+	// github.com must NOT touch httpDiscover — it stays a pure repoURL
+	// translation. Wire a stub that fails the test if called.
+	defer withHTTPDiscoverStub(t, func(host, path string) (string, error) {
+		t.Fatalf("httpDiscover called for github.com path (host=%q path=%q); github must stay pure", host, path)
+		return "", nil
+	})()
+	got, diags := resolveCloneURL("github.com/m31labs/horizon-events")
+	if diag.HasErrors(diags) {
+		t.Fatalf("diagnostics = %#v, want none", diags)
+	}
+	want := "https://github.com/m31labs/horizon-events.git"
+	if got != want {
+		t.Fatalf("resolveCloneURL = %q, want %q", got, want)
+	}
+}
+
+func TestResolveCloneURLMetaRedirect(t *testing.T) {
+	const discovered = "https://github.com/m31labs/horizon-events.git"
+	defer withHTTPDiscoverStub(t, func(host, path string) (string, error) {
+		if host != "m31labs.dev" {
+			t.Errorf("host = %q, want m31labs.dev", host)
+		}
+		if path != "m31labs/horizon-events" {
+			t.Errorf("path = %q, want m31labs/horizon-events", path)
+		}
+		return discovered, nil
+	})()
+	got, diags := resolveCloneURL("m31labs.dev/m31labs/horizon-events")
+	if diag.HasErrors(diags) {
+		t.Fatalf("diagnostics = %#v, want none", diags)
+	}
+	if got != discovered {
+		t.Fatalf("resolveCloneURL = %q, want %q", got, discovered)
+	}
+}
+
+func TestResolveCloneURLDiscoveryErrorEmitsHZN1705(t *testing.T) {
+	defer withHTTPDiscoverStub(t, func(host, path string) (string, error) {
+		return "", errors.New("simulated network failure: connection refused")
+	})()
+	got, diags := resolveCloneURL("m31labs.dev/m31labs/horizon-events")
+	if got != "" {
+		t.Errorf("resolveCloneURL returned URL %q on discovery failure, want empty", got)
+	}
+	found := false
+	for _, d := range diags {
+		if d.Code == "HZN1705" {
+			found = true
+			if !strings.Contains(d.Message, "m31labs.dev/m31labs/horizon-events") {
+				t.Errorf("HZN1705 message missing import path: %q", d.Message)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected HZN1705 diagnostic, got %#v", diags)
+	}
+}
+
+func TestResolveCloneURLMemoizes(t *testing.T) {
+	const discovered = "https://github.com/m31labs/horizon-events.git"
+	calls := 0
+	defer withHTTPDiscoverStub(t, func(host, path string) (string, error) {
+		calls++
+		return discovered, nil
+	})()
+	path := "m31labs.dev/m31labs/horizon-events"
+	for i := 0; i < 3; i++ {
+		got, diags := resolveCloneURL(path)
+		if diag.HasErrors(diags) {
+			t.Fatalf("iteration %d diagnostics = %#v", i, diags)
+		}
+		if got != discovered {
+			t.Fatalf("iteration %d resolveCloneURL = %q, want %q", i, got, discovered)
+		}
+	}
+	if calls != 1 {
+		t.Fatalf("httpDiscover called %d times across 3 resolveCloneURL calls, want 1 (memoized)", calls)
+	}
+}
+
 func TestRepoURLFromImportPath(t *testing.T) {
 	cases := []struct {
 		path string

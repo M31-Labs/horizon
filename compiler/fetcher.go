@@ -6,10 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"hash"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"m31labs.dev/horizon/compiler/diag"
@@ -41,6 +44,192 @@ var gitClone = func(repo, ref, dest string) error {
 		return fmt.Errorf("git clone %s @ %s: %v\n%s", repo, ref, err, string(out))
 	}
 	return nil
+}
+
+// metaDiscoverHosts is the set of hosts for which an import path is
+// resolved via HTTP `?horizon-import=1` meta-redirect discovery rather
+// than a direct repoURL translation. v0.4 wires `m31labs.dev` only;
+// broadening this set later is additive. github.com intentionally stays
+// OUT of this set — it resolves purely via repoURL with no network round
+// trip.
+var metaDiscoverHosts = map[string]bool{
+	"m31labs.dev": true,
+}
+
+// httpDiscoverTimeout bounds the meta-redirect HTTP GET. Discovery is a
+// single small request; a short timeout keeps an unreachable host from
+// stalling a build.
+const httpDiscoverTimeout = 10 * time.Second
+
+// httpDiscoverBodyLimit caps how much of the discovery response body is
+// read (1 MiB). A `horizon-import` meta tag lives in the document head;
+// capping the read defends against an adversarial or misconfigured host
+// streaming an unbounded body.
+const httpDiscoverBodyLimit = 1 << 20
+
+// httpDiscover is the injection point for meta-redirect import
+// discovery, modeled on the gitClone injection var. The production
+// implementation issues `GET https://<host>/<path>?horizon-import=1`,
+// reads a capped prefix of the response body, and scans it for a
+// `<meta name="horizon-import" content="<prefix> git <url>">` tag —
+// mirroring Go's `<meta name="go-import">` discovery. It returns the
+// `<url>` (the clone URL). Tests overwrite this variable to return a
+// deterministic URL without touching the network; the real network
+// path runs only under HORIZON_NETWORK_TESTS=1. Parsing is a minimal
+// dependency-free token scan (no HTML parser) — see scanHorizonImport.
+var httpDiscover = func(host, path string) (cloneURL string, err error) {
+	url := "https://" + host + "/" + path + "?horizon-import=1"
+	client := &http.Client{Timeout: httpDiscoverTimeout}
+	resp, err := client.Get(url)
+	if err != nil {
+		return "", fmt.Errorf("meta-redirect GET %s: %w", url, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("meta-redirect GET %s: unexpected status %s", url, resp.Status)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, httpDiscoverBodyLimit))
+	if err != nil {
+		return "", fmt.Errorf("meta-redirect read body %s: %w", url, err)
+	}
+	clone, ok := scanHorizonImport(string(body))
+	if !ok {
+		return "", fmt.Errorf("no <meta name=\"horizon-import\"> tag with a `<prefix> git <url>` content at %s", url)
+	}
+	return clone, nil
+}
+
+// scanHorizonImport extracts the clone URL from a
+// `<meta name="horizon-import" content="<prefix> git <url>">` tag in
+// body using a minimal token scan rather than a full HTML parser (no
+// new dependency, per Q-C1.3). It finds each `<meta ` token, requires
+// the attributes `name="horizon-import"` and a `content="..."` whose
+// value splits on whitespace into exactly `[prefix, "git", url]`, and
+// returns the url. Returns ("", false) when no conforming tag is found.
+func scanHorizonImport(body string) (string, bool) {
+	rest := body
+	for {
+		i := strings.Index(rest, "<meta")
+		if i < 0 {
+			return "", false
+		}
+		rest = rest[i+len("<meta"):]
+		end := strings.Index(rest, ">")
+		if end < 0 {
+			return "", false
+		}
+		tag := rest[:end]
+		rest = rest[end+1:]
+		name, hasName := metaAttr(tag, "name")
+		if !hasName || name != "horizon-import" {
+			continue
+		}
+		content, hasContent := metaAttr(tag, "content")
+		if !hasContent {
+			continue
+		}
+		fields := strings.Fields(content)
+		if len(fields) == 3 && fields[1] == "git" && fields[2] != "" {
+			return fields[2], true
+		}
+	}
+}
+
+// metaAttr returns the double-quoted value of attribute attr inside a
+// single tag's attribute text (the slice between `<meta` and `>`). It
+// matches `attr="..."` allowing arbitrary whitespace around the `=`.
+// Returns ("", false) when the attribute is absent.
+func metaAttr(tag, attr string) (string, bool) {
+	rest := tag
+	for {
+		i := strings.Index(rest, attr)
+		if i < 0 {
+			return "", false
+		}
+		after := strings.TrimLeft(rest[i+len(attr):], " \t\r\n")
+		if !strings.HasPrefix(after, "=") {
+			// e.g. `attr` appearing as a substring of another token;
+			// keep scanning past this occurrence.
+			rest = rest[i+len(attr):]
+			continue
+		}
+		after = strings.TrimLeft(after[1:], " \t\r\n")
+		if !strings.HasPrefix(after, "\"") {
+			rest = after
+			continue
+		}
+		after = after[1:]
+		j := strings.Index(after, "\"")
+		if j < 0 {
+			return "", false
+		}
+		return after[:j], true
+	}
+}
+
+// cloneURLMemo caches resolved clone URLs per import path so N imports
+// of the same meta-redirect host within one process don't re-fetch the
+// discovery page. Guarded by cloneURLMemoMu. Tests reset it via
+// resetCloneURLMemo when swapping the httpDiscover stub.
+var (
+	cloneURLMemoMu sync.Mutex
+	cloneURLMemo   = map[string]string{}
+)
+
+// resetCloneURLMemo clears the per-process clone-URL memo. Used by tests
+// that swap the httpDiscover stub so a prior test's cached resolution
+// doesn't leak across cases.
+func resetCloneURLMemo() {
+	cloneURLMemoMu.Lock()
+	cloneURLMemo = map[string]string{}
+	cloneURLMemoMu.Unlock()
+}
+
+// resolveCloneURL translates an import-path-shaped identifier into the
+// git clone URL the fetcher should hand to gitClone / resolveRef.
+//
+//   - github.com/<org>/<repo>: pure repoURL translation, no network.
+//   - <meta-host>/<path> (v0.4: m31labs.dev only): HTTP meta-redirect
+//     discovery via the memoized httpDiscover. A discovery failure
+//     surfaces HZN1705 (distinct from HZN1703 git-clone failures) and
+//     returns an empty URL.
+//   - anything else: pure repoURL fallback (https://<path>) — reached
+//     only when a caller invokes resolveCloneURL outside the resolver's
+//     isRemoteImportShape gate.
+//
+// The returned URL is "" exactly when the diagnostics carry an error.
+func resolveCloneURL(importPath string) (string, []diag.Diagnostic) {
+	host, path, _ := strings.Cut(importPath, "/")
+	if !metaDiscoverHosts[host] {
+		// Pure path (github + fallback). No network, no memo needed.
+		return repoURL(importPath), nil
+	}
+
+	cloneURLMemoMu.Lock()
+	cached, ok := cloneURLMemo[importPath]
+	cloneURLMemoMu.Unlock()
+	if ok {
+		return cached, nil
+	}
+
+	clone, err := httpDiscover(host, path)
+	if err != nil || clone == "" {
+		msg := fmt.Sprintf("meta-redirect discovery failed for %q", importPath)
+		if err != nil {
+			msg = fmt.Sprintf("meta-redirect discovery failed for %q: %v", importPath, err)
+		}
+		return "", []diag.Diagnostic{{
+			Code:     "HZN1705",
+			Severity: diag.SeverityError,
+			Message:  msg,
+			Suggest:  "verify the host serves a `<meta name=\"horizon-import\" content=\"<prefix> git <url>\">` tag at https://<host>/<path>?horizon-import=1; for offline builds, vendor the package under ./vendor/<path>/",
+		}}
+	}
+
+	cloneURLMemoMu.Lock()
+	cloneURLMemo[importPath] = clone
+	cloneURLMemoMu.Unlock()
+	return clone, nil
 }
 
 // cacheRoot returns the root directory under which fetched module
@@ -209,6 +398,28 @@ func entryDirSize(dir string) (int64, error) {
 // failures inside the cache-root setup (e.g. permission denied
 // creating the cache dir).
 func Fetch(repo, ref string) (string, []diag.Diagnostic, error) {
+	return fetchWithURL(repo, repoURL(repo), ref)
+}
+
+// cacheHit reports whether <repo>@<ref> is already materialized in the
+// content-addressed cache. The resolver uses it to decide whether a
+// clone URL is needed at all: a cache hit means fetchWithURL will skip
+// gitClone, so meta-redirect discovery can be skipped too (keeping a
+// verify-mode build offline).
+func cacheHit(repo, ref string) bool {
+	dest := filepath.Join(cacheRoot(), cacheKey(repo), ref)
+	info, err := os.Stat(dest)
+	return err == nil && info.IsDir()
+}
+
+// fetchWithURL is the URL-threaded form of Fetch. The cache slot stays
+// keyed on repo (the import path) via cacheKey, but the clone URL is
+// supplied by the caller rather than re-derived from repoURL — so a
+// meta-redirect-discovered URL (which bears no syntactic relation to
+// the import path) reaches gitClone. Fetch passes repoURL(repo) to
+// preserve the github direct-resolution behavior; resolveRemote passes
+// the resolveCloneURL result.
+func fetchWithURL(repo, cloneURL, ref string) (string, []diag.Diagnostic, error) {
 	dest := filepath.Join(cacheRoot(), cacheKey(repo), ref)
 	if info, err := os.Stat(dest); err == nil && info.IsDir() {
 		// Cache hit. Skip git entirely; trust the on-disk content.
@@ -220,7 +431,7 @@ func Fetch(repo, ref string) (string, []diag.Diagnostic, error) {
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return "", nil, fmt.Errorf("prep cache parent %s: %w", filepath.Dir(dest), err)
 	}
-	url := repoURL(repo)
+	url := cloneURL
 	if err := gitClone(url, ref, dest); err != nil {
 		return "", []diag.Diagnostic{{
 			Code:     "HZN1703",

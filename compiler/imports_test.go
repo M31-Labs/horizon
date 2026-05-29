@@ -1,6 +1,7 @@
 package compiler
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -478,6 +479,150 @@ func seedFixture(t *testing.T, repo, ref, pkgName, body string) (string, string)
 		t.Fatalf("hash fixture: %v", err)
 	}
 	return root, sum
+}
+
+func TestIsRemoteImportShapeAcceptsM31labs(t *testing.T) {
+	cases := []struct {
+		path string
+		want bool
+	}{
+		// github.com — unchanged from v0.3.
+		{"github.com/org/repo", true},
+		{"github.com/org", false},
+		// m31labs.dev — newly accepted (C1, ≥3 segments).
+		{"m31labs.dev/org/repo", true},
+		{"m31labs.dev/m31labs/horizon-events", true},
+		{"m31labs.dev/org", false},
+		{"m31labs.dev", false},
+		// Arbitrary hosts still fall through to the vendor walk.
+		{"example.com/org/repo", false},
+	}
+	for _, c := range cases {
+		if got := isRemoteImportShape(c.path); got != c.want {
+			t.Errorf("isRemoteImportShape(%q) = %v, want %v", c.path, got, c.want)
+		}
+	}
+}
+
+func TestResolveImportsM31labsMetaRedirectUpdateMode(t *testing.T) {
+	// End-to-end: a m31labs.dev import in lockfile-update mode resolves
+	// its clone URL via httpDiscover, resolves the tag via resolveRef,
+	// fetches via gitClone, and produces a LockfileEntry. All three
+	// injection points are stubbed; no network.
+	repo := "m31labs.dev/m31labs/horizon-test-events"
+	tag := "v1.0.0"
+	resolvedRef := "abc1234567890abcdef1234567890abcdef12345"
+	const discovered = "https://github.com/m31labs/horizon-test-events.git"
+
+	cacheR := t.TempDir()
+	t.Setenv("HORIZON_CACHE_ROOT", cacheR)
+
+	discoverCalls := 0
+	defer withHTTPDiscoverStub(t, func(host, path string) (string, error) {
+		discoverCalls++
+		if host != "m31labs.dev" {
+			t.Errorf("httpDiscover host = %q, want m31labs.dev", host)
+		}
+		return discovered, nil
+	})()
+
+	prevResolve := resolveRef
+	resolveRef = func(url, ver string) (string, error) {
+		if url != discovered {
+			t.Errorf("resolveRef url = %q, want discovered %q", url, discovered)
+		}
+		if ver == tag {
+			return resolvedRef, nil
+		}
+		return "", nil
+	}
+	defer func() { resolveRef = prevResolve }()
+
+	defer withGitCloneStub(t, func(gotURL, gotRef, gotDest string) error {
+		if gotURL != discovered {
+			t.Errorf("gitClone url = %q, want discovered %q", gotURL, discovered)
+		}
+		if err := os.MkdirAll(gotDest, 0o755); err != nil {
+			return err
+		}
+		return os.WriteFile(filepath.Join(gotDest, "events.hzn"), []byte("package events\n"), 0o644)
+	})()
+
+	dir := t.TempDir()
+	writeFile(t, dir, "main.hzn", `package main
+
+import events "`+repo+`@`+tag+`"
+
+type Wrapper struct {
+    x u32
+}
+`)
+	res, err := ResolveImportsOpts(dir, ResolveOpts{
+		Ctx:            DetectContext(),
+		LockfileUpdate: true,
+	})
+	if err != nil {
+		t.Fatalf("ResolveImportsOpts: %v", err)
+	}
+	if diag.HasErrors(res.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", res.Diagnostics)
+	}
+	if discoverCalls < 1 {
+		t.Fatalf("httpDiscover called %d times, want >= 1", discoverCalls)
+	}
+	if len(res.LockfileUpdate) != 1 {
+		t.Fatalf("LockfileUpdate = %d, want 1", len(res.LockfileUpdate))
+	}
+	entry := res.LockfileUpdate[0]
+	if entry.Path != repo {
+		t.Fatalf("entry.Path = %q, want %q", entry.Path, repo)
+	}
+	if entry.RefResolved != resolvedRef {
+		t.Fatalf("entry.RefResolved = %q, want %q", entry.RefResolved, resolvedRef)
+	}
+}
+
+func TestResolveImportsM31labsMetaRedirectDiscoveryFailureHZN1705(t *testing.T) {
+	// A m31labs.dev import whose meta-redirect discovery fails surfaces
+	// HZN1705 and resolves nothing.
+	repo := "m31labs.dev/m31labs/horizon-test-events"
+	tag := "v1.0.0"
+
+	cacheR := t.TempDir()
+	t.Setenv("HORIZON_CACHE_ROOT", cacheR)
+
+	defer withHTTPDiscoverStub(t, func(host, path string) (string, error) {
+		return "", errors.New("simulated discovery failure: 404 Not Found")
+	})()
+
+	dir := t.TempDir()
+	writeFile(t, dir, "main.hzn", `package main
+
+import events "`+repo+`@`+tag+`"
+
+type Wrapper struct {
+    x u32
+}
+`)
+	res, err := ResolveImportsOpts(dir, ResolveOpts{
+		Ctx:            DetectContext(),
+		LockfileUpdate: true,
+	})
+	if err != nil {
+		t.Fatalf("ResolveImportsOpts: %v", err)
+	}
+	found := false
+	for _, d := range res.Diagnostics {
+		if d.Code == "HZN1705" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected HZN1705 (meta-redirect discovery failed), got %#v", res.Diagnostics)
+	}
+	if len(res.LockfileUpdate) != 0 {
+		t.Fatalf("LockfileUpdate = %d, want 0 on discovery failure", len(res.LockfileUpdate))
+	}
 }
 
 func TestResolveImportsResolvesGithubURLWithLockfile(t *testing.T) {

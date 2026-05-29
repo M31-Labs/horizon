@@ -448,18 +448,33 @@ func resolveOne(
 }
 
 // isRemoteImportShape reports whether imp.Path looks like a remote
-// repository identifier we know how to fetch. v0.3 only wires
-// github.com directly; other hosts fall through to the vendor walk.
-// Keep this conservative — broadening the set later is additive and
-// safe, but narrowing it would break in-flight builds.
+// repository identifier we know how to fetch. v0.3 wired github.com
+// directly; v0.4 (C1) additionally accepts m31labs.dev, which resolves
+// its clone URL via HTTP meta-redirect discovery (see resolveCloneURL).
+// Other hosts still fall through to the vendor walk. Keep this
+// conservative — broadening the set later is additive and safe, but
+// narrowing it would break in-flight builds.
 func isRemoteImportShape(path string) bool {
-	if !strings.HasPrefix(path, "github.com/") {
+	host, ok := remoteImportHost(path)
+	if !ok {
 		return false
 	}
-	// Require at least github.com/<org>/<repo> shape — three
-	// slash-separated segments. Anything shorter is malformed.
+	if host != "github.com" && host != "m31labs.dev" {
+		return false
+	}
+	return true
+}
+
+// remoteImportHost splits a URL-shaped import path into its host
+// (first segment) and reports whether the path has the minimum
+// `<host>/<org>/<repo>` shape — three non-empty slash-separated
+// segments. Anything shorter is not a fetchable remote import.
+func remoteImportHost(path string) (string, bool) {
 	parts := strings.Split(path, "/")
-	return len(parts) >= 3 && parts[1] != "" && parts[2] != ""
+	if len(parts) < 3 || parts[0] == "" || parts[1] == "" || parts[2] == "" {
+		return "", false
+	}
+	return parts[0], true
 }
 
 // isValidVersion reports whether v matches the v0.3 versioning rule:
@@ -547,6 +562,18 @@ func resolveRemote(
 	}
 	state.RemoteSeen[imp.Path] = true
 
+	// cloneURL is resolved lazily — only when a network operation
+	// (ref resolution or a cache-miss fetch) actually needs it. For
+	// github.com this is a pure repoURL translation; for m31labs.dev
+	// it triggers memoized HTTP meta-redirect discovery and may surface
+	// HZN1705. Resolving lazily keeps a verify-mode cache hit fully
+	// offline. resolveCloneURL itself memoizes per-process, so the two
+	// potential call sites below (resolveRef + Fetch) at most discover
+	// once per import path per build.
+	cloneURL := func() (string, []diag.Diagnostic) {
+		return resolveCloneURL(imp.Path)
+	}
+
 	entry, ok := state.Lockfile.LookupEntry(imp.Path)
 	if !ok {
 		if !state.LockfileUpdate {
@@ -558,16 +585,20 @@ func resolveRemote(
 				Suggest:  "run `hzn get " + imp.Path + "@" + imp.Version + "` to add the entry to hzn.lock",
 			}}, nil, nil
 		}
-		// Lockfile-update mode: resolve the version to a SHA, fetch,
-		// compute content hash, build a LockfileEntry for the caller
-		// to persist.
+		// Lockfile-update mode: resolve the clone URL, resolve the
+		// version to a SHA, fetch, compute content hash, build a
+		// LockfileEntry for the caller to persist.
+		url, urlDiags := cloneURL()
+		if diag.HasErrors(urlDiags) {
+			return ast.Package{}, urlDiags, nil, nil
+		}
 		var resolved string
 		if len(imp.Version) >= 7 && !strings.HasPrefix(imp.Version, "v") {
 			// Already a SHA (or SHA prefix) — short-circuit the
 			// network round-trip.
 			resolved = imp.Version
 		} else {
-			ref, refErr := resolveRef(repoURL(imp.Path), imp.Version)
+			ref, refErr := resolveRef(url, imp.Version)
 			if refErr != nil || ref == "" {
 				return ast.Package{}, []diag.Diagnostic{{
 					Code:     "HZN1703",
@@ -579,7 +610,7 @@ func resolveRemote(
 			}
 			resolved = ref
 		}
-		dest, fetchDiags, ferr := Fetch(imp.Path, resolved)
+		dest, fetchDiags, ferr := fetchWithURL(imp.Path, url, resolved)
 		if ferr != nil {
 			return ast.Package{}, fetchDiags, nil, ferr
 		}
@@ -607,7 +638,18 @@ func resolveRemote(
 
 	// Verify mode: entry exists. Fetch (cache-hit on subsequent
 	// builds, network on first build), verify sha256, then visit.
-	dest, fetchDiags, ferr := Fetch(imp.Path, entry.RefResolved)
+	// On a cache hit the clone URL is never needed, so discovery is
+	// skipped entirely (keeps verify-mode offline for m31labs.dev too);
+	// only a genuine cache miss resolves the clone URL.
+	var url string
+	if !cacheHit(imp.Path, entry.RefResolved) {
+		var urlDiags []diag.Diagnostic
+		url, urlDiags = cloneURL()
+		if diag.HasErrors(urlDiags) {
+			return ast.Package{}, urlDiags, nil, nil
+		}
+	}
+	dest, fetchDiags, ferr := fetchWithURL(imp.Path, url, entry.RefResolved)
 	if ferr != nil {
 		return ast.Package{}, fetchDiags, nil, ferr
 	}
