@@ -1,0 +1,205 @@
+{
+  "capabilities": [
+    {
+      "danger": {
+        "mode": "observe",
+        "reversibility": "none",
+        "scope": "event"
+      },
+      "emits": "ExecEvent",
+      "helper_effects": [
+        {
+          "name": "bpf.current_comm",
+          "observes": [
+            "task.comm"
+          ]
+        },
+        {
+          "name": "bpf.current_pid",
+          "observes": [
+            "task.tgid"
+          ]
+        },
+        {
+          "name": "bpf.ktime_get_ns",
+          "observes": [
+            "kernel.time.monotonic"
+          ]
+        },
+        {
+          "mutates": [
+            "ringbuf:Events"
+          ],
+          "name": "ringbuf.discard",
+          "resource": "discard"
+        },
+        {
+          "mutates": [
+            "ringbuf:Events"
+          ],
+          "name": "ringbuf.reserve",
+          "resource": "reserve"
+        },
+        {
+          "mutates": [
+            "ringbuf:Events"
+          ],
+          "name": "ringbuf.submit",
+          "resource": "submit"
+        }
+      ],
+      "kind": "source",
+      "maps": {
+        "events": [
+          "Events"
+        ],
+        "read": [],
+        "write": []
+      },
+      "name": "kernel.process.exec.observe",
+      "program": "OnExec",
+      "requirements": {
+        "features": [
+          "tracefs"
+        ],
+        "helpers": [
+          {
+            "min_kernel": "4.1",
+            "name": "bpf_get_current_comm"
+          },
+          {
+            "min_kernel": "4.1",
+            "name": "bpf_get_current_pid_tgid"
+          },
+          {
+            "min_kernel": "4.1",
+            "name": "bpf_ktime_get_ns"
+          },
+          {
+            "min_kernel": "5.8",
+            "name": "bpf_ringbuf_discard"
+          },
+          {
+            "min_kernel": "5.8",
+            "name": "bpf_ringbuf_reserve"
+          },
+          {
+            "min_kernel": "5.8",
+            "name": "bpf_ringbuf_submit"
+          }
+        ],
+        "maps": [
+          {
+            "min_kernel": "5.8",
+            "name": "ringbuf"
+          }
+        ],
+        "min_kernel": "5.8",
+        "permissions": [
+          "bpf_program_load",
+          "perf_event_open"
+        ],
+        "programs": [
+          {
+            "min_kernel": "4.7",
+            "name": "tracepoint"
+          }
+        ]
+      },
+      "section": "tracepoint/sched:sched_process_exec"
+    }
+  ],
+  "maps": [
+    {
+      "kind": "ringbuf",
+      "name": "Events",
+      "value": "ExecEvent"
+    }
+  ],
+  "package": "execwatch",
+  "programs": [
+    {
+      "attach": "sched:sched_process_exec",
+      "capabilities": [
+        "kernel.process.exec.observe"
+      ],
+      "kind": "tracepoint",
+      "name": "OnExec",
+      "section": "tracepoint/sched:sched_process_exec"
+    }
+  ],
+  "requirements": {
+    "features": [
+      "tracefs"
+    ],
+    "helpers": [
+      {
+        "min_kernel": "4.1",
+        "name": "bpf_get_current_comm"
+      },
+      {
+        "min_kernel": "4.1",
+        "name": "bpf_get_current_pid_tgid"
+      },
+      {
+        "min_kernel": "4.1",
+        "name": "bpf_ktime_get_ns"
+      },
+      {
+        "min_kernel": "5.8",
+        "name": "bpf_ringbuf_discard"
+      },
+      {
+        "min_kernel": "5.8",
+        "name": "bpf_ringbuf_reserve"
+      },
+      {
+        "min_kernel": "5.8",
+        "name": "bpf_ringbuf_submit"
+      }
+    ],
+    "maps": [
+      {
+        "min_kernel": "5.8",
+        "name": "ringbuf"
+      }
+    ],
+    "min_kernel": "5.8",
+    "permissions": [
+      "bpf_program_load",
+      "perf_event_open"
+    ],
+    "programs": [
+      {
+        "min_kernel": "4.7",
+        "name": "tracepoint"
+      }
+    ]
+  },
+  "schema": "m31labs.dev/horizon/capability/v1",
+  "types": [
+    {
+      "align": 8,
+      "fields": [
+        {
+          "name": "ts_ns",
+          "offset": 0,
+          "type": "u64"
+        },
+        {
+          "name": "pid",
+          "offset": 8,
+          "type": "u32"
+        },
+        {
+          "name": "comm",
+          "offset": 12,
+          "type": "[16]u8"
+        }
+      ],
+      "kind": "struct",
+      "name": "ExecEvent",
+      "size": 32
+    }
+  ]
+}

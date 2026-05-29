@@ -1,0 +1,56 @@
+package execwatch
+
+import bpf "m31labs.dev/horizon/runtime/kernel"
+
+type ExecEvent struct {
+    ts_ns u64
+    pid u32
+    comm [16]u8
+}
+
+map Events ringbuf[ExecEvent]
+
+capability ExecObserve danger observe = "kernel.process.exec.observe"
+
+// shouldEmit is a user helper that INSPECTS a live reservation without
+// consuming it: it takes the reservation pointer alongside a scalar and
+// decides, from the scalar alone, whether the event is worth emitting. It
+// never submits, discards, or dereferences the reservation, so the Phase 2
+// #13 helper-effect summary classifies shouldEmit as `Preserves` on its `e`
+// parameter — ownership stays with the caller.
+//
+// v0.4 B1 (single-hop interprocedural alias tracking) demonstration: the
+// entrypoint binds the helper's verdict with `emit := shouldEmit(e, pid)` — a
+// helper call as the RHS of a short_var. Before B1, the validate layer applied
+// a helper's per-argument effect to the caller's binding only when the call was
+// a bare statement; on a short_var RHS the argument `e` was left in its prior
+// state. B1 now threads the reservation across the short_var-RHS call boundary:
+// because shouldEmit provably Preserves it, `e` stays live and the caller still
+// owes a submit. This program submits it, so it is clean — but a missing submit
+// would now correctly fire HZN2104, which the conservative v0.3 escape posture
+// (treating any helper-passed reservation as escaped) would have suppressed.
+func shouldEmit(e *ExecEvent, pid u32) bool {
+    if pid == 0 {
+        return false
+    }
+    return true
+}
+
+@capability(ExecObserve)
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    e := Events.reserve()
+    if e == nil {
+        return 0
+    }
+    e.ts_ns = bpf.ktime_get_ns()
+    e.pid = bpf.current_pid()
+    bpf.current_comm(&e.comm)
+    emit := shouldEmit(e, e.pid)
+    if !emit {
+        Events.discard(e)
+        return 0
+    }
+    Events.submit(e)
+    return 0
+}

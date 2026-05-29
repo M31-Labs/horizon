@@ -44,6 +44,7 @@ var examples = []exampleFixture{
 	{Name: "imported-execcount"},
 	{Name: "imported-reexport"},
 	{Name: "helperctor-execwatch"},
+	{Name: "interproc-execwatch"},
 	{
 		Name: "multifile-buildtag",
 		Env: []string{
