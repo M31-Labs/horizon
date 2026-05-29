@@ -21,3 +21,9 @@ coverage.out
 # Bindgen behavior-test fixtures live in bindgen/testdata/generated/ and must be tracked.
 !bindgen/testdata/
 !bindgen/testdata/**
+
+# kernel-matrix min_kernel floor-check fixtures share the *.report.json extension
+# with workbench output (gitignored above) but must be tracked. Negate within
+# scripts/kernel-matrix/testdata/.
+!scripts/kernel-matrix/testdata/
+!scripts/kernel-matrix/testdata/**

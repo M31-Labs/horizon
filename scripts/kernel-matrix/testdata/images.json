@@ -1,0 +1,12 @@
+{
+  "schema": "m31labs.dev/horizon/kernel-matrix/v1",
+  "comment": "Synthetic gate map for check-min-kernel.sh tests. Mirrors the real scripts/kernel-matrix/images.json gate assignments (5.10/5.15 best_effort, 6.1/6.6 required) but carries no image versions/digests — the floor-check tests never boot a VM.",
+  "image_repo": "synthetic",
+  "image": "synthetic",
+  "images": [
+    {"kernel": "5.10", "gate": "best_effort"},
+    {"kernel": "5.15", "gate": "best_effort"},
+    {"kernel": "6.1", "gate": "required"},
+    {"kernel": "6.6", "gate": "required"}
+  ]
+}

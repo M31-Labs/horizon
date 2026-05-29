@@ -1,0 +1,7 @@
+{
+  "kernel_release": "6.6.0-synthetic",
+  "results": [
+    {"object": "alpha", "loaded": true},
+    {"object": "beta", "loaded": true}
+  ]
+}

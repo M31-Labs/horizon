@@ -1,0 +1,6 @@
+{
+  "schema": "m31labs.dev/horizon/report/v0",
+  "summary": {
+    "min_kernel": "6.1"
+  }
+}

@@ -73,6 +73,11 @@ for rp in reports:
     mark = "ok" if actual == expected else "MISMATCH"
     print(f"  {mark} {stem}: min_kernel={min_kernel} kernel={kernel} "
           f"expected_load={expected} actual_load={actual}")
+    # Machine-readable per-example floor verdict for the cross-kernel A3
+    # aggregator (check-min-kernel.sh) to harvest. Additive output only — it
+    # does NOT influence this comparator's per-cell pass/fail below.
+    print(f"FLOOR-VERDICT stem={stem} kernel={kernel} "
+          f"declared_min_kernel={min_kernel} loaded={str(actual).lower()}")
     if actual != expected:
         mismatches += 1
         log = read_log(stem)

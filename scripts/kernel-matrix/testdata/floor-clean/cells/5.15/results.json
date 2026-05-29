@@ -1,0 +1,7 @@
+{
+  "kernel_release": "5.15.0-synthetic",
+  "results": [
+    {"object": "alpha", "loaded": true},
+    {"object": "beta", "loaded": false}
+  ]
+}

@@ -90,6 +90,21 @@ jobs:
         id: cmp
         continue-on-error: true
         run: bash scripts/kernel-matrix/check-results.sh ${{ matrix.kernel }} kmatrix-artifacts kmatrix-artifacts/results.json
+      # Additive (A3): publish this cell's results.json + verifier logs so the
+      # cross-kernel min_kernel floor check (floor-check job) can aggregate
+      # them. Read-only w.r.t. the gate — it uploads what in-guest-load.sh
+      # already wrote and runs even if Enforce gate fails, so the floor check
+      # still sees every cell. Does NOT change the build/boot/compare steps.
+      - name: Upload per-kernel load results (for floor check + log harvest)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kmatrix-results-${{ matrix.kernel }}
+          path: |
+            kmatrix-artifacts/results.json
+            kmatrix-artifacts/logs/
+          if-no-files-found: warn
+          retention-days: 14
       - name: Enforce gate
         run: |
           if [ "${{ steps.cmp.outcome }}" = "success" ]; then
@@ -101,3 +116,48 @@ jobs:
             exit 1
           fi
           echo "::warning::kernel ${{ matrix.kernel }} (best-effort) had mismatches"
+
+  # Additive (A3): cross-kernel min_kernel regression-guard. Runs AFTER every
+  # boot cell so it can see the whole matrix. For each example it computes the
+  # observed verifier floor (lowest kernel it loaded on) and compares it
+  # against the declared summary.min_kernel; a mismatch on a REQUIRED kernel
+  # fails (consistent with the per-cell gate above), a best-effort-only
+  # mismatch warns. It NEVER rewrites min_kernel (spec O-4 — guard only). This
+  # job does not touch the build/boot/compare steps; it only reads the
+  # results.json each cell already uploaded plus the built reports.
+  floor-check:
+    needs: [build-objects, matrix]
+    if: always() && needs.build-objects.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - name: Restore built reports (carry summary.min_kernel)
+        uses: actions/cache/restore@v4
+        with:
+          path: kmatrix-artifacts
+          key: ${{ needs.build-objects.outputs.objects-cache-key }}
+          fail-on-cache-miss: true
+      - name: Download per-kernel load results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: kmatrix-results-*
+          path: kmatrix-cells-raw
+      - name: Lay out cells as <kernel>/results.json
+        run: |
+          set -euo pipefail
+          mkdir -p kmatrix-cells
+          for d in kmatrix-cells-raw/kmatrix-results-*; do
+            [ -d "$d" ] || continue
+            kernel="${d##*/kmatrix-results-}"
+            mkdir -p "kmatrix-cells/$kernel"
+            if [ -f "$d/results.json" ]; then
+              cp "$d/results.json" "kmatrix-cells/$kernel/results.json"
+            else
+              echo "::warning::no results.json for kernel $kernel (cell may have failed to boot)"
+            fi
+          done
+          echo "cells laid out:"
+          find kmatrix-cells -name results.json
+      - name: Cross-kernel min_kernel floor check
+        run: bash scripts/kernel-matrix/check-min-kernel.sh kmatrix-cells kmatrix-artifacts scripts/kernel-matrix/images.json

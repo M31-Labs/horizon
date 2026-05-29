@@ -1,0 +1,8 @@
+{
+  "kernel_release": "6.6.0-synthetic",
+  "results": [
+    {"object": "cleanexample", "loaded": true},
+    {"object": "floorlow", "loaded": true},
+    {"object": "floorhigh", "loaded": true}
+  ]
+}
