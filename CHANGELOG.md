@@ -6,6 +6,8 @@ All notable changes to Horizon are documented in this file. Format follows
 
 ## [Unreleased]
 
+## [v0.3.0] — 2026-05-28
+
 ### Changed
 - **Breaking:** v0 capability manifests are no longer loadable. The
   in-memory v0→v1 migration that shipped through the v0.2.x deprecation
