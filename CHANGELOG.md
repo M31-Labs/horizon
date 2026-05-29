@@ -16,6 +16,18 @@ All notable changes to Horizon are documented in this file. Format follows
   no literal-argument call sites, or with un-prunable conditions, fall back to
   the prior per-helper verdict; the analysis never accepts a return shape it
   cannot prove for the given argument context.
+- Resource-lifetime tracking now follows a reservation across a single
+  user-helper-call boundary even when the call is bound (`ok := helper(e)`),
+  not only when it stands alone (`helper(e)`). A reservation passed into a
+  helper that provably preserves, consumes, or conditionally-consumes it is
+  tracked end-to-end on the caller side, instead of being left in its prior
+  state on the bound-call path. This removes false-positive suppression — a
+  helper that does not consume the reservation no longer hides the caller's
+  own leak (a missing submit fires `HZN2104`) — and closes the matching false
+  negative: a reservation already consumed inside the helper now reports a
+  double-submit (`HZN2102`) on a trailing caller-side submit. Helpers whose
+  bodies cannot be summarized keep the conservative escaped fallback.
+  Single-hop only; deeper transitive helper chains remain conservative.
 
 ## [v0.3.0] — 2026-05-28
 
