@@ -841,3 +841,209 @@ func TestBuildHelperEffectsReturnsUnknownForOpaqueReturn(t *testing.T) {
 		t.Fatalf("ReturnEffectFor(opaque) = %v, want ReturnEffectUnknown", got)
 	}
 }
+
+// ── ReturnEffectForCall: per-call-site ReturnEffect specialization (v0.4 B2) ──
+//
+// These tests pin ReturnEffectForCall — the return-axis analogue of
+// EffectForCall. A helper whose return shape depends on a caller's literal
+// args resolves to a precise verdict under a constant flag (branch-pruning via
+// foldCondition) instead of the flat per-helper join. Non-literal / over-budget
+// / no-body sites fall back to the flat ReturnEffectFor verdict — the
+// conservative posture.
+
+// chooseHelperFn builds the canonical return-specialization fixture:
+//
+//	func choose(flag bool, e *Event) *Event {
+//	    if flag {
+//	        return e               // ReturnsAlias
+//	    } else {
+//	        return Events.reserve() // ReturnsResource
+//	    }
+//	}
+//
+// The flat classifyHelperReturns joins ReturnsAlias ⊔ ReturnsResource =
+// Unknown (per joinReturnEffect). Under flag=true the only feasible branch is
+// the alias return; under flag=false it is the fresh-resource return.
+func chooseHelperFn() ir.Function {
+	return resourceReturnHelperFn("choose",
+		[]ir.Param{
+			scalarParam("flag", "bool"),
+			resourceParam("e", "Event"),
+		},
+		[]ir.Statement{
+			{
+				Kind: "if",
+				Cond: &ir.Expr{Kind: "ident", Name: "flag"},
+				Then: []ir.Statement{
+					{Kind: "return", Value: &ir.Expr{Kind: "ident", Name: "e"}},
+				},
+				Else: []ir.Statement{
+					{Kind: "return", Value: reserveExpr("Events")},
+				},
+			},
+		},
+		"Event",
+	)
+}
+
+// TestReturnEffectForCallSpecializesUnderLiteralFlag — SAFE-accept. With a
+// literal flag the infeasible branch is pruned, resolving the otherwise-Unknown
+// flat verdict to a precise ReturnsAlias (flag=true) / ReturnsResource
+// (flag=false).
+func TestReturnEffectForCallSpecializesUnderLiteralFlag(t *testing.T) {
+	prog := programWith(chooseHelperFn())
+	effects := validate.BuildHelperEffects(prog)
+
+	// Precondition: the flat per-helper verdict joins to Unknown.
+	if flat := effects.ReturnEffectFor("choose"); flat != validate.ReturnEffectUnknown {
+		t.Fatalf("flat ReturnEffectFor(choose) = %v, want ReturnEffectUnknown (precondition for specialization)", flat)
+	}
+
+	// flag=true → the only feasible branch returns the alias e.
+	trueArgs := []ir.Expr{
+		{Kind: "bool", Value: "true"},
+		{Kind: "ident", Name: "e"},
+	}
+	if got := effects.ReturnEffectForCall("choose", trueArgs); got != validate.ReturnEffectReturnsAlias {
+		t.Fatalf("ReturnEffectForCall(choose, flag=true) = %v, want ReturnEffectReturnsAlias", got)
+	}
+
+	// flag=false → the only feasible branch returns a fresh Events.reserve().
+	falseArgs := []ir.Expr{
+		{Kind: "bool", Value: "false"},
+		{Kind: "ident", Name: "e"},
+	}
+	if got := effects.ReturnEffectForCall("choose", falseArgs); got != validate.ReturnEffectReturnsResource {
+		t.Fatalf("ReturnEffectForCall(choose, flag=false) = %v, want ReturnEffectReturnsResource", got)
+	}
+}
+
+// TestReturnEffectForCallFallsBackToFlatForNonLiteralFlag — UNSAFE-reject
+// sibling. When the flag is a non-literal ident the condition cannot be
+// folded; both branches are walked and joined, so the call site resolves to
+// the conservative flat Unknown. This proves specialization does not
+// over-resolve when the branch cannot be pruned.
+func TestReturnEffectForCallFallsBackToFlatForNonLiteralFlag(t *testing.T) {
+	prog := programWith(chooseHelperFn())
+	effects := validate.BuildHelperEffects(prog)
+	flat := effects.ReturnEffectFor("choose")
+	if flat != validate.ReturnEffectUnknown {
+		t.Fatalf("flat ReturnEffectFor(choose) = %v, want ReturnEffectUnknown (precondition)", flat)
+	}
+	args := []ir.Expr{
+		{Kind: "ident", Name: "dynFlag"},
+		{Kind: "ident", Name: "e"},
+	}
+	if got := effects.ReturnEffectForCall("choose", args); got != flat {
+		t.Fatalf("ReturnEffectForCall(choose, non-literal flag) = %v, want flat %v (no literal arg → conservative fallback)", got, flat)
+	}
+}
+
+// TestReturnEffectForCallOverBudgetFallsBackToFlat drives >32 distinct literal
+// signatures so the 33rd+ overflows the per-helper return cache and falls back
+// to the flat verdict, bumping the return-cache overflow counter. The helper is
+// gated on a u32 flag so each distinct literal int is a fresh cache signature.
+func TestReturnEffectForCallOverBudgetFallsBackToFlat(t *testing.T) {
+	// func chooseN(flag u32, e *Event) *Event {
+	//   if flag != 0 { return e } else { return Events.reserve() }
+	// }
+	chooseN := resourceReturnHelperFn("chooseN",
+		[]ir.Param{
+			scalarParam("flag", "u32"),
+			resourceParam("e", "Event"),
+		},
+		[]ir.Statement{
+			{
+				Kind: "if",
+				Cond: &ir.Expr{
+					Kind:  "binary",
+					Op:    "!=",
+					Left:  &ir.Expr{Kind: "ident", Name: "flag"},
+					Right: &ir.Expr{Kind: "int", Value: "0"},
+				},
+				Then: []ir.Statement{
+					{Kind: "return", Value: &ir.Expr{Kind: "ident", Name: "e"}},
+				},
+				Else: []ir.Statement{
+					{Kind: "return", Value: reserveExpr("Events")},
+				},
+			},
+		},
+		"Event",
+	)
+	prog := programWith(chooseN)
+	effects := validate.BuildHelperEffects(prog)
+	flat := effects.ReturnEffectFor("chooseN")
+	if flat != validate.ReturnEffectUnknown {
+		t.Fatalf("flat ReturnEffectFor(chooseN) = %v, want ReturnEffectUnknown (precondition)", flat)
+	}
+	// Drive 64 unique literal signatures. Each flag=N (N=1..64) is non-zero, so
+	// the feasible branch returns the alias e → ReturnsAlias within budget; the
+	// 33rd+ distinct signature overflows and falls back to flat Unknown.
+	for i := 0; i < 64; i++ {
+		args := []ir.Expr{
+			{Kind: "int", Value: fmtName("", i+1)}, // 1..64
+			{Kind: "ident", Name: "e"},
+		}
+		got := effects.ReturnEffectForCall("chooseN", args)
+		if i < 32 {
+			if got != validate.ReturnEffectReturnsAlias {
+				t.Fatalf("iteration %d: ReturnEffectForCall = %v, want ReturnEffectReturnsAlias (within budget)", i, got)
+			}
+		} else {
+			if got != flat {
+				t.Fatalf("iteration %d: ReturnEffectForCall = %v, want flat %v (over-budget fallback)", i, got, flat)
+			}
+		}
+	}
+	if effects.ReturnCacheOverflows() == 0 {
+		t.Fatalf("ReturnCacheOverflows = 0 after exceeding budget, want > 0")
+	}
+}
+
+// TestReturnEffectForCallCacheHitDeterministic calls twice with the same
+// literal signature and asserts an identical verdict — the second call is a
+// cache hit (no recomputation divergence). The return-cache overflow counter
+// stays zero (a single signature is well within budget).
+func TestReturnEffectForCallCacheHitDeterministic(t *testing.T) {
+	prog := programWith(chooseHelperFn())
+	effects := validate.BuildHelperEffects(prog)
+	args := []ir.Expr{
+		{Kind: "bool", Value: "false"},
+		{Kind: "ident", Name: "e"},
+	}
+	first := effects.ReturnEffectForCall("choose", args)
+	second := effects.ReturnEffectForCall("choose", args)
+	if first != second {
+		t.Fatalf("ReturnEffectForCall not deterministic: first=%v second=%v", first, second)
+	}
+	if first != validate.ReturnEffectReturnsResource {
+		t.Fatalf("ReturnEffectForCall(choose, flag=false) = %v, want ReturnEffectReturnsResource", first)
+	}
+	if effects.ReturnCacheOverflows() != 0 {
+		t.Fatalf("ReturnCacheOverflows = %d after one signature, want 0", effects.ReturnCacheOverflows())
+	}
+}
+
+// TestReturnEffectForCallNoLiteralArgsReturnsFlat pins that a helper called
+// with no literal args returns ReturnEffectFor(helper) verbatim — there is no
+// specialization opportunity, so the flat verdict flows through unchanged.
+func TestReturnEffectForCallNoLiteralArgsReturnsFlat(t *testing.T) {
+	// func make() *Event { return Events.reserve() }  (no params, no literal args)
+	makeFn := resourceReturnHelperFn("make",
+		nil,
+		[]ir.Statement{
+			{Kind: "return", Value: reserveExpr("Events")},
+		},
+		"Event",
+	)
+	prog := programWith(makeFn)
+	effects := validate.BuildHelperEffects(prog)
+	flat := effects.ReturnEffectFor("make")
+	if got := effects.ReturnEffectForCall("make", nil); got != flat {
+		t.Fatalf("ReturnEffectForCall(make, no args) = %v, want flat %v", got, flat)
+	}
+	if flat != validate.ReturnEffectReturnsResource {
+		t.Fatalf("flat ReturnEffectFor(make) = %v, want ReturnEffectReturnsResource", flat)
+	}
+}

@@ -112,6 +112,19 @@ type HelperEffects struct {
 	// in the map, which is the safe default for caller-side state machines
 	// (no tracked-resource binding).
 	Returns map[string]ReturnEffect
+	// bySiteReturn caches the per-call-site specialized ReturnEffect verdict,
+	// the return-axis analogue of bySite. Keyed by pathKey{helper, literal-arg
+	// signature}; populated lazily by ReturnEffectForCall. v0.4 B2. The param
+	// (bySite) and return (bySiteReturn) caches are independent maps with
+	// independent overflow budgets (siteCountByName vs siteCountByNameReturn)
+	// — return specialization and param specialization are separate precision
+	// budgets and never collide on a shared key.
+	bySiteReturn map[pathKey]ReturnEffect
+	// siteCountByNameReturn bounds the per-helper return-specialization cache
+	// at maxSpecializationCacheEntriesPerHelper, independently of the per-param
+	// siteCountByName. Over budget, ReturnEffectForCall falls back to the flat
+	// per-helper verdict and bumps counters.ReturnCacheOverflows.
+	siteCountByNameReturn map[string]int
 }
 
 // ReturnEffect describes what kind of value a user helper returns on the
@@ -169,6 +182,11 @@ const (
 // validator chain.
 type effectsCounters struct {
 	CacheOverflows int
+	// ReturnCacheOverflows counts how many ReturnEffectForCall sites fell back
+	// to the flat per-helper verdict because the per-helper 32-entry return
+	// specialization cache (bySiteReturn) was already full. Independent of
+	// CacheOverflows (the per-param axis). v0.4 B2.
+	ReturnCacheOverflows int
 }
 
 // CacheOverflows returns the count of EffectForCall sites that fell back to
@@ -181,6 +199,18 @@ func (e HelperEffects) CacheOverflows() int {
 		return 0
 	}
 	return e.counters.CacheOverflows
+}
+
+// ReturnCacheOverflows returns the count of ReturnEffectForCall sites that fell
+// back to the flat per-helper verdict because the per-helper 32-entry return
+// specialization cache (bySiteReturn) was already full at the time of the call.
+// Mirrors CacheOverflows on the return axis; surfaced by the same
+// HORIZON_BIRCH_DEPTH_REPORT telemetry gate. v0.4 B2.
+func (e HelperEffects) ReturnCacheOverflows() int {
+	if e.counters == nil {
+		return 0
+	}
+	return e.counters.ReturnCacheOverflows
 }
 
 // EffectFor returns the effect for the named helper at parameter index i.
@@ -245,12 +275,14 @@ func BuildHelperEffects(program ir.Program) HelperEffects {
 			returns[fn.Name] = ReturnEffectUnknown
 		}
 		return HelperEffects{
-			byName:          effects,
-			bySite:          map[pathKey][]HelperEffect{},
-			helperByName:    map[string]*ir.Function{},
-			siteCountByName: map[string]int{},
-			counters:        &effectsCounters{},
-			Returns:         returns,
+			byName:                effects,
+			bySite:                map[pathKey][]HelperEffect{},
+			helperByName:          map[string]*ir.Function{},
+			siteCountByName:       map[string]int{},
+			counters:              &effectsCounters{},
+			Returns:               returns,
+			bySiteReturn:          map[pathKey]ReturnEffect{},
+			siteCountByNameReturn: map[string]int{},
 		}
 	}
 	// Compute depth-from-leaf for every helper. Leaves (helpers that call no
@@ -279,12 +311,14 @@ func BuildHelperEffects(program ir.Program) HelperEffects {
 		depthOf[fn.Name] = max + 1
 	}
 	effects := HelperEffects{
-		byName:          make(map[string][]HelperEffect, len(order)),
-		bySite:          map[pathKey][]HelperEffect{},
-		helperByName:    byNameLookup,
-		siteCountByName: map[string]int{},
-		counters:        &effectsCounters{},
-		Returns:         make(map[string]ReturnEffect, len(order)),
+		byName:                make(map[string][]HelperEffect, len(order)),
+		bySite:                map[pathKey][]HelperEffect{},
+		helperByName:          byNameLookup,
+		siteCountByName:       map[string]int{},
+		counters:              &effectsCounters{},
+		Returns:               make(map[string]ReturnEffect, len(order)),
+		bySiteReturn:          map[pathKey]ReturnEffect{},
+		siteCountByNameReturn: map[string]int{},
 	}
 	for _, fn := range order {
 		if depthOf[fn.Name] > maxHelperEffectDepth {
@@ -808,6 +842,62 @@ func (e HelperEffects) EffectForCall(helper string, callArgs []ir.Expr) []Helper
 	return appendCopy(specialized)
 }
 
+// ReturnEffectForCall is the return-axis analogue of EffectForCall (v0.4 B2).
+// It returns the per-call-site ReturnEffect verdict for a specific call: when
+// at least one arg is a literal int/bool/nil, the helper's return statements
+// are re-classified under the substitution, pruning infeasible `if` branches
+// via foldCondition. A helper whose return shape is gated on a constant flag
+// (e.g. `if flag { return arg } else { return Events.reserve() }`) resolves to
+// a precise ReturnsAlias / ReturnsResource instead of the flat Unknown join.
+//
+// Conservative fallbacks (the v0.3 posture is preserved on every un-analyzable
+// path):
+//   - no Returns map / helper absent  → ReturnEffectNone
+//   - no literal args                 → flat ReturnEffectFor(helper)
+//   - no cached body (depth-capped)   → flat
+//   - arity mismatch                  → flat
+//   - over the per-helper return cache → flat (bumps ReturnCacheOverflows)
+//
+// The specialized verdict is never higher in information than the flat join
+// would sanction: branch-pruning fires ONLY when foldCondition returns a
+// definite foldTrue/foldFalse; foldUnknown walks both branches and joins,
+// identical to the flat classifier (see classifyHelperReturnsSpecialized).
+func (e HelperEffects) ReturnEffectForCall(helper string, callArgs []ir.Expr) ReturnEffect {
+	if e.Returns == nil {
+		return ReturnEffectNone
+	}
+	flat := e.ReturnEffectFor(helper)
+	key, hasLiteral := canonicalLiteralArgs(callArgs)
+	if !hasLiteral {
+		return flat
+	}
+	fn, ok := e.helperByName[helper]
+	if !ok || fn == nil {
+		// Helper has a verdict but no body cached (depth-capped fallback).
+		return flat
+	}
+	// Arity mismatch: specialization keys are positional. Real callers are
+	// type-checked upstream so this is mostly defensive.
+	if len(callArgs) != len(fn.Params) {
+		return flat
+	}
+	pk := pathKey{helper: helper, args: key}
+	if cached, ok := e.bySiteReturn[pk]; ok {
+		return cached
+	}
+	if e.siteCountByNameReturn[helper] >= maxSpecializationCacheEntriesPerHelper {
+		if e.counters != nil {
+			e.counters.ReturnCacheOverflows++
+		}
+		return flat
+	}
+	subs := buildSubstitutions(fn.Params, callArgs)
+	specialized := classifyHelperReturnsSpecialized(*fn, subs)
+	e.bySiteReturn[pk] = specialized
+	e.siteCountByNameReturn[helper] = e.siteCountByNameReturn[helper] + 1
+	return specialized
+}
+
 // appendCopy returns an independent slice with the same contents as src so
 // callers cannot mutate the cached vector.
 func appendCopy(src []HelperEffect) []HelperEffect {
@@ -1125,6 +1215,97 @@ func classifyHelperReturns(fn ir.Function) ReturnEffect {
 		return ReturnEffectNone
 	}
 	return joined
+}
+
+// classifyHelperReturnsSpecialized is classifyHelperReturns specialized for a
+// particular call-site substitution map (v0.4 B2). It walks every reachable
+// ReturnStmt under the substitution, but at each enclosing `if` whose condition
+// folds to a definite truth value it walks ONLY the feasible branch — the
+// other branch's returns are dead code under this call-site context and do not
+// contribute to the join. A `flag`-gated helper therefore resolves to a single
+// branch's verdict instead of the flat Alias⊔Resource = Unknown join.
+//
+// Soundness invariant (the line between precision and unsoundness): branch-
+// pruning is sound ONLY when foldCondition returns a definite foldTrue/
+// foldFalse. foldUnknown MUST walk BOTH branches and join — identical to the
+// flat classifyHelperReturns. This guarantees the specialized verdict is never
+// higher in information than the flat join would sanction for an un-prunable
+// condition; specialization can only ever resolve as-precise-or-more, never
+// over-resolve. classifyReturnSource and joinReturnEffect are reused unchanged.
+func classifyHelperReturnsSpecialized(fn ir.Function, subs map[string]ir.Expr) ReturnEffect {
+	if !isResourcePointerReturn(fn.Return) {
+		return ReturnEffectNone
+	}
+	paramNames := make(map[string]bool, len(fn.Params))
+	for _, p := range fn.Params {
+		paramNames[p.Name] = true
+	}
+	var joined ReturnEffect
+	seen := false
+	visit := func(ret ir.Statement) {
+		contrib := classifyReturnSource(ret.Value, paramNames)
+		if !seen {
+			joined = contrib
+			seen = true
+		} else {
+			joined = joinReturnEffect(joined, contrib)
+		}
+	}
+	for _, block := range fn.Body {
+		for _, stmt := range block.Statements {
+			walkReturnStmtsSpecialized(stmt, subs, visit)
+		}
+	}
+	if !seen {
+		return ReturnEffectNone
+	}
+	return joined
+}
+
+// walkReturnStmtsSpecialized mirrors walkReturnStmts but prunes infeasible `if`
+// branches under the substitution map. At an `if` whose condition folds to a
+// definite foldTrue/foldFalse, only the feasible branch is walked; on
+// foldUnknown both branches are walked (identical to walkReturnStmts), keeping
+// the specialized verdict no higher in information than the flat join. for /
+// switch are walked unconditionally — Horizon's fold lattice does not model
+// loop-trip or case-selection pruning, so the conservative full walk is the
+// sound choice. v0.4 B2.
+func walkReturnStmtsSpecialized(stmt ir.Statement, subs map[string]ir.Expr, visit func(ir.Statement)) {
+	switch stmt.Kind {
+	case "return":
+		visit(stmt)
+	case "if":
+		switch foldCondition(stmt.Cond, subs) {
+		case foldTrue:
+			for _, s := range stmt.Then {
+				walkReturnStmtsSpecialized(s, subs, visit)
+			}
+			return
+		case foldFalse:
+			for _, s := range stmt.Else {
+				walkReturnStmtsSpecialized(s, subs, visit)
+			}
+			return
+		}
+		// foldUnknown: condition not prunable — walk both branches and join,
+		// identical to the flat walkReturnStmts.
+		for _, s := range stmt.Then {
+			walkReturnStmtsSpecialized(s, subs, visit)
+		}
+		for _, s := range stmt.Else {
+			walkReturnStmtsSpecialized(s, subs, visit)
+		}
+	case "for":
+		for _, s := range stmt.Body {
+			walkReturnStmtsSpecialized(s, subs, visit)
+		}
+	case "switch":
+		for _, c := range stmt.Cases {
+			for _, s := range c.Body {
+				walkReturnStmtsSpecialized(s, subs, visit)
+			}
+		}
+	}
 }
 
 // isResourcePointerReturn mirrors types/checker.go::helperResourceReturnType
