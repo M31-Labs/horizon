@@ -13,6 +13,13 @@ All notable changes to Horizon are documented in this file. Format follows
   informed by the per-entry `.horizon-meta.json` fetch metadata.
   `-dry-run` previews; the bare `hzn cache prune` lists entries without
   deleting.
+- `m31labs.dev/<org>/<repo>@<version>` imports now resolve via HTTP
+  meta-redirect discovery (`?horizon-import=1` +
+  `<meta name="horizon-import" content="<repo> git <url>">`), mirroring
+  Go's import-path discovery — promoting the `m31labs.dev` shape from a
+  documented limit to a working import path. `github.com/...` imports
+  are unchanged. New diagnostic HZN1705 surfaces a discovery failure
+  (distinct from HZN1703 git-clone failures).
 
 ## [v0.3.0] — 2026-05-28
 

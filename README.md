@@ -292,6 +292,28 @@ It keeps the kernel-side language deliberately small:
 - source maps with declaration and function/section context for diagnostics
 - typed Go bindings and Continuum capability manifests
 
+### Remote imports
+
+Beyond `vendor/`, a project can import a package straight from a git
+repository by giving the import path a `@<version>` suffix (a semver
+tag `vX.Y.Z` or a 7+ char git SHA). Two host shapes resolve:
+
+```hzn
+import events "github.com/m31labs/horizon-events@v1.2.3"
+import audit  "m31labs.dev/m31labs/horizon-audit@v0.4.0"
+```
+
+`github.com/<org>/<repo>` resolves directly to its clone URL.
+`m31labs.dev/<org>/<repo>` resolves via HTTP meta-redirect discovery —
+Horizon fetches `https://m31labs.dev/<org>/<repo>?horizon-import=1`,
+reads a `<meta name="horizon-import" content="<prefix> git <url>">`
+tag (mirroring Go's `<meta name="go-import">` convention), and uses
+the advertised clone URL. Both shapes then flow through the same
+`hzn.lock` pin + content-addressed cache path: `hzn get <path>@<version>`
+writes the lockfile entry and `hzn check` verifies the cached content's
+sha256 on every build. A discovery failure surfaces HZN1705. URL-shaped
+imports without `@version` still fall through to the `vendor/` walk.
+
 ### Programs and capabilities
 
 ```go
