@@ -20,6 +20,10 @@ All notable changes to Horizon are documented in this file. Format follows
   documented limit to a working import path. `github.com/...` imports
   are unchanged. New diagnostic HZN1705 surfaces a discovery failure
   (distinct from HZN1703 git-clone failures).
+- New `-lockfile-update` flag on `hzn check` batch-resolves all
+  `@version` imports and rewrites `hzn.lock` in one pass — complementing
+  the per-dependency `hzn get` for version-bump workflows. Default
+  `hzn check` stays verify-only and never mutates the lockfile.
 
 ## [v0.3.0] — 2026-05-28
 
