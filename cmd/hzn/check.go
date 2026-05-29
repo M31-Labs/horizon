@@ -32,8 +32,20 @@ func runCheck(args []string) error {
 	jsonOut := fs.Bool("json", false, "emit JSON diagnostics")
 	manifestOut := fs.String("manifest-out", "", "override the per-package manifest output path")
 	noManifest := fs.Bool("no-manifest", false, "suppress the per-package manifest side-artifact")
+	lockfileUpdate := fs.Bool("lockfile-update", false, "batch-resolve @version imports and rewrite hzn.lock (default: verify-only, never mutates the lockfile)")
 	if err := parseFlags(fs, args); err != nil {
 		return err
+	}
+	// -lockfile-update runs the resolver in write-back mode and rewrites
+	// hzn.lock *before* the verify pass, so the subsequent check verifies
+	// against the freshly-pinned content. Resolution reuses the same
+	// internal primitive `hzn get` drives (compiler.ResolveImportsOpts +
+	// the shared upsertLockfileEntry / SaveLockfile path). Without the
+	// flag, runCheck never touches hzn.lock — it stays verify-only.
+	if *lockfileUpdate {
+		if err := updateLockfile(pathArg(fs)); err != nil {
+			return err
+		}
 	}
 	result, err := compiler.CheckPath(pathArg(fs))
 	if err != nil {
@@ -85,6 +97,72 @@ func runCheck(args []string) error {
 	fmt.Printf("check passed: %d file(s)\n", len(result.Files))
 	if manifestPath != "" {
 		fmt.Printf("wrote per-package manifest: %s\n", manifestPath)
+	}
+	return nil
+}
+
+// updateLockfile implements the `hzn check -lockfile-update` batch path
+// (C3 / ADR-0009 O-1). It runs the resolver in lockfile-update mode over
+// the build root, merges every resulting LockfileEntry into the existing
+// hzn.lock via the shared upsertLockfileEntry (same helper `hzn get`
+// uses), and writes the result atomically via compiler.SaveLockfile.
+// Resolution itself is NOT reimplemented — this reuses the exact
+// ResolveImportsOpts{LockfileUpdate: true} primitive that `hzn get`
+// drives per-dependency, so diagnostics match (HZN1703 fetch failure,
+// HZN1704 bad version, etc.).
+//
+// The build root is derived the same way the resolver derives it: a path
+// pointing at a single .hzn file resolves to that file's parent
+// directory (where hzn.lock lives); a directory is used as-is. A package
+// with no remote imports yields zero LockfileUpdate entries and is a
+// clean no-op — no hzn.lock is created.
+func updateLockfile(pathArg string) error {
+	absRoot, err := filepath.Abs(pathArg)
+	if err != nil {
+		return fmt.Errorf("resolve %s: %w", pathArg, err)
+	}
+	if info, statErr := os.Stat(absRoot); statErr == nil && !info.IsDir() {
+		absRoot = filepath.Dir(absRoot)
+	}
+
+	res, err := compiler.ResolveImportsOpts(absRoot, compiler.ResolveOpts{
+		LockfileUpdate: true,
+	})
+	if err != nil {
+		return fmt.Errorf("resolve: %w", err)
+	}
+	// Surface resolution diagnostics on stderr in the same shape `hzn get`
+	// does — the resolver is what flags HZN1704 (bad version) and HZN1703
+	// (fetch failure).
+	for _, d := range res.Diagnostics {
+		fmt.Fprintln(os.Stderr, formatDiagnostic(d))
+	}
+	if diag.HasErrors(res.Diagnostics) {
+		return fmt.Errorf("hzn check -lockfile-update failed; see diagnostics above")
+	}
+	if len(res.LockfileUpdate) == 0 {
+		// No remote imports needing a pin (or all already pinned) — a
+		// clean no-op. Deliberately do not create an empty hzn.lock.
+		return nil
+	}
+
+	lf, _, err := compiler.LoadLockfile(absRoot)
+	if err != nil {
+		return fmt.Errorf("load existing lockfile: %w", err)
+	}
+	for _, add := range res.LockfileUpdate {
+		lf = upsertLockfileEntry(lf, add)
+	}
+	if err := compiler.SaveLockfile(absRoot, lf); err != nil {
+		return fmt.Errorf("write lockfile: %w", err)
+	}
+	for _, add := range res.LockfileUpdate {
+		shaPrefix := add.SHA256
+		if len(shaPrefix) > 12 {
+			shaPrefix = shaPrefix[:12]
+		}
+		fmt.Fprintf(os.Stderr, "hzn check: updated %s@%s -> %s (sha256 %s...)\n",
+			add.Path, add.Version, add.RefResolved, shaPrefix)
 	}
 	return nil
 }

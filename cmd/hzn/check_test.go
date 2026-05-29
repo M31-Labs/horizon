@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -359,5 +361,164 @@ func TestCheckJSONEnvelopeOmitsManifestPathWhenSuppressed(t *testing.T) {
 	}
 	if strings.Contains(stdout, "manifest_path") {
 		t.Fatalf("envelope contains manifest_path despite -no-manifest:\n%s", stdout)
+	}
+}
+
+// checkCacheKey mirrors compiler.cacheKey (unexported) so the C3
+// lockfile-update tests can seed the fixture cache under the directory
+// name the resolver will look for. Same algorithm as hznGetCacheKey in
+// get_test.go (kept local to keep each test file self-contained).
+func checkCacheKey(repo string) string {
+	sum := sha256.Sum256([]byte(repo))
+	return hex.EncodeToString(sum[:])[:32]
+}
+
+// seedRemoteImportFixture pre-seeds a content-addressed cache entry for
+// repo@ref and writes a build root that imports it by SHA-as-version.
+// Pinning by a ≥7-char hex SHA makes the resolver short-circuit
+// resolveRef (no ls-remote / network), so the lockfile-update path runs
+// deterministically in CI. Returns the build root directory.
+func seedRemoteImportFixture(t *testing.T, repo, ref string) string {
+	t.Helper()
+
+	cacheRoot := t.TempDir()
+	t.Setenv("HORIZON_CACHE_ROOT", cacheRoot)
+	dest := filepath.Join(cacheRoot, checkCacheKey(repo), ref)
+	if err := os.MkdirAll(dest, 0o755); err != nil {
+		t.Fatalf("MkdirAll cache fixture: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dest, "events.hzn"),
+		[]byte("package events\n\ntype Exec struct {\n    pid u32\n}\n"), 0o644); err != nil {
+		t.Fatalf("write cache fixture: %v", err)
+	}
+
+	buildRoot := t.TempDir()
+	src := []byte("package probes\n\nimport events \"" + repo + "@" + ref + "\"\n")
+	if err := os.WriteFile(filepath.Join(buildRoot, "probes.hzn"), src, 0o644); err != nil {
+		t.Fatalf("write build root source: %v", err)
+	}
+	return buildRoot
+}
+
+// lockEntry is the minimal decode shape shared by the C3 tests.
+type lockEntry struct {
+	Path        string `json:"path"`
+	Version     string `json:"version"`
+	RefResolved string `json:"ref_resolved"`
+	SHA256      string `json:"sha256"`
+}
+
+func readLockEntries(t *testing.T, buildRoot string) []lockEntry {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(buildRoot, "hzn.lock"))
+	if err != nil {
+		t.Fatalf("read hzn.lock: %v", err)
+	}
+	var lf struct {
+		Schema  string      `json:"schema"`
+		Entries []lockEntry `json:"entries"`
+	}
+	if err := json.Unmarshal(raw, &lf); err != nil {
+		t.Fatalf("unmarshal hzn.lock: %v", err)
+	}
+	return lf.Entries
+}
+
+// TestCheckLockfileUpdateWritesLockfile asserts `hzn check -lockfile-update`
+// batch-resolves an unpinned remote import and writes the resulting entry
+// into hzn.lock. This is the batch analog of `hzn get` (C3 / ADR-0009 O-1).
+func TestCheckLockfileUpdateWritesLockfile(t *testing.T) {
+	repo := "github.com/m31labs/horizon-test-events"
+	ref := "abc1234567890abcdef1234567890abcdef12345"
+	buildRoot := seedRemoteImportFixture(t, repo, ref)
+
+	if _, err := captureStdout(t, func() error {
+		return run([]string{"check", buildRoot, "-lockfile-update"})
+	}); err != nil {
+		t.Fatalf("hzn check -lockfile-update: %v", err)
+	}
+
+	entries := readLockEntries(t, buildRoot)
+	if len(entries) != 1 {
+		t.Fatalf("hzn.lock entries = %d, want 1: %#v", len(entries), entries)
+	}
+	e := entries[0]
+	if e.Path != repo {
+		t.Fatalf("entry.Path = %q, want %q", e.Path, repo)
+	}
+	if e.Version != ref {
+		t.Fatalf("entry.Version = %q, want %q (SHA-as-version)", e.Version, ref)
+	}
+	if e.RefResolved != ref {
+		t.Fatalf("entry.RefResolved = %q, want %q", e.RefResolved, ref)
+	}
+	if len(e.SHA256) != 64 {
+		t.Fatalf("entry.SHA256 = %q, want 64-char hex", e.SHA256)
+	}
+}
+
+// TestCheckVerifyModeLeavesLockfileUntouched asserts that the default
+// (flag-absent) `hzn check` never mutates hzn.lock — it stays verify-only.
+// We pre-write a lockfile that already pins the import, run a plain check,
+// and confirm the file is byte-for-byte identical afterward.
+func TestCheckVerifyModeLeavesLockfileUntouched(t *testing.T) {
+	repo := "github.com/m31labs/horizon-test-events"
+	ref := "abc1234567890abcdef1234567890abcdef12345"
+	buildRoot := seedRemoteImportFixture(t, repo, ref)
+
+	// First, produce a valid lockfile via the update path.
+	if _, err := captureStdout(t, func() error {
+		return run([]string{"check", buildRoot, "-lockfile-update"})
+	}); err != nil {
+		t.Fatalf("seed lockfile via -lockfile-update: %v", err)
+	}
+	lockPath := filepath.Join(buildRoot, "hzn.lock")
+	before, err := os.ReadFile(lockPath)
+	if err != nil {
+		t.Fatalf("read seeded hzn.lock: %v", err)
+	}
+
+	// Now a plain verify-mode check must not rewrite the lockfile.
+	if _, err := captureStdout(t, func() error {
+		return run([]string{"check", buildRoot})
+	}); err != nil {
+		t.Fatalf("verify-mode hzn check: %v", err)
+	}
+	after, err := os.ReadFile(lockPath)
+	if err != nil {
+		t.Fatalf("read hzn.lock after verify: %v", err)
+	}
+	if string(before) != string(after) {
+		t.Fatalf("verify-mode check mutated hzn.lock:\nbefore:\n%s\nafter:\n%s", before, after)
+	}
+}
+
+// TestCheckLockfileUpdateNoRemoteImportsNoOp asserts that
+// `-lockfile-update` on a package with no remote imports is a clean no-op:
+// the check passes and no hzn.lock is created.
+func TestCheckLockfileUpdateNoRemoteImportsNoOp(t *testing.T) {
+	dir := t.TempDir()
+	src := []byte(`package probes
+
+capability ExecObserve danger observe = "kernel.process.exec.observe"
+
+@capability(ExecObserve)
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    return 0
+}
+`)
+	if err := os.WriteFile(filepath.Join(dir, "probes.hzn"), src, 0o600); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	if _, err := captureStdout(t, func() error {
+		return run([]string{"check", dir, "-lockfile-update"})
+	}); err != nil {
+		t.Fatalf("hzn check -lockfile-update (no remote imports): %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(dir, "hzn.lock")); !os.IsNotExist(err) {
+		t.Fatalf("hzn.lock created for package with no remote imports: stat err = %v", err)
 	}
 }
