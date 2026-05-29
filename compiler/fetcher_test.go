@@ -3,11 +3,13 @@ package compiler
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"m31labs.dev/horizon/compiler/diag"
 )
@@ -148,6 +150,104 @@ func TestFetchSurfacesGitErrorAsHZN1703(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("expected HZN1703 diagnostic, got %#v", diags)
+	}
+}
+
+// writeCacheEntry materializes a single cache entry under root at
+// <key>/<ref>/, optionally writing a .horizon-meta.json with the given
+// fetchedAt. A zero fetchedAt skips the meta file entirely (simulating a
+// half-written / legacy entry). Returns the leaf directory path.
+func writeCacheEntry(t *testing.T, root, repo, ref string, fetchedAt time.Time, writeMeta bool) string {
+	t.Helper()
+	dir := filepath.Join(root, cacheKey(repo), ref)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(%s): %v", dir, err)
+	}
+	// A content file so the entry has a non-zero size.
+	if err := os.WriteFile(filepath.Join(dir, "events.hzn"), []byte("package events\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile content: %v", err)
+	}
+	if writeMeta {
+		meta := FetchMeta{
+			SourceURL: repoURL(repo),
+			Ref:       ref,
+			FetchedAt: fetchedAt,
+		}
+		raw, err := json.MarshalIndent(meta, "", "  ")
+		if err != nil {
+			t.Fatalf("MarshalIndent meta: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, ".horizon-meta.json"), append(raw, '\n'), 0o644); err != nil {
+			t.Fatalf("WriteFile meta: %v", err)
+		}
+	}
+	return dir
+}
+
+func TestCacheEntriesReadsMeta(t *testing.T) {
+	root := t.TempDir()
+	defer setCacheRoot(t, root)()
+	when := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	repo := "github.com/m31labs/horizon-test-events"
+	ref := "v1.0.0"
+	dir := writeCacheEntry(t, root, repo, ref, when, true)
+
+	entries, err := CacheEntries()
+	if err != nil {
+		t.Fatalf("CacheEntries: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("len(entries) = %d, want 1", len(entries))
+	}
+	e := entries[0]
+	if e.Dir != dir {
+		t.Errorf("Dir = %q, want %q", e.Dir, dir)
+	}
+	if !e.Meta.FetchedAt.Equal(when) {
+		t.Errorf("Meta.FetchedAt = %v, want %v", e.Meta.FetchedAt, when)
+	}
+	if e.Meta.Ref != ref {
+		t.Errorf("Meta.Ref = %q, want %q", e.Meta.Ref, ref)
+	}
+	if e.SizeBytes <= 0 {
+		t.Errorf("SizeBytes = %d, want > 0", e.SizeBytes)
+	}
+}
+
+func TestCacheEntriesHandlesMissingMeta(t *testing.T) {
+	root := t.TempDir()
+	defer setCacheRoot(t, root)()
+	// Entry without a .horizon-meta.json (half-written / legacy).
+	dir := writeCacheEntry(t, root, "github.com/m31labs/horizon-test-orphan", "v0.1.0", time.Time{}, false)
+
+	entries, err := CacheEntries()
+	if err != nil {
+		t.Fatalf("CacheEntries returned hard error %v; missing meta must be tolerated", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("len(entries) = %d, want 1", len(entries))
+	}
+	e := entries[0]
+	if e.Dir != dir {
+		t.Errorf("Dir = %q, want %q", e.Dir, dir)
+	}
+	if !e.Meta.FetchedAt.IsZero() {
+		t.Errorf("Meta.FetchedAt = %v, want zero (missing meta treated as oldest)", e.Meta.FetchedAt)
+	}
+	if e.SizeBytes <= 0 {
+		t.Errorf("SizeBytes = %d, want > 0", e.SizeBytes)
+	}
+}
+
+func TestCacheEntriesEmptyCache(t *testing.T) {
+	root := t.TempDir()
+	defer setCacheRoot(t, root)()
+	entries, err := CacheEntries()
+	if err != nil {
+		t.Fatalf("CacheEntries on empty cache: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("len(entries) = %d, want 0 for empty cache", len(entries))
 	}
 }
 

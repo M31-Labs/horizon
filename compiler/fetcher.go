@@ -94,13 +94,106 @@ func repoURL(importPath string) string {
 	return "https://" + importPath
 }
 
-// fetchMeta is the on-disk shape of `.horizon-meta.json`, written
-// once per fresh cache entry. Lets a future `hzn cache prune` make
-// informed eviction decisions without re-running git.
-type fetchMeta struct {
+// FetchMeta is the on-disk shape of `.horizon-meta.json`, written
+// once per fresh cache entry. It lets `hzn cache prune` make informed
+// eviction decisions (by age / LRU) without re-running git. Exported
+// so the `cmd/hzn` cache subcommand reads the schema from one place
+// rather than re-declaring it.
+type FetchMeta struct {
 	SourceURL string    `json:"source_url"`
 	Ref       string    `json:"ref"`
 	FetchedAt time.Time `json:"fetched_at"`
+}
+
+// CacheEntry is one content-addressed module-cache entry: the leaf
+// directory under cacheRoot()/<key>/<ref>/, its decoded FetchMeta, and
+// the non-recursive byte size of the files directly under Dir. An entry
+// whose `.horizon-meta.json` is missing or corrupt yields a zero-value
+// Meta (in particular a zero Meta.FetchedAt), which prune treats as
+// "oldest" / always-evictable rather than a hard error.
+type CacheEntry struct {
+	Dir       string
+	Meta      FetchMeta
+	SizeBytes int64
+}
+
+// CacheEntries walks the content-addressed module cache and returns one
+// CacheEntry per <key>/<ref> leaf directory. The cache layout mirrors
+// Fetch's destination: cacheRoot()/<cacheKey>/<ref>/. A non-existent
+// cache root is not an error — it yields an empty slice (nothing cached
+// yet). A missing/corrupt per-entry meta is tolerated: the entry is
+// still returned with a zero-value Meta so it remains prunable.
+func CacheEntries() ([]CacheEntry, error) {
+	root := cacheRoot()
+	keyDirs, err := os.ReadDir(root)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read cache root %s: %w", root, err)
+	}
+	var entries []CacheEntry
+	for _, kd := range keyDirs {
+		if !kd.IsDir() {
+			continue
+		}
+		keyPath := filepath.Join(root, kd.Name())
+		refDirs, err := os.ReadDir(keyPath)
+		if err != nil {
+			return nil, fmt.Errorf("read cache key dir %s: %w", keyPath, err)
+		}
+		for _, rd := range refDirs {
+			if !rd.IsDir() {
+				continue
+			}
+			dir := filepath.Join(keyPath, rd.Name())
+			meta := readFetchMeta(dir)
+			size, err := entryDirSize(dir)
+			if err != nil {
+				return nil, fmt.Errorf("size cache entry %s: %w", dir, err)
+			}
+			entries = append(entries, CacheEntry{Dir: dir, Meta: meta, SizeBytes: size})
+		}
+	}
+	return entries, nil
+}
+
+// readFetchMeta loads the `.horizon-meta.json` from a cache entry
+// directory. A missing or unparseable file yields a zero-value FetchMeta
+// (no error) so a half-written entry stays prunable.
+func readFetchMeta(dir string) FetchMeta {
+	raw, err := os.ReadFile(filepath.Join(dir, ".horizon-meta.json"))
+	if err != nil {
+		return FetchMeta{}
+	}
+	var meta FetchMeta
+	if err := json.Unmarshal(raw, &meta); err != nil {
+		return FetchMeta{}
+	}
+	return meta
+}
+
+// entryDirSize sums the sizes of the regular files directly under dir
+// (non-recursive — O-C2 default). Each cache entry is a flat package
+// tree, so a non-recursive sum is a faithful, cheap proxy for the
+// entry's footprint.
+func entryDirSize(dir string) (int64, error) {
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return 0, err
+	}
+	var total int64
+	for _, e := range ents {
+		if e.IsDir() {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			return 0, err
+		}
+		total += info.Size()
+	}
+	return total, nil
 }
 
 // Fetch ensures the package at <repo>@<ref> is present in the
@@ -136,7 +229,7 @@ func Fetch(repo, ref string) (string, []diag.Diagnostic, error) {
 			Suggest:  "check the repository URL, the ref (tag or SHA), and your git credentials; for offline builds, vendor the package under ./vendor/<path>/",
 		}}, nil
 	}
-	meta := fetchMeta{
+	meta := FetchMeta{
 		SourceURL: url,
 		Ref:       ref,
 		FetchedAt: time.Now().UTC(),
@@ -144,8 +237,9 @@ func Fetch(repo, ref string) (string, []diag.Diagnostic, error) {
 	if raw, err := json.MarshalIndent(meta, "", "  "); err == nil {
 		// Best-effort — failing to write the metadata is not fatal
 		// because the cached tree is still valid for resolution. The
-		// only consequence is `hzn cache prune` (v0.3.1+) loses one
-		// metadata record.
+		// only consequence is `hzn cache prune` loses one metadata
+		// record (CacheEntries tolerates the gap with a zero-value
+		// FetchMeta, treating the entry as oldest / always-prunable).
 		_ = os.WriteFile(filepath.Join(dest, ".horizon-meta.json"), append(raw, '\n'), 0o644)
 	}
 	return dest, nil, nil
