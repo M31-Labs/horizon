@@ -6,6 +6,17 @@ All notable changes to Horizon are documented in this file. Format follows
 
 ## [Unreleased]
 
+### Changed
+- The helper return-effect analysis now specializes per call site. A helper
+  whose return shape depends on a caller's literal arguments (e.g.
+  `if flag { return arg } else { return Events.reserve() }`) resolves to a
+  precise verdict under a constant `flag` — `ReturnsAlias` or
+  `ReturnsResource` — instead of conservatively joining to `Unknown`. This
+  mirrors the existing per-parameter call-site specialization. Programs with
+  no literal-argument call sites, or with un-prunable conditions, fall back to
+  the prior per-helper verdict; the analysis never accepts a return shape it
+  cannot prove for the given argument context.
+
 ## [v0.3.0] — 2026-05-28
 
 ### Changed
