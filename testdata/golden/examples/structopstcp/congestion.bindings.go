@@ -13,7 +13,7 @@ import (
 	"m31labs.dev/horizon/capability"
 )
 
-const CapabilityManifestJSON = "{\n  \"schema\": \"m31labs.dev/horizon/capability/v1\",\n  \"package\": \"probes\",\n  \"programs\": [\n    {\n      \"name\": \"OnTCPInit\",\n      \"kind\": \"struct_ops\",\n      \"attach\": \"tcp_init\",\n      \"section\": \"struct_ops/tcp_init\",\n      \"capabilities\": [\n        \"kernel.network.tcp.congestion.mutate\"\n      ]\n    }\n  ],\n  \"capabilities\": [\n    {\n      \"name\": \"kernel.network.tcp.congestion.mutate\",\n      \"kind\": \"source\",\n      \"danger\": {\n        \"mode\": \"mutate\",\n        \"scope\": \"process\",\n        \"reversibility\": \"restart\"\n      },\n      \"program\": \"OnTCPInit\",\n      \"section\": \"struct_ops/tcp_init\",\n      \"maps\": {\n        \"read\": [],\n        \"write\": [],\n        \"events\": []\n      },\n      \"requirements\": {\n        \"min_kernel\": \"5.6\",\n        \"programs\": [\n          {\n            \"name\": \"struct_ops\",\n            \"min_kernel\": \"5.6\"\n          }\n        ],\n        \"permissions\": [\n          \"bpf_program_load\"\n        ],\n        \"features\": [\n          \"btf\",\n          \"struct_ops\"\n        ]\n      }\n    }\n  ],\n  \"requirements\": {\n    \"min_kernel\": \"5.6\",\n    \"programs\": [\n      {\n        \"name\": \"struct_ops\",\n        \"min_kernel\": \"5.6\"\n      }\n    ],\n    \"permissions\": [\n      \"bpf_program_load\"\n    ],\n    \"features\": [\n      \"btf\",\n      \"struct_ops\"\n    ]\n  }\n}\n"
+const CapabilityManifestJSON = "{\n  \"schema\": \"m31labs.dev/horizon/capability/v1\",\n  \"package\": \"probes\",\n  \"programs\": [\n    {\n      \"name\": \"OnTCPInit\",\n      \"kind\": \"struct_ops\",\n      \"attach\": \"tcp_init\",\n      \"section\": \"struct_ops/tcp_init\",\n      \"capabilities\": [\n        \"kernel.network.tcp.congestion.mutate\"\n      ]\n    }\n  ],\n  \"capabilities\": [\n    {\n      \"name\": \"kernel.network.tcp.congestion.mutate\",\n      \"kind\": \"source\",\n      \"danger\": {\n        \"mode\": \"mutate\",\n        \"scope\": \"process\",\n        \"reversibility\": \"restart\"\n      },\n      \"program\": \"OnTCPInit\",\n      \"section\": \"struct_ops/tcp_init\",\n      \"maps\": {\n        \"read\": [],\n        \"write\": [],\n        \"events\": []\n      },\n      \"requirements\": {\n        \"min_kernel\": \"5.6\",\n        \"programs\": [\n          {\n            \"name\": \"struct_ops\",\n            \"min_kernel\": \"5.6\"\n          }\n        ],\n        \"permissions\": [\n          \"bpf_program_load\"\n        ],\n        \"features\": [\n          \"btf\",\n          \"struct_ops\"\n        ]\n      }\n    }\n  ],\n  \"maps\": [\n    {\n      \"name\": \"Ops\",\n      \"kind\": \"struct_ops\",\n      \"value\": \"tcp_congestion_ops\"\n    }\n  ],\n  \"requirements\": {\n    \"min_kernel\": \"5.6\",\n    \"programs\": [\n      {\n        \"name\": \"struct_ops\",\n        \"min_kernel\": \"5.6\"\n      }\n    ],\n    \"maps\": [\n      {\n        \"name\": \"struct_ops\",\n        \"min_kernel\": \"5.6\"\n      }\n    ],\n    \"permissions\": [\n      \"bpf_program_load\"\n    ],\n    \"features\": [\n      \"btf\",\n      \"struct_ops\"\n    ]\n  }\n}\n"
 
 func CapabilityManifest() (capability.Manifest, error) {
 	var manifest capability.Manifest
@@ -24,6 +24,7 @@ func CapabilityManifest() (capability.Manifest, error) {
 }
 
 type Objects struct {
+	Ops       *ebpf.Map     `ebpf:"Ops"`
 	OnTCPInit *ebpf.Program `ebpf:"OnTCPInit"`
 }
 
@@ -58,6 +59,9 @@ func (o *Objects) Close() error {
 		return nil
 	}
 	var err error
+	if o.Ops != nil {
+		err = errors.Join(err, o.Ops.Close())
+	}
 	if o.OnTCPInit != nil {
 		err = errors.Join(err, o.OnTCPInit.Close())
 	}
@@ -67,6 +71,9 @@ func (o *Objects) Close() error {
 func (o *Objects) findStructOpsMap() *ebpf.Map {
 	if o == nil {
 		return nil
+	}
+	if o.Ops != nil && o.Ops.Type() == ebpf.StructOpsMap {
+		return o.Ops
 	}
 	return nil
 }

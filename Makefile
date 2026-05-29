@@ -8,6 +8,7 @@ HZN_EXAMPLES := \
 	./examples/killwatch \
 	./examples/lsmfile \
 	./examples/openwatch \
+	./examples/structopstcp \
 	./examples/tcpconnect \
 	./examples/tcpass \
 	./examples/xdpdrop

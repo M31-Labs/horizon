@@ -355,6 +355,11 @@ func validMapKind(kind string) bool {
 	switch kind {
 	case "ringbuf", "hash", "array", "percpu_hash", "percpu_array", "lru_hash", "lru_percpu_hash":
 		return true
+	// struct_ops maps register a kernel ops struct (e.g. tcp_congestion_ops) in
+	// the capability manifest; they reach the manifest as a recognized map kind
+	// (v0.4 Track A A2, decision 0010).
+	case "struct_ops":
+		return true
 	default:
 		return false
 	}

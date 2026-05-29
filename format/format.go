@@ -499,6 +499,11 @@ func mapType(decl ast.MapDecl) string {
 		return "lru_hash[" + typeRef(decl.Key) + ", " + typeRef(decl.Val) + "]"
 	case ast.MapKindLRUPerCPU:
 		return "lru_percpu_hash[" + typeRef(decl.Key) + ", " + typeRef(decl.Val) + "]"
+	case ast.MapKindStructOps:
+		// A struct_ops map names the kernel ops struct as its single value type
+		// (e.g. struct_ops[tcp_congestion_ops]); there is no key (v0.4 Track A
+		// A2, decision 0010).
+		return "struct_ops[" + typeRef(decl.Val) + "]"
 	default:
 		return string(decl.Kind)
 	}

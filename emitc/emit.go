@@ -1280,13 +1280,23 @@ func emitStructOpsMap(b *strings.Builder, m ir.Map, functions []ir.Function) {
 		// type before emit; guard defensively so we never emit `struct  X`.
 		return
 	}
+	// The ops-struct instance is emitted in the maps phase, before the program
+	// function bodies. Forward-declare the bound struct_ops functions so the
+	// (void *)<fn> member initializers reference declared identifiers (the
+	// bodies still emit their SEC("struct_ops") definitions later).
+	bound := make([]ir.Function, 0, len(functions))
+	for _, fn := range functions {
+		if fn.Section.Kind == ir.ProgramStructOps && fn.Section.Attach != "" {
+			bound = append(bound, fn)
+		}
+	}
+	for _, fn := range bound {
+		fmt.Fprintf(b, "\nint %s(%s);\n", fn.Name, cContext(fn))
+	}
 	// The ops type names a kernel BTF struct (e.g. tcp_congestion_ops); emit
 	// its raw kernel name, NOT the hzn_type_-prefixed Horizon struct name.
 	fmt.Fprintf(b, "\nSEC(\".struct_ops\")\nstruct %s %s = {\n", cIdent(opsType), m.Name)
-	for _, fn := range functions {
-		if fn.Section.Kind != ir.ProgramStructOps || fn.Section.Attach == "" {
-			continue
-		}
+	for _, fn := range bound {
 		field := structOpsFieldName(opsType, fn.Section.Attach)
 		fmt.Fprintf(b, "    .%s = (void *)%s,\n", field, fn.Name)
 	}

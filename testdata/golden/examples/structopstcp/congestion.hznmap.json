@@ -4,31 +4,31 @@
   },
   "mappings": [
     {
-      "function": "OnTCPInit",
+      "function": "",
       "generated": {
         "end": {
           "column": 1,
-          "line": 23
+          "line": 25
         },
         "start": {
           "column": 1,
-          "line": 22
+          "line": 18
         }
       },
-      "node": "return",
-      "section": "struct_ops",
+      "node": "map",
+      "section": "",
       "source": {
         "end": {
-          "column": 13,
-          "line": 22
+          "column": 39,
+          "line": 21
         },
-        "end_byte": 1137,
+        "end_byte": 1274,
         "file": "examples/structopstcp/congestion.hzn",
         "start": {
-          "column": 5,
-          "line": 22
+          "column": 1,
+          "line": 21
         },
-        "start_byte": 1129
+        "start_byte": 1236
       }
     },
     {
@@ -36,11 +36,39 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 24
+          "line": 30
         },
         "start": {
           "column": 1,
-          "line": 18
+          "line": 29
+        }
+      },
+      "node": "return",
+      "section": "struct_ops",
+      "source": {
+        "end": {
+          "column": 13,
+          "line": 29
+        },
+        "end_byte": 1588,
+        "file": "examples/structopstcp/congestion.hzn",
+        "start": {
+          "column": 5,
+          "line": 29
+        },
+        "start_byte": 1580
+      }
+    },
+    {
+      "function": "OnTCPInit",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 31
+        },
+        "start": {
+          "column": 1,
+          "line": 25
         }
       },
       "node": "function",
@@ -48,15 +76,15 @@
       "source": {
         "end": {
           "column": 2,
-          "line": 23
+          "line": 30
         },
-        "end_byte": 1139,
+        "end_byte": 1590,
         "file": "examples/structopstcp/congestion.hzn",
         "start": {
           "column": 1,
-          "line": 19
+          "line": 26
         },
-        "start_byte": 1023
+        "start_byte": 1474
       }
     }
   ],

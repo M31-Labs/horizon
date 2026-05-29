@@ -16,6 +16,13 @@ _Static_assert(sizeof(__s16) == 2, "horizon: __s16 width mismatch");
 _Static_assert(sizeof(__s32) == 4, "horizon: __s32 width mismatch");
 _Static_assert(sizeof(__s64) == 8, "horizon: __s64 width mismatch");
 
+int OnTCPInit(void *ctx);
+
+SEC(".struct_ops")
+struct tcp_congestion_ops Ops = {
+    .init = (void *)OnTCPInit,
+};
+
 SEC("struct_ops")
 int OnTCPInit(void *ctx) {
     (void)ctx;

@@ -478,6 +478,10 @@ func mapMinKernel(kind ir.MapKind) string {
 		return "4.10"
 	case ir.MapKindRingbuf:
 		return "5.8"
+	case ir.MapKindStructOps:
+		// struct_ops maps require BPF struct_ops support, which landed in 5.6
+		// alongside the struct_ops program type (v0.4 Track A A2, decision 0010).
+		return "5.6"
 	default:
 		return ""
 	}

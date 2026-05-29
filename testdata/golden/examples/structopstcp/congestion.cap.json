@@ -33,6 +33,13 @@
       "section": "struct_ops/tcp_init"
     }
   ],
+  "maps": [
+    {
+      "kind": "struct_ops",
+      "name": "Ops",
+      "value": "tcp_congestion_ops"
+    }
+  ],
   "package": "probes",
   "programs": [
     {
@@ -49,6 +56,12 @@
     "features": [
       "btf",
       "struct_ops"
+    ],
+    "maps": [
+      {
+        "min_kernel": "5.6",
+        "name": "struct_ops"
+      }
     ],
     "min_kernel": "5.6",
     "permissions": [

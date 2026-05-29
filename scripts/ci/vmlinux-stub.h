@@ -72,4 +72,16 @@ struct xdp_md { __u32 data; __u32 data_end; };
 
 struct trace_event_raw_sched_process_exec {};
 
+/* struct_ops stub for tcp_congestion_ops (v0.4 Track A A2). The generated
+ * SEC(".struct_ops") ops-struct instance assigns the bound program function
+ * to the ops field via a (void *) cast, so the stub only needs the referenced
+ * field(s) to exist as void-pointer-compatible members. Unlike the context
+ * structs above, a struct_ops ops instance is NOT a verifier context-access
+ * struct — its field layout is CO-RE-resolved from the kernel's real
+ * tcp_congestion_ops BTF at load time, so this minimal stub is sufficient for
+ * clang to compile the generated C on runners without a BTF vmlinux.h. */
+struct tcp_congestion_ops {
+    void *init;
+};
+
 #endif /* __VMLINUX_H__ */
