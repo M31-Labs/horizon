@@ -12,6 +12,12 @@ const (
 	MapKindPerCPUArray MapKind = "percpu_array"
 	MapKindLRUHash     MapKind = "lru_hash"
 	MapKindLRUPerCPU   MapKind = "lru_percpu_hash"
+	// MapKindStructOps is a struct_ops map: it registers a kernel ops struct
+	// (e.g. tcp_congestion_ops) whose function-pointer fields are bound to
+	// struct_ops program functions. It is not a lookup map — Val names the
+	// kernel ops struct, there is no Key, and the four lookup predicates below
+	// return false for it by construction (v0.4 Track A A2, decision 0010).
+	MapKindStructOps MapKind = "struct_ops"
 )
 
 func (k MapKind) IsLookup() bool {

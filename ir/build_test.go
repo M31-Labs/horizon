@@ -218,3 +218,39 @@ func TestMergeDetectsCrossPackageFunctionCollision(t *testing.T) {
 		t.Fatalf("diagnostics = %#v, want one with Code=HZN1562", diags)
 	}
 }
+
+// TestBuildStructOpsMap verifies that a struct_ops map declaration lowers to an
+// ir.Map with Kind == MapKindStructOps and the kernel ops-struct name as its
+// value type, and that the new kind is excluded from every lookup predicate
+// (it is not a hash/array/percpu/lru map). This is the IR half of the v0.4
+// Track A A2 struct_ops runtime-attach work (decision 0010).
+func TestBuildStructOpsMap(t *testing.T) {
+	file := ast.File{
+		Package: "probes",
+		Decls: []ast.Decl{
+			ast.MapDecl{
+				Name: "Ops",
+				Kind: ast.MapKindStructOps,
+				Val:  ast.TypeRef{Name: "tcp_congestion_ops"},
+			},
+		},
+	}
+	program, diags := FromAST(file)
+	if diag.HasErrors(diags) {
+		t.Fatalf("FromAST diagnostics = %#v, want none", diags)
+	}
+	if len(program.Maps) != 1 {
+		t.Fatalf("maps = %d, want 1", len(program.Maps))
+	}
+	m := program.Maps[0]
+	if m.Kind != MapKindStructOps {
+		t.Fatalf("map kind = %q, want %q", m.Kind, MapKindStructOps)
+	}
+	if m.Val.Name != "tcp_congestion_ops" {
+		t.Fatalf("map value type = %q, want tcp_congestion_ops", m.Val.Name)
+	}
+	if m.Kind.IsLookup() || m.Kind.IsHashLike() || m.Kind.IsArrayLike() || m.Kind.HasPerCPUValue() {
+		t.Fatalf("struct_ops kind classified as a lookup map: IsLookup=%v IsHashLike=%v IsArrayLike=%v HasPerCPUValue=%v",
+			m.Kind.IsLookup(), m.Kind.IsHashLike(), m.Kind.IsArrayLike(), m.Kind.HasPerCPUValue())
+	}
+}

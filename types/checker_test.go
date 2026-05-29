@@ -376,3 +376,43 @@ func parseTestFile(t *testing.T, source string) ast.File {
 	}
 	return *file
 }
+
+// TestValidateMapDeclAcceptsStructOps verifies that a struct_ops map whose
+// value type names a kernel ops struct (tcp_congestion_ops) is accepted by the
+// type checker: it must NOT fall through to the HZN1203 unsupported-kind
+// default, and it must NOT raise HZN1102 "unknown type" for the kernel BTF
+// ops-struct name. v0.4 Track A A2 (decision 0010).
+func TestValidateMapDeclAcceptsStructOps(t *testing.T) {
+	file := parseTestFile(t, `package probes
+
+map Ops struct_ops[tcp_congestion_ops]
+
+@struct_ops("tcp_init")
+func OnTCPInit(ctx struct_ops.Context) i32 {
+    return 0
+}
+`)
+	diags := Check(file)
+	for _, code := range []string{"HZN1203", "HZN1102"} {
+		if slices.ContainsFunc(diags, func(d diag.Diagnostic) bool { return d.Code == code }) {
+			t.Fatalf("diagnostics = %#v, want no %s for struct_ops map with kernel ops value type", diags, code)
+		}
+	}
+}
+
+// TestValidateMapDeclRejectsStructOpsWithoutOpsType verifies that a struct_ops
+// map declared without a value type is rejected (HZN1214 — the genuinely-free
+// HZN12xx slot; HZN1210 is already taken by @steady_state_entries). A
+// struct_ops map must name the kernel ops struct it registers.
+func TestValidateMapDeclRejectsStructOpsWithoutOpsType(t *testing.T) {
+	file := ast.File{
+		Package: "probes",
+		Decls: []ast.Decl{
+			ast.MapDecl{Name: "Ops", Kind: ast.MapKindStructOps},
+		},
+	}
+	diags := Check(file)
+	if !slices.ContainsFunc(diags, func(d diag.Diagnostic) bool { return d.Code == "HZN1214" }) {
+		t.Fatalf("diagnostics = %#v, want HZN1214 for struct_ops map without an ops value type", diags)
+	}
+}

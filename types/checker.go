@@ -781,6 +781,23 @@ func validateMapDecl(decl ast.MapDecl, known map[string]bool, userStructs map[st
 		diags = append(diags, validateTypeRef(decl.Val, known)...)
 		diags = append(diags, validateStoredTypeRef(decl.Key, known, userStructs, fmt.Sprintf("map %s key", decl.Name))...)
 		diags = append(diags, validateStoredTypeRef(decl.Val, known, userStructs, fmt.Sprintf("map %s value", decl.Name))...)
+	case ast.MapKindStructOps:
+		// A struct_ops map registers a kernel ops struct (e.g. tcp_congestion_ops)
+		// whose function-pointer fields are bound to struct_ops program functions.
+		// The value type names that kernel ops struct, which is a kernel BTF type
+		// resolved by libbpf at load time — NOT a Horizon-declared struct. We
+		// therefore require only that a value type is present and deliberately do
+		// NOT route it through validateTypeRef/validateStoredTypeRef (which would
+		// raise HZN1102 "unknown type" for the kernel ops-struct name).
+		if decl.Val.IsZero() {
+			diags = append(diags, diag.Diagnostic{
+				Code:     "HZN1214",
+				Severity: diag.SeverityError,
+				Message:  fmt.Sprintf("struct_ops map %q requires a kernel ops value type", decl.Name),
+				Primary:  decl.Span,
+				Suggest:  "name the kernel ops struct it registers, such as `struct_ops[tcp_congestion_ops]`",
+			})
+		}
 	default:
 		diags = append(diags, diag.Diagnostic{
 			Code:     "HZN1203",
