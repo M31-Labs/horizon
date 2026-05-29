@@ -6,6 +6,15 @@ All notable changes to Horizon are documented in this file. Format follows
 
 ## [Unreleased]
 
+### Fixed
+- `struct_ops` programs now attach at runtime. Horizon gained an IR
+  struct_ops map kind (`MapKindStructOps`) that emits a `SEC(".struct_ops")`
+  ops-struct definition, so the `examples/structopstcp` TCP
+  congestion-control example registers with the kernel instead of returning
+  a stub error. The generated `AttachOn<Fn>` helper's `findStructOpsMap()`
+  now resolves a real struct_ops map. Requires kernel >= 5.6 with BTF and
+  `CONFIG_BPF_STRUCT_OPS=y`.
+
 ## [v0.3.0] — 2026-05-28
 
 ### Changed
