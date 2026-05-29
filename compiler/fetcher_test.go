@@ -347,6 +347,90 @@ func TestResolveCloneURLMemoizes(t *testing.T) {
 	}
 }
 
+func TestScanHorizonImport(t *testing.T) {
+	cases := []struct {
+		name    string
+		body    string
+		wantURL string
+		wantOK  bool
+	}{
+		{
+			name:    "canonical tag",
+			body:    `<html><head><meta name="horizon-import" content="m31labs.dev/m31labs/events git https://github.com/m31labs/events.git"></head></html>`,
+			wantURL: "https://github.com/m31labs/events.git",
+			wantOK:  true,
+		},
+		{
+			name:    "reversed attribute order",
+			body:    `<meta content="m31labs.dev/m31labs/events git https://github.com/m31labs/events.git" name="horizon-import">`,
+			wantURL: "https://github.com/m31labs/events.git",
+			wantOK:  true,
+		},
+		{
+			name:    "extra whitespace around equals",
+			body:    `<meta name = "horizon-import" content = "p git https://example.com/p.git">`,
+			wantURL: "https://example.com/p.git",
+			wantOK:  true,
+		},
+		{
+			name:    "skips unrelated meta tags before match",
+			body:    `<meta charset="utf-8"><meta name="go-import" content="x git https://wrong.example/x.git"><meta name="horizon-import" content="p git https://right.example/p.git">`,
+			wantURL: "https://right.example/p.git",
+			wantOK:  true,
+		},
+		{
+			name:   "no horizon-import tag",
+			body:   `<html><head><meta name="go-import" content="x git https://example.com/x.git"></head></html>`,
+			wantOK: false,
+		},
+		{
+			name:   "wrong field count",
+			body:   `<meta name="horizon-import" content="just-a-prefix">`,
+			wantOK: false,
+		},
+		{
+			name:   "missing git keyword",
+			body:   `<meta name="horizon-import" content="prefix svn https://example.com/p">`,
+			wantOK: false,
+		},
+		{
+			name:   "empty body",
+			body:   ``,
+			wantOK: false,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, ok := scanHorizonImport(c.body)
+			if ok != c.wantOK {
+				t.Fatalf("scanHorizonImport ok = %v, want %v", ok, c.wantOK)
+			}
+			if ok && got != c.wantURL {
+				t.Fatalf("scanHorizonImport = %q, want %q", got, c.wantURL)
+			}
+		})
+	}
+}
+
+// TestHttpDiscoverRealNetwork exercises the production httpDiscover
+// against the live m31labs.dev meta-redirect endpoint. It is gated
+// behind HORIZON_NETWORK_TESTS=1 and skipped by default so `make ci-go`
+// stays fully offline. When enabled it asserts only that discovery
+// returns a non-empty clone URL with no error — the exact URL depends
+// on what m31labs.dev currently publishes.
+func TestHttpDiscoverRealNetwork(t *testing.T) {
+	if os.Getenv("HORIZON_NETWORK_TESTS") != "1" {
+		t.Skip("set HORIZON_NETWORK_TESTS=1 to run the live meta-redirect discovery test")
+	}
+	clone, err := httpDiscover("m31labs.dev", "m31labs/horizon")
+	if err != nil {
+		t.Fatalf("httpDiscover(real network): %v", err)
+	}
+	if clone == "" {
+		t.Fatalf("httpDiscover returned empty clone URL with no error")
+	}
+}
+
 func TestRepoURLFromImportPath(t *testing.T) {
 	cases := []struct {
 		path string
