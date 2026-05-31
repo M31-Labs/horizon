@@ -41,7 +41,7 @@ jobs:
         run: make build-examples OUT=kmatrix-artifacts
       - id: cache-key
         run: echo "key=kmatrix-artifacts-${{ github.sha }}" >> $GITHUB_OUTPUT
-      - uses: actions/cache/save@v4
+      - uses: actions/cache/save@v5
         with:
           path: kmatrix-artifacts
           key: ${{ steps.cache-key.outputs.key }}
@@ -57,7 +57,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Restore built objects + reports into the workspace
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           # Restored under the checkout so it is visible at /host in the guest.
           path: kmatrix-artifacts
