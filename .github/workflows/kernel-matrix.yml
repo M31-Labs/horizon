@@ -74,7 +74,7 @@ jobs:
           echo "gate=$g"    >> "$GITHUB_OUTPUT"
           echo "kernel ${{ matrix.kernel }} -> image-version=$v gate=$g"
       - name: Boot kernel ${{ matrix.kernel }} and load objects
-        uses: cilium/little-vm-helper@206cee185ac5920a462d3d2cb4f369d2d3a542a7 # v0.0.30
+        uses: cilium/little-vm-helper@5ae749011735fd77f30f38add52f1a53a5568671 # v0.0.30
         with:
           test-name: kmatrix-${{ matrix.kernel }}
           image-repo: quay.io/lvh-images
