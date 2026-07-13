@@ -38,6 +38,48 @@
       "introduced": "v0.1.0"
     },
     {
+      "namespace": "kernel.file.create",
+      "attach_surface": "lsm",
+      "attach_strings": ["path_mknod"],
+      "allowed_danger_leaves": ["observe", "deny", "allow", "block"],
+      "introduced": "v0.4.0"
+    },
+    {
+      "namespace": "kernel.file.unlink",
+      "attach_surface": "lsm",
+      "attach_strings": ["path_unlink"],
+      "allowed_danger_leaves": ["observe", "deny", "allow", "block"],
+      "introduced": "v0.4.0"
+    },
+    {
+      "namespace": "kernel.file.rename",
+      "attach_surface": "lsm",
+      "attach_strings": ["path_rename"],
+      "allowed_danger_leaves": ["observe", "deny", "allow", "block"],
+      "introduced": "v0.4.0"
+    },
+    {
+      "namespace": "kernel.file.mkdir",
+      "attach_surface": "lsm",
+      "attach_strings": ["path_mkdir"],
+      "allowed_danger_leaves": ["observe", "deny", "allow", "block"],
+      "introduced": "v0.4.0"
+    },
+    {
+      "namespace": "kernel.file.rmdir",
+      "attach_surface": "lsm",
+      "attach_strings": ["path_rmdir"],
+      "allowed_danger_leaves": ["observe", "deny", "allow", "block"],
+      "introduced": "v0.4.0"
+    },
+    {
+      "namespace": "kernel.file.truncate",
+      "attach_surface": "lsm",
+      "attach_strings": ["path_truncate"],
+      "allowed_danger_leaves": ["observe", "deny", "allow", "block"],
+      "introduced": "v0.4.0"
+    },
+    {
       "namespace": "kernel.file.open",
       "attach_surface": "kretprobe",
       "attach_strings": ["do_sys_openat2"],

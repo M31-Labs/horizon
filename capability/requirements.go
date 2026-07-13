@@ -361,6 +361,16 @@ func compilerHelperRequirements(name string) []string {
 		return []string{"bpf_probe_read_user_str"}
 	case "bpf.ktime_get_ns":
 		return []string{"bpf_ktime_get_ns"}
+	case "bpf.current_cgroup_id":
+		return []string{"bpf_get_current_cgroup_id"}
+	case "bpf.current_ancestor_cgroup_id":
+		return []string{"bpf_get_current_ancestor_cgroup_id"}
+	case "lsm.file_dev", "lsm.file_ino", "lsm.file_mode", "lsm.file_flags", "lsm.bprm_dev", "lsm.bprm_ino", "lsm.path_dev", "lsm.path_parent_ino", "lsm.path_mode":
+		return []string{"bpf_probe_read_kernel"}
+	case "lsm.bprm_filename", "lsm.bprm_interp", "lsm.dentry_name":
+		return []string{"bpf_probe_read_kernel_str"}
+	case "lsm.file_path":
+		return []string{"bpf_d_path"}
 	default:
 		return nil
 	}
@@ -497,6 +507,14 @@ func helperMinKernel(name string) string {
 		return "5.5"
 	case "bpf_ktime_get_ns":
 		return "4.1"
+	case "bpf_get_current_cgroup_id":
+		return "4.18"
+	case "bpf_get_current_ancestor_cgroup_id":
+		return "5.7"
+	case "bpf_probe_read_kernel_str":
+		return "5.5"
+	case "bpf_d_path":
+		return "5.10"
 	case "bpf_ringbuf_reserve", "bpf_ringbuf_submit", "bpf_ringbuf_discard":
 		return "5.8"
 	default:

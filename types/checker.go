@@ -660,23 +660,23 @@ func builtinTypes() map[string]bool {
 	return map[string]bool{
 		"u8": true, "u16": true, "u32": true, "u64": true,
 		"i8": true, "i16": true, "i32": true, "i64": true,
-		"bool":              true,
-		"tracepoint.Exec":   true,
-		"xdp.Context":       true,
-		"xdp.Eth":           true,
-		"xdp.IPv4":          true,
-		"xdp.TCP":           true,
-		"xdp.UDP":           true,
-		"tc.Context":        true,
-		"cgroup.Connect":    true,
-		"lsm.Context":       true,
-		"kprobe.Context":    true,
-		"kretprobe.Context": true,
-		"uprobe.Context":    true,
-		"uretprobe.Context": true,
-		"fentry.Context":    true,
-		"fexit.Context":     true,
-		"raw_tp.Context":    true,
+		"bool":               true,
+		"tracepoint.Exec":    true,
+		"xdp.Context":        true,
+		"xdp.Eth":            true,
+		"xdp.IPv4":           true,
+		"xdp.TCP":            true,
+		"xdp.UDP":            true,
+		"tc.Context":         true,
+		"cgroup.Connect":     true,
+		"lsm.Context":        true,
+		"kprobe.Context":     true,
+		"kretprobe.Context":  true,
+		"uprobe.Context":     true,
+		"uretprobe.Context":  true,
+		"fentry.Context":     true,
+		"fexit.Context":      true,
+		"raw_tp.Context":     true,
 		"sockops.Context":    true,
 		"struct_ops.Context": true,
 	}
@@ -1782,7 +1782,6 @@ func capabilityNameDanger(name string) DangerLevel {
 	}
 }
 
-
 func dangerLess(left DangerLevel, right DangerLevel) bool {
 	return dangerRank(left) < dangerRank(right)
 }
@@ -2297,6 +2296,7 @@ func validateFuncBody(decl ast.FuncDecl, known map[string]bool, maps map[string]
 		userStructs:    userStructs,
 		funcs:          funcs,
 		programSection: programSectionName(sections),
+		lsmHook:        lsmHookName(sections),
 		returnType:     valueType{Name: decl.Return.Name, Ref: decl.Return, Ptr: decl.Return.Ptr},
 	}
 	checker.checkStatements(decl.Body, locals)
@@ -2319,6 +2319,7 @@ type funcBodyChecker struct {
 	userStructs    map[string]ast.TypeDecl
 	funcs          map[string]ast.FuncDecl
 	programSection string
+	lsmHook        string
 	returnType     valueType
 	diags          []diag.Diagnostic
 }
@@ -2362,12 +2363,19 @@ func programSectionName(sections []sectionSpec) string {
 	return ""
 }
 
+func lsmHookName(sections []sectionSpec) string {
+	if len(sections) == 1 && sections[0].Attr.Name == "lsm" {
+		return attrStringArg(sections[0].Attr)
+	}
+	return ""
+}
+
 func (c *funcBodyChecker) add(diags ...diag.Diagnostic) {
 	c.diags = append(c.diags, diags...)
 }
 
 func (c *funcBodyChecker) typeOf(expr ast.Expr, locals map[string]valueType) (valueType, []diag.Diagnostic) {
-	return typeOfExpr(expr, locals, c.maps, c.structs, c.funcs)
+	return typeOfExpr(expr, locals, c.maps, c.structs, c.funcs, c.lsmHook)
 }
 
 func (c *funcBodyChecker) checkStatements(stmts []ast.Stmt, locals map[string]valueType) {
@@ -3559,12 +3567,13 @@ func cloneValueTypes(in map[string]valueType) map[string]valueType {
 	return out
 }
 
-func typeOfExpr(expr ast.Expr, locals map[string]valueType, maps map[string]ast.MapDecl, structs map[string]ast.TypeDecl, funcs map[string]ast.FuncDecl) (valueType, []diag.Diagnostic) {
+func typeOfExpr(expr ast.Expr, locals map[string]valueType, maps map[string]ast.MapDecl, structs map[string]ast.TypeDecl, funcs map[string]ast.FuncDecl, lsmHook string) (valueType, []diag.Diagnostic) {
 	return exprTyper{
 		locals:  locals,
 		maps:    maps,
 		structs: structs,
 		funcs:   funcs,
+		lsmHook: lsmHook,
 	}.typeOf(expr)
 }
 
@@ -3573,6 +3582,7 @@ type exprTyper struct {
 	maps    map[string]ast.MapDecl
 	structs map[string]ast.TypeDecl
 	funcs   map[string]ast.FuncDecl
+	lsmHook string
 }
 
 func (t exprTyper) typeOf(expr ast.Expr) (valueType, []diag.Diagnostic) {
@@ -4165,13 +4175,7 @@ func (t exprTyper) call(call ast.CallExpr) (valueType, []diag.Diagnostic) {
 		return t.cgroupCall(method, call)
 	}
 	if root == "lsm" {
-		return valueType{}, []diag.Diagnostic{{
-			Code:     "HZN1462",
-			Severity: diag.SeverityError,
-			Message:  fmt.Sprintf("lsm.%s is not a callable helper in Horizon v0", method),
-			Primary:  call.Span,
-			Suggest:  "use named LSM action constants such as lsm.Allow in return statements",
-		}}
+		return t.lsmCall(method, call)
 	}
 	if root == "kprobe" {
 		return t.kprobeCall(method, call)
@@ -4469,6 +4473,115 @@ func (t exprTyper) cgroupCall(name string, call ast.CallExpr) (valueType, []diag
 	}
 }
 
+func (t exprTyper) lsmCall(name string, call ast.CallExpr) (valueType, []diag.Diagnostic) {
+	if name == "argv" || name == "bprm_argv" {
+		return valueType{}, []diag.Diagnostic{{Code: "HZN1498", Severity: diag.SeverityError, Message: "argv is not readable at bprm_check_security", Primary: call.Span, Suggest: `observe argv at @tracepoint("sched:sched_process_exec")`}}
+	}
+	if name == "path_has_prefix" {
+		if len(call.Args) != 2 {
+			return valueType{Name: "bool"}, []diag.Diagnostic{argCountDiagnostic(call.Span, "lsm.path_has_prefix", 2, len(call.Args))}
+		}
+		buffer, diags := t.typeOf(call.Args[0])
+		if !buffer.Ptr || !isU8FixedArray(buffer) {
+			diags = append(diags, diag.Diagnostic{Code: "HZN1496", Severity: diag.SeverityError, Message: "lsm.path_has_prefix expects a pointer to a fixed [N]u8 buffer", Primary: call.Args[0].GetSpan()})
+		}
+		literal, ok := call.Args[1].(ast.StringExpr)
+		if !ok {
+			diags = append(diags, diag.Diagnostic{Code: "HZN1496", Severity: diag.SeverityError, Message: "unbounded path comparison", Primary: call.Args[1].GetSpan(), Suggest: `use lsm.path_has_prefix(&buf, "literal") with a compile-time literal`})
+			return valueType{Name: "bool"}, diags
+		}
+		if literal.Value == "" {
+			diags = append(diags, diag.Diagnostic{Code: "HZN1496", Severity: diag.SeverityError, Message: "path prefix literal must not be empty", Primary: literal.Span})
+		}
+		if length, err := strconv.Atoi(buffer.Ref.Len); err == nil && len([]byte(literal.Value)) > length {
+			diags = append(diags, diag.Diagnostic{Code: "HZN1496", Severity: diag.SeverityError, Message: "path prefix literal exceeds the fixed path buffer", Primary: literal.Span})
+		}
+		return valueType{Name: "bool"}, diags
+	}
+	family := lsmHookFamily(t.lsmHook)
+	wantFamily := lsmAccessorFamily(name)
+	if name == "file_path" && t.lsmHook != "file_open" {
+		return valueType{}, []diag.Diagnostic{{Code: "HZN1495", Severity: diag.SeverityError, Message: fmt.Sprintf("bpf_d_path is not permitted on LSM hook %q", t.lsmHook), Primary: call.Span, Suggest: "use lsm.path_dev/lsm.path_parent_ino for the decision and lsm.dentry_name for the record"}}
+	}
+	if wantFamily == "" {
+		return valueType{}, []diag.Diagnostic{{Code: "HZN1462", Severity: diag.SeverityError, Message: fmt.Sprintf("unknown LSM helper lsm.%s", name), Primary: call.Span}}
+	}
+	if family != wantFamily {
+		return valueType{}, []diag.Diagnostic{{Code: "HZN1494", Severity: diag.SeverityError, Message: fmt.Sprintf("lsm.%s is not available on LSM hook %q (family: %s)", name, t.lsmHook, family), Primary: call.Span, Suggest: lsmFamilySuggestion(family)}}
+	}
+	if name == "file_path" || name == "bprm_filename" || name == "bprm_interp" || name == "dentry_name" {
+		if len(call.Args) != 2 {
+			return valueType{Name: "i64", Fallible: "lsm." + name}, []diag.Diagnostic{argCountDiagnostic(call.Span, "lsm."+name, 2, len(call.Args))}
+		}
+		ctx, ctxDiags := t.typeOf(call.Args[0])
+		dst, dstDiags := t.typeOf(call.Args[1])
+		diags := append(ctxDiags, dstDiags...)
+		if !assignable(valueType{Name: "lsm.Context"}, ctx) {
+			diags = append(diags, diag.Diagnostic{Code: "HZN1494", Severity: diag.SeverityError, Message: fmt.Sprintf("lsm.%s expects lsm.Context", name), Primary: call.Args[0].GetSpan()})
+		}
+		if !dst.Ptr || !isU8FixedArray(dst) {
+			diags = append(diags, diag.Diagnostic{Code: "HZN1494", Severity: diag.SeverityError, Message: fmt.Sprintf("lsm.%s expects a pointer to a fixed [N]u8 destination", name), Primary: call.Args[1].GetSpan()})
+		}
+		return valueType{Name: "i64", Fallible: "lsm." + name}, diags
+	}
+	if len(call.Args) != 1 {
+		return valueType{Name: lsmAccessorResult(name)}, []diag.Diagnostic{argCountDiagnostic(call.Span, "lsm."+name, 1, len(call.Args))}
+	}
+	ctx, diags := t.typeOf(call.Args[0])
+	if !assignable(valueType{Name: "lsm.Context"}, ctx) {
+		diags = append(diags, diag.Diagnostic{Code: "HZN1494", Severity: diag.SeverityError, Message: fmt.Sprintf("lsm.%s expects lsm.Context", name), Primary: call.Args[0].GetSpan()})
+	}
+	return valueType{Name: lsmAccessorResult(name)}, diags
+}
+
+func lsmHookFamily(hook string) string {
+	switch hook {
+	case "file_open":
+		return "file"
+	case "bprm_check_security":
+		return "exec"
+	case "path_mknod", "path_unlink", "path_rename", "path_mkdir", "path_rmdir", "path_truncate":
+		return "path"
+	default:
+		return "unknown"
+	}
+}
+
+func lsmAccessorFamily(name string) string {
+	switch name {
+	case "file_dev", "file_ino", "file_mode", "file_flags", "file_path":
+		return "file"
+	case "bprm_dev", "bprm_ino", "bprm_filename", "bprm_interp":
+		return "exec"
+	case "path_dev", "path_parent_ino", "dentry_name", "path_mode":
+		return "path"
+	default:
+		return ""
+	}
+}
+
+func lsmAccessorResult(name string) string {
+	switch name {
+	case "file_mode", "file_flags", "path_mode":
+		return "u32"
+	default:
+		return "u64"
+	}
+}
+
+func lsmFamilySuggestion(family string) string {
+	switch family {
+	case "file":
+		return "use lsm.file_dev, lsm.file_ino, lsm.file_mode, lsm.file_flags, or lsm.file_path"
+	case "exec":
+		return "use lsm.bprm_dev, lsm.bprm_ino, lsm.bprm_filename, or lsm.bprm_interp"
+	case "path":
+		return "use lsm.path_dev, lsm.path_parent_ino, lsm.dentry_name, or lsm.path_mode"
+	default:
+		return "use an accessor supported by the selected LSM hook"
+	}
+}
+
 func (t exprTyper) cgroupConnectFieldCall(name string, call ast.CallExpr, result string) (valueType, []diag.Diagnostic) {
 	if len(call.Args) != 1 {
 		return valueType{Name: result}, []diag.Diagnostic{argCountDiagnostic(call.Span, "cgroup."+name, 1, len(call.Args))}
@@ -4567,11 +4680,20 @@ func (t exprTyper) helperCall(name string, call ast.CallExpr) (valueType, []diag
 			return valueType{Name: "u32"}, []diag.Diagnostic{argCountDiagnostic(call.Span, "bpf."+name, 0, len(call.Args))}
 		}
 		return valueType{Name: "u32"}, nil
-	case "ktime_get_ns":
+	case "ktime_get_ns", "current_cgroup_id":
 		if len(call.Args) != 0 {
-			return valueType{Name: "u64"}, []diag.Diagnostic{argCountDiagnostic(call.Span, "bpf.ktime_get_ns", 0, len(call.Args))}
+			return valueType{Name: "u64"}, []diag.Diagnostic{argCountDiagnostic(call.Span, "bpf."+name, 0, len(call.Args))}
 		}
 		return valueType{Name: "u64"}, nil
+	case "current_ancestor_cgroup_id":
+		if len(call.Args) != 1 {
+			return valueType{Name: "u64"}, []diag.Diagnostic{argCountDiagnostic(call.Span, "bpf.current_ancestor_cgroup_id", 1, len(call.Args))}
+		}
+		level, diags := t.typeOf(call.Args[0])
+		if d, ok := assignabilityDiagnostic("HZN1499", fmt.Sprintf("bpf.current_ancestor_cgroup_id expects u32, got %s", typeName(level)), valueType{Name: "u32"}, level, call.Args[0].GetSpan()); ok {
+			diags = append(diags, d)
+		}
+		return valueType{Name: "u64"}, diags
 	case "current_comm":
 		if len(call.Args) != 1 {
 			return valueType{Void: true}, []diag.Diagnostic{argCountDiagnostic(call.Span, "bpf.current_comm", 1, len(call.Args))}
@@ -5028,6 +5150,8 @@ func lsmSelectorType(name string) (valueType, bool) {
 	switch name {
 	case "Allow", "Deny":
 		return valueType{Name: "i32", LSMAction: true}, true
+	case "FModeWrite", "OCreat", "OTrunc", "OAppend":
+		return valueType{Name: "u32"}, true
 	default:
 		return valueType{}, false
 	}

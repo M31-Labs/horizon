@@ -544,6 +544,7 @@ func isBuiltinType(name string) bool {
 // concrete identifier by ComputeHelperEffectsForFunction before reaching
 // the manifest.
 var observeVocabulary = map[string]bool{
+	"task.cgroup_id":                 true,
 	"task.tgid":                      true,
 	"task.pid":                       true,
 	"task.uid":                       true,
@@ -569,6 +570,19 @@ var observeVocabulary = map[string]bool{
 	"kernel.network.packet.ipv4":     true,
 	"kernel.network.packet.tcp":      true,
 	"kernel.network.packet.udp":      true,
+	"kernel.file.path":               true,
+	"kernel.file.inode":              true,
+	"kernel.file.dev":                true,
+	"kernel.file.mode":               true,
+	"kernel.file.flags":              true,
+	"kernel.bprm.filename":           true,
+	"kernel.bprm.interp":             true,
+	"kernel.bprm.inode":              true,
+	"kernel.bprm.dev":                true,
+	"kernel.dentry.name":             true,
+	"kernel.path.parent_inode":       true,
+	"kernel.path.dev":                true,
+	"kernel.path.mode":               true,
 }
 
 // helperEffectResourceTokenPattern matches a fully-resolved resource

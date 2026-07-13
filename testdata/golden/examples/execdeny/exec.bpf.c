@@ -24,8 +24,40 @@ _Static_assert(sizeof(__s16) == 2, "horizon: __s16 width mismatch");
 _Static_assert(sizeof(__s32) == 4, "horizon: __s32 width mismatch");
 _Static_assert(sizeof(__s64) == 8, "horizon: __s64 width mismatch");
 
+static __always_inline __u64 hzn_current_cgroup_id(void) {
+    return bpf_get_current_cgroup_id();
+}
+
+struct hzn_type_CellScopeVal {
+    __u64 cell_lo;
+    __u64 cell_hi;
+    __u32 class;
+    __u32 fs_dev;
+};
+_Static_assert(sizeof(struct hzn_type_CellScopeVal) == 24, "horizon: struct CellScopeVal size mismatch");
+_Static_assert(__builtin_offsetof(struct hzn_type_CellScopeVal, cell_lo) == 0, "horizon: struct CellScopeVal.cell_lo offset mismatch");
+_Static_assert(__builtin_offsetof(struct hzn_type_CellScopeVal, cell_hi) == 8, "horizon: struct CellScopeVal.cell_hi offset mismatch");
+_Static_assert(__builtin_offsetof(struct hzn_type_CellScopeVal, class) == 16, "horizon: struct CellScopeVal.class offset mismatch");
+_Static_assert(__builtin_offsetof(struct hzn_type_CellScopeVal, fs_dev) == 20, "horizon: struct CellScopeVal.fs_dev offset mismatch");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 4096);
+    __type(key, __u64);
+    __type(value, struct hzn_type_CellScopeVal);
+} CellScope SEC(".maps");
+
+static __always_inline struct hzn_type_CellScopeVal *CellScope_lookup(__u64 key) {
+    return bpf_map_lookup_elem(&CellScope, &key);
+}
+
 SEC("lsm/bprm_check_security")
 int DenyExec(void *ctx) {
     (void)ctx;
+    __u64 cgroup_id = hzn_current_cgroup_id();
+    struct hzn_type_CellScopeVal *scope = CellScope_lookup(cgroup_id);
+    if (scope == 0) {
+        return HZN_LSM_ALLOW;
+    }
     return HZN_LSM_DENY;
 }

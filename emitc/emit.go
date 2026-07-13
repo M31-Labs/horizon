@@ -62,7 +62,7 @@ func (e *cEmitter) emitPreamble() {
 		e.b.WriteString("#include <stdbool.h>\n")
 	}
 	e.b.WriteString("#include <bpf/bpf_helpers.h>\n\n")
-	if e.usage.helpers["current_ppid"] {
+	if e.usage.helpers["current_ppid"] || len(e.usage.lsmHelpers) > 0 {
 		e.b.WriteString("#include <bpf/bpf_core_read.h>\n\n")
 	}
 	e.b.WriteString("#include <bpf/bpf_tracing.h>\n\n")
@@ -86,6 +86,7 @@ func (e *cEmitter) emitPreamble() {
 	emitHelperWrappers(&e.b, &e.sourceMap, e.usage)
 	emitProbeContextHelpers(&e.b, &e.sourceMap, e.usage)
 	emitCgroupContextHelpers(&e.b, &e.sourceMap, e.usage)
+	emitLSMContextHelpers(&e.b, &e.sourceMap, e.usage)
 	if e.usage.hasXDPPacketHelpers() {
 		emitXDPPacketHelpers(&e.b, &e.sourceMap, e.usage)
 	}
@@ -460,6 +461,8 @@ type cUsage struct {
 	xdpOrigins       map[string]cUsageOrigin
 	cgroupHelpers    map[string]bool
 	cgroupOrigins    map[string]cUsageOrigin
+	lsmHelpers       map[string]bool
+	lsmOrigins       map[string]cUsageOrigin
 	kprobeHelpers    map[string]bool
 	kprobeOrigins    map[string]cUsageOrigin
 	kretHelpers      map[string]bool
@@ -493,6 +496,8 @@ func newCUsage() cUsage {
 		xdpOrigins:       map[string]cUsageOrigin{},
 		cgroupHelpers:    map[string]bool{},
 		cgroupOrigins:    map[string]cUsageOrigin{},
+		lsmHelpers:       map[string]bool{},
+		lsmOrigins:       map[string]cUsageOrigin{},
 		kprobeHelpers:    map[string]bool{},
 		kprobeOrigins:    map[string]cUsageOrigin{},
 		kretHelpers:      map[string]bool{},
@@ -667,6 +672,9 @@ func (u *cUsage) observeExpr(expr *ir.Expr, origin cUsageOrigin) {
 	if helper, ok := cgroupHelperCall(expr); ok {
 		u.addCgroupHelper(helper, origin)
 	}
+	if helper, ok := lsmContextCall(expr); ok {
+		u.addLSMHelper(helper, origin)
+	}
 	if helper, ok := kprobeContextCall(expr); ok {
 		u.addKprobeHelper(helper, origin)
 	}
@@ -706,6 +714,13 @@ func (u *cUsage) addCgroupHelper(name string, origin cUsageOrigin) {
 	u.cgroupHelpers[name] = true
 	if _, ok := u.cgroupOrigins[name]; !ok && !origin.Span.IsZero() {
 		u.cgroupOrigins[name] = origin
+	}
+}
+
+func (u *cUsage) addLSMHelper(name string, origin cUsageOrigin) {
+	u.lsmHelpers[name] = true
+	if _, ok := u.lsmOrigins[name]; !ok && !origin.Span.IsZero() {
+		u.lsmOrigins[name] = origin
 	}
 }
 
@@ -843,6 +858,26 @@ static __always_inline __u64 hzn_ktime_get_ns(void) {
 		})
 	}
 
+	if usage.helpers["current_cgroup_id"] {
+		emitUsageMapped(b, sourceMap, usage.helperOrigins["current_cgroup_id"], "helper_wrapper", func() {
+			b.WriteString(`
+static __always_inline __u64 hzn_current_cgroup_id(void) {
+    return bpf_get_current_cgroup_id();
+}
+`)
+		})
+	}
+
+	if usage.helpers["current_ancestor_cgroup_id"] {
+		emitUsageMapped(b, sourceMap, usage.helperOrigins["current_ancestor_cgroup_id"], "helper_wrapper", func() {
+			b.WriteString(`
+static __always_inline __u64 hzn_current_ancestor_cgroup_id(__u32 level) {
+    return bpf_get_current_ancestor_cgroup_id(level);
+}
+`)
+		})
+	}
+
 	if usage.helpers["current_comm"] {
 		emitUsageMapped(b, sourceMap, usage.helperOrigins["current_comm"], "helper_wrapper", func() {
 			b.WriteString(`
@@ -924,6 +959,50 @@ static __always_inline %s hzn_cgroup_%s(struct bpf_sock_addr *ctx) {
     %s
 }
 `, helper.Type, helper.Name, helper.Body)
+		})
+	}
+}
+
+func emitLSMContextHelpers(b *strings.Builder, sourceMap *ir.SourceMap, usage cUsage) {
+	type helperDef struct{ name, result, body string }
+	for _, helper := range []helperDef{
+		{"file_dev", "__u64", "struct file *file = (struct file *)(unsigned long)((__u64 *)ctx)[0]; return file ? (__u64)BPF_CORE_READ(file, f_inode, i_sb, s_dev) : 0;"},
+		{"file_ino", "__u64", "struct file *file = (struct file *)(unsigned long)((__u64 *)ctx)[0]; return file ? (__u64)BPF_CORE_READ(file, f_inode, i_ino) : 0;"},
+		{"file_mode", "__u32", "struct file *file = (struct file *)(unsigned long)((__u64 *)ctx)[0]; return file ? (__u32)BPF_CORE_READ(file, f_mode) : 0;"},
+		{"file_flags", "__u32", "struct file *file = (struct file *)(unsigned long)((__u64 *)ctx)[0]; return file ? (__u32)BPF_CORE_READ(file, f_flags) : 0;"},
+		{"bprm_dev", "__u64", "struct linux_binprm *bprm = (struct linux_binprm *)(unsigned long)((__u64 *)ctx)[0]; return bprm ? (__u64)BPF_CORE_READ(bprm, file, f_inode, i_sb, s_dev) : 0;"},
+		{"bprm_ino", "__u64", "struct linux_binprm *bprm = (struct linux_binprm *)(unsigned long)((__u64 *)ctx)[0]; return bprm ? (__u64)BPF_CORE_READ(bprm, file, f_inode, i_ino) : 0;"},
+		{"path_dev", "__u64", "const struct path *dir = (const struct path *)(unsigned long)((__u64 *)ctx)[0]; return dir ? (__u64)BPF_CORE_READ(dir, mnt, mnt_sb, s_dev) : 0;"},
+		{"path_parent_ino", "__u64", "const struct path *dir = (const struct path *)(unsigned long)((__u64 *)ctx)[0]; return dir ? (__u64)BPF_CORE_READ(dir, dentry, d_inode, i_ino) : 0;"},
+		{"path_mode", "__u32", "return (__u32)((__u64 *)ctx)[2];"},
+	} {
+		if !usage.lsmHelpers[helper.name] {
+			continue
+		}
+		emitUsageMapped(b, sourceMap, usage.lsmOrigins[helper.name], "lsm_context_wrapper", func() {
+			fmt.Fprintf(b, "\nstatic __always_inline %s hzn_lsm_%s(void *ctx) {\n    %s\n}\n", helper.result, helper.name, helper.body)
+		})
+	}
+	if usage.lsmHelpers["file_path"] {
+		emitUsageMapped(b, sourceMap, usage.lsmOrigins["file_path"], "lsm_context_wrapper", func() {
+			b.WriteString(`
+static __always_inline long hzn_lsm_file_path(void *ctx, void *dst, __u32 size) {
+    struct file *file = (struct file *)(unsigned long)((__u64 *)ctx)[0];
+    return file ? bpf_d_path(&file->f_path, dst, size) : -1;
+}
+`)
+		})
+	}
+	for _, helper := range []struct{ name, object, field string }{
+		{"bprm_filename", "struct linux_binprm *object = (struct linux_binprm *)(unsigned long)((__u64 *)ctx)[0]", "filename"},
+		{"bprm_interp", "struct linux_binprm *object = (struct linux_binprm *)(unsigned long)((__u64 *)ctx)[0]", "interp"},
+		{"dentry_name", "struct dentry *object = (struct dentry *)(unsigned long)((__u64 *)ctx)[1]", "d_name.name"},
+	} {
+		if !usage.lsmHelpers[helper.name] {
+			continue
+		}
+		emitUsageMapped(b, sourceMap, usage.lsmOrigins[helper.name], "lsm_context_wrapper", func() {
+			fmt.Fprintf(b, "\nstatic __always_inline long hzn_lsm_%s(void *ctx, void *dst, __u32 size) {\n    %s;\n    const void *src = object ? BPF_CORE_READ(object, %s) : 0;\n    return src ? bpf_probe_read_kernel_str(dst, size, src) : -1;\n}\n", helper.name, helper.object, helper.field)
 		})
 	}
 }
@@ -1857,7 +1936,7 @@ func knownCallType(name string) (ir.Type, bool) {
 	switch name {
 	case "bpf.current_pid", "bpf.current_ppid", "bpf.current_uid":
 		return ir.Type{Name: "u32"}, true
-	case "bpf.ktime_get_ns":
+	case "bpf.ktime_get_ns", "bpf.current_cgroup_id", "bpf.current_ancestor_cgroup_id":
 		return ir.Type{Name: "u64"}, true
 	case "bpf.current_comm":
 		return ir.Type{Name: "i64"}, true
@@ -1877,6 +1956,14 @@ func knownCallType(name string) (ir.Type, bool) {
 		return ir.Type{Name: "u32"}, true
 	case "cgroup.dst_port":
 		return ir.Type{Name: "u16"}, true
+	case "lsm.file_dev", "lsm.file_ino", "lsm.bprm_dev", "lsm.bprm_ino", "lsm.path_dev", "lsm.path_parent_ino":
+		return ir.Type{Name: "u64"}, true
+	case "lsm.file_mode", "lsm.file_flags", "lsm.path_mode":
+		return ir.Type{Name: "u32"}, true
+	case "lsm.file_path", "lsm.bprm_filename", "lsm.bprm_interp", "lsm.dentry_name":
+		return ir.Type{Name: "i64"}, true
+	case "lsm.path_has_prefix":
+		return ir.Type{Name: "bool"}, true
 	case "kprobe.arg1", "kprobe.arg2", "kprobe.arg3", "kprobe.arg4", "kprobe.arg5":
 		return ir.Type{Name: "u64"}, true
 	case "kretprobe.ret":
@@ -1910,6 +1997,9 @@ func knownSelectorType(name string) (ir.Type, bool) {
 	}
 	if _, ok := lsmActionC(name); ok {
 		return ir.Type{Name: "i32"}, true
+	}
+	if _, ok := lsmConstantC(name); ok {
+		return ir.Type{Name: "u32"}, true
 	}
 	if typ, ok := xdpConstantType(name); ok {
 		return typ, true
@@ -2154,6 +2244,9 @@ func knownSelectorC(name string) (string, bool) {
 	if action, ok := lsmActionC(name); ok {
 		return action, true
 	}
+	if constant, ok := lsmConstantC(name); ok {
+		return constant, true
+	}
 	if constant, ok := xdpConstantC(name); ok {
 		return constant, true
 	}
@@ -2247,6 +2340,21 @@ func lsmActionC(name string) (string, bool) {
 		return "HZN_LSM_ALLOW", true
 	case "lsm.Deny":
 		return "HZN_LSM_DENY", true
+	default:
+		return "", false
+	}
+}
+
+func lsmConstantC(name string) (string, bool) {
+	switch name {
+	case "lsm.FModeWrite":
+		return "((__u32)0x2)", true
+	case "lsm.OCreat":
+		return "((__u32)0100)", true
+	case "lsm.OTrunc":
+		return "((__u32)01000)", true
+	case "lsm.OAppend":
+		return "((__u32)02000)", true
 	default:
 		return "", false
 	}
@@ -2366,6 +2474,10 @@ func (e cExprEmitter) knownCall(expr *ir.Expr, name string) (string, bool) {
 		return "hzn_current_uid()", true
 	case "bpf.ktime_get_ns":
 		return "hzn_ktime_get_ns()", true
+	case "bpf.current_cgroup_id":
+		return "hzn_current_cgroup_id()", true
+	case "bpf.current_ancestor_cgroup_id":
+		return e.oneArgCall(expr, func(arg ir.Expr) string { return fmt.Sprintf("hzn_current_ancestor_cgroup_id(%s)", e.emit(&arg)) })
 	case "bpf.current_comm":
 		return e.oneArgCall(expr, func(arg ir.Expr) string {
 			return fmt.Sprintf("hzn_current_comm(%s, sizeof(%s))", e.emit(&arg), sizeofExpr(&arg, e.env))
@@ -2408,6 +2520,16 @@ func (e cExprEmitter) knownCall(expr *ir.Expr, name string) (string, bool) {
 		return e.cgroupContextCall(expr, "src_ip4")
 	case "cgroup.ip4":
 		return e.ip4Call(expr)
+	case "lsm.file_dev", "lsm.file_ino", "lsm.file_mode", "lsm.file_flags", "lsm.bprm_dev", "lsm.bprm_ino", "lsm.path_dev", "lsm.path_parent_ino", "lsm.path_mode":
+		helper := strings.TrimPrefix(name, "lsm.")
+		return e.oneArgCall(expr, func(arg ir.Expr) string { return fmt.Sprintf("hzn_lsm_%s(%s)", helper, e.emit(&arg)) })
+	case "lsm.file_path", "lsm.bprm_filename", "lsm.bprm_interp", "lsm.dentry_name":
+		helper := strings.TrimPrefix(name, "lsm.")
+		return e.twoArgCall(expr, func(ctx ir.Expr, dst ir.Expr) string {
+			return fmt.Sprintf("hzn_lsm_%s(%s, %s, sizeof(%s))", helper, e.emit(&ctx), e.emit(&dst), sizeofExpr(&dst, e.env))
+		})
+	case "lsm.path_has_prefix":
+		return e.pathHasPrefixCall(expr)
 	case "kprobe.arg1", "kprobe.arg2", "kprobe.arg3", "kprobe.arg4", "kprobe.arg5":
 		return e.oneArgCall(expr, func(arg ir.Expr) string {
 			return fmt.Sprintf("hzn_%s(%s)", strings.ReplaceAll(name, ".", "_"), e.emit(&arg))
@@ -2451,6 +2573,22 @@ func (e cExprEmitter) ip4Call(expr *ir.Expr) (string, bool) {
 		e.emit(&expr.Args[2]),
 		e.emit(&expr.Args[3]),
 	), true
+}
+
+func (e cExprEmitter) pathHasPrefixCall(expr *ir.Expr) (string, bool) {
+	if len(expr.Args) != 2 || expr.Args[1].Kind != "string" {
+		return "", false
+	}
+	buffer := e.emit(&expr.Args[0])
+	bytes := []byte(expr.Args[1].Value)
+	if len(bytes) == 0 {
+		return "false", true
+	}
+	comparisons := make([]string, 0, len(bytes))
+	for index, value := range bytes {
+		comparisons = append(comparisons, fmt.Sprintf("((const unsigned char *)%s)[%d] == 0x%02x", buffer, index, value))
+	}
+	return "(" + strings.Join(comparisons, " && ") + ")", true
 }
 
 func (e cExprEmitter) args(in []ir.Expr) string {
@@ -2537,6 +2675,10 @@ func helperWrapperCall(expr *ir.Expr) (string, bool) {
 		return "current_uid", true
 	case "bpf.ktime_get_ns":
 		return "ktime_get_ns", true
+	case "bpf.current_cgroup_id":
+		return "current_cgroup_id", true
+	case "bpf.current_ancestor_cgroup_id":
+		return "current_ancestor_cgroup_id", true
 	case "bpf.current_comm":
 		return "current_comm", true
 	case "bpf.probe_read_user_str":
@@ -2585,6 +2727,18 @@ func cgroupHelperCall(expr *ir.Expr) (string, bool) {
 	}
 	switch expr.Func.Field {
 	case "family", "sock_type", "protocol", "dst_port", "dst_ip4", "src_ip4", "ip4":
+		return expr.Func.Field, true
+	default:
+		return "", false
+	}
+}
+
+func lsmContextCall(expr *ir.Expr) (string, bool) {
+	if expr == nil || expr.Kind != "call" || expr.Func == nil || expr.Func.Kind != "selector" || expr.Func.Operand == nil || expr.Func.Operand.Kind != "ident" || expr.Func.Operand.Name != "lsm" {
+		return "", false
+	}
+	switch expr.Func.Field {
+	case "file_dev", "file_ino", "file_mode", "file_flags", "file_path", "bprm_dev", "bprm_ino", "bprm_filename", "bprm_interp", "path_dev", "path_parent_ino", "dentry_name", "path_mode", "path_has_prefix":
 		return expr.Func.Field, true
 	default:
 		return "", false

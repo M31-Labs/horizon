@@ -22,6 +22,7 @@ func Program(program ir.Program) []diag.Diagnostic {
 	diags = append(diags, AnalyzeMaps(program, sites, effects)...)
 	diags = append(diags, AnalyzeHelpers(program, sites)...)
 	diags = append(diags, AnalyzePacket(program, sites, effects)...)
+	diags = append(diags, AnalyzeLSMScope(program)...)
 	diags = append(diags, ValidateCapabilities(program)...)
 	// #8 depth-telemetry env-gate. When HORIZON_BIRCH_DEPTH_REPORT is set,
 	// emit one stderr line per program with the max helper-call-chain depth,

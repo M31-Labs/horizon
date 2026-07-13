@@ -18,6 +18,8 @@ import (
 // endianness intrinsic surface) to keep the two sides of the registry
 // contract pinned to one another.
 var expectedHelperNames = []string{
+	"bpf.current_ancestor_cgroup_id",
+	"bpf.current_cgroup_id",
 	"bpf.current_comm",
 	"bpf.current_pid",
 	"bpf.current_ppid",
@@ -41,6 +43,20 @@ var expectedHelperNames = []string{
 	"kprobe.arg4",
 	"kprobe.arg5",
 	"kretprobe.ret",
+	"lsm.bprm_dev",
+	"lsm.bprm_filename",
+	"lsm.bprm_ino",
+	"lsm.bprm_interp",
+	"lsm.dentry_name",
+	"lsm.file_dev",
+	"lsm.file_flags",
+	"lsm.file_ino",
+	"lsm.file_mode",
+	"lsm.file_path",
+	"lsm.path_dev",
+	"lsm.path_has_prefix",
+	"lsm.path_mode",
+	"lsm.path_parent_ino",
 	"map.delete",
 	"map.lookup",
 	"map.update",
@@ -100,6 +116,7 @@ var (
 		"none":    true,
 	}
 	allowedTopLevelTokens = map[string]bool{
+		"task.cgroup_id":                 true,
 		"task.tgid":                      true,
 		"task.pid":                       true,
 		"task.uid":                       true,
@@ -125,6 +142,19 @@ var (
 		"kernel.network.packet.ipv4":     true,
 		"kernel.network.packet.tcp":      true,
 		"kernel.network.packet.udp":      true,
+		"kernel.file.path":               true,
+		"kernel.file.inode":              true,
+		"kernel.file.dev":                true,
+		"kernel.file.mode":               true,
+		"kernel.file.flags":              true,
+		"kernel.bprm.filename":           true,
+		"kernel.bprm.interp":             true,
+		"kernel.bprm.inode":              true,
+		"kernel.bprm.dev":                true,
+		"kernel.dentry.name":             true,
+		"kernel.path.parent_inode":       true,
+		"kernel.path.dev":                true,
+		"kernel.path.mode":               true,
 	}
 	allowedRequiresTokens = map[string]bool{
 		"task_struct.real_parent": true,

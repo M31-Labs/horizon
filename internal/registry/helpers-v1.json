@@ -9,6 +9,18 @@
       "introduced": "v0.1.0"
     },
     {
+      "name": "bpf.current_ancestor_cgroup_id",
+      "kernel_symbol": "bpf_get_current_ancestor_cgroup_id",
+      "observes": ["task.cgroup_id"],
+      "introduced": "v0.4.0"
+    },
+    {
+      "name": "bpf.current_cgroup_id",
+      "kernel_symbol": "bpf_get_current_cgroup_id",
+      "observes": ["task.cgroup_id"],
+      "introduced": "v0.4.0"
+    },
+    {
       "name": "bpf.current_pid",
       "kernel_symbol": "bpf_get_current_pid_tgid",
       "observes": ["task.tgid"],
@@ -145,6 +157,91 @@
       "kernel_symbol": "PT_REGS_RC",
       "observes": ["kernel.syscall.return"],
       "introduced": "v0.3.0"
+    },
+    {
+      "name": "lsm.bprm_dev",
+      "kernel_symbol": "BPF_CORE_READ",
+      "observes": ["kernel.bprm.dev"],
+      "introduced": "v0.4.0"
+    },
+    {
+      "name": "lsm.bprm_filename",
+      "kernel_symbol": "bpf_probe_read_kernel_str",
+      "observes": ["kernel.bprm.filename"],
+      "introduced": "v0.4.0"
+    },
+    {
+      "name": "lsm.bprm_ino",
+      "kernel_symbol": "BPF_CORE_READ",
+      "observes": ["kernel.bprm.inode"],
+      "introduced": "v0.4.0"
+    },
+    {
+      "name": "lsm.bprm_interp",
+      "kernel_symbol": "bpf_probe_read_kernel_str",
+      "observes": ["kernel.bprm.interp"],
+      "introduced": "v0.4.0"
+    },
+    {
+      "name": "lsm.dentry_name",
+      "kernel_symbol": "bpf_probe_read_kernel_str",
+      "observes": ["kernel.dentry.name"],
+      "introduced": "v0.4.0"
+    },
+    {
+      "name": "lsm.file_dev",
+      "kernel_symbol": "BPF_CORE_READ",
+      "observes": ["kernel.file.dev"],
+      "introduced": "v0.4.0"
+    },
+    {
+      "name": "lsm.file_flags",
+      "kernel_symbol": "BPF_CORE_READ",
+      "observes": ["kernel.file.flags"],
+      "introduced": "v0.4.0"
+    },
+    {
+      "name": "lsm.file_ino",
+      "kernel_symbol": "BPF_CORE_READ",
+      "observes": ["kernel.file.inode"],
+      "introduced": "v0.4.0"
+    },
+    {
+      "name": "lsm.file_mode",
+      "kernel_symbol": "BPF_CORE_READ",
+      "observes": ["kernel.file.mode"],
+      "introduced": "v0.4.0"
+    },
+    {
+      "name": "lsm.file_path",
+      "kernel_symbol": "bpf_d_path",
+      "observes": ["kernel.file.path"],
+      "introduced": "v0.4.0"
+    },
+    {
+      "name": "lsm.path_dev",
+      "kernel_symbol": "BPF_CORE_READ",
+      "observes": ["kernel.path.dev"],
+      "introduced": "v0.4.0"
+    },
+    {
+      "name": "lsm.path_mode",
+      "kernel_symbol": "BPF_CORE_READ",
+      "observes": ["kernel.path.mode"],
+      "introduced": "v0.4.0"
+    },
+    {
+      "name": "lsm.path_has_prefix",
+      "kernel_symbol": "compiler_unrolled_compare",
+      "observes": [],
+      "mutates": [],
+      "introduced": "v0.4.0"
+    },
+    {
+      "name": "lsm.path_parent_ino",
+      "kernel_symbol": "BPF_CORE_READ",
+      "observes": ["kernel.path.parent_inode"],
+      "introduced": "v0.4.0"
     },
     {
       "name": "map.delete",

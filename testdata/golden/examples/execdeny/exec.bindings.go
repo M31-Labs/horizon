@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"unsafe"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
@@ -13,7 +14,7 @@ import (
 	"m31labs.dev/horizon/capability"
 )
 
-const CapabilityManifestJSON = "{\n  \"schema\": \"m31labs.dev/horizon/capability/v1\",\n  \"package\": \"probes\",\n  \"programs\": [\n    {\n      \"name\": \"DenyExec\",\n      \"kind\": \"lsm\",\n      \"attach\": \"bprm_check_security\",\n      \"section\": \"lsm/bprm_check_security\",\n      \"capabilities\": [\n        \"kernel.process.exec.deny\"\n      ]\n    }\n  ],\n  \"capabilities\": [\n    {\n      \"name\": \"kernel.process.exec.deny\",\n      \"kind\": \"source\",\n      \"danger\": {\n        \"mode\": \"control\",\n        \"scope\": \"process\",\n        \"reversibility\": \"restart\"\n      },\n      \"program\": \"DenyExec\",\n      \"section\": \"lsm/bprm_check_security\",\n      \"maps\": {\n        \"read\": [],\n        \"write\": [],\n        \"events\": []\n      },\n      \"requirements\": {\n        \"min_kernel\": \"5.7\",\n        \"programs\": [\n          {\n            \"name\": \"lsm\",\n            \"min_kernel\": \"5.7\"\n          }\n        ],\n        \"permissions\": [\n          \"bpf_program_load\",\n          \"lsm_admin\"\n        ],\n        \"features\": [\n          \"bpf_lsm\"\n        ]\n      }\n    }\n  ],\n  \"requirements\": {\n    \"min_kernel\": \"5.7\",\n    \"programs\": [\n      {\n        \"name\": \"lsm\",\n        \"min_kernel\": \"5.7\"\n      }\n    ],\n    \"permissions\": [\n      \"bpf_program_load\",\n      \"lsm_admin\"\n    ],\n    \"features\": [\n      \"bpf_lsm\"\n    ]\n  }\n}\n"
+const CapabilityManifestJSON = "{\n  \"schema\": \"m31labs.dev/horizon/capability/v1\",\n  \"package\": \"probes\",\n  \"programs\": [\n    {\n      \"name\": \"DenyExec\",\n      \"kind\": \"lsm\",\n      \"attach\": \"bprm_check_security\",\n      \"section\": \"lsm/bprm_check_security\",\n      \"capabilities\": [\n        \"kernel.process.exec.deny\"\n      ]\n    }\n  ],\n  \"capabilities\": [\n    {\n      \"name\": \"kernel.process.exec.deny\",\n      \"kind\": \"source\",\n      \"danger\": {\n        \"mode\": \"control\",\n        \"scope\": \"process\",\n        \"reversibility\": \"restart\"\n      },\n      \"program\": \"DenyExec\",\n      \"section\": \"lsm/bprm_check_security\",\n      \"maps\": {\n        \"read\": [\n          \"CellScope\"\n        ],\n        \"write\": [],\n        \"events\": []\n      },\n      \"requirements\": {\n        \"min_kernel\": \"5.7\",\n        \"programs\": [\n          {\n            \"name\": \"lsm\",\n            \"min_kernel\": \"5.7\"\n          }\n        ],\n        \"maps\": [\n          {\n            \"name\": \"hash\",\n            \"min_kernel\": \"3.19\"\n          }\n        ],\n        \"helpers\": [\n          {\n            \"name\": \"bpf_get_current_cgroup_id\",\n            \"min_kernel\": \"4.18\"\n          },\n          {\n            \"name\": \"bpf_map_lookup_elem\",\n            \"min_kernel\": \"3.19\"\n          }\n        ],\n        \"permissions\": [\n          \"bpf_program_load\",\n          \"lsm_admin\"\n        ],\n        \"features\": [\n          \"bpf_lsm\"\n        ]\n      },\n      \"helper_effects\": [\n        {\n          \"name\": \"bpf.current_cgroup_id\",\n          \"observes\": [\n            \"task.cgroup_id\"\n          ]\n        },\n        {\n          \"name\": \"map.lookup\",\n          \"observes\": [\n            \"map:CellScope\"\n          ],\n          \"resource\": \"lookup\"\n        }\n      ]\n    }\n  ],\n  \"maps\": [\n    {\n      \"name\": \"CellScope\",\n      \"kind\": \"hash\",\n      \"key\": \"u64\",\n      \"value\": \"CellScopeVal\",\n      \"max_entries\": \"4096\"\n    }\n  ],\n  \"types\": [\n    {\n      \"name\": \"CellScopeVal\",\n      \"kind\": \"struct\",\n      \"size\": 24,\n      \"align\": 8,\n      \"fields\": [\n        {\n          \"name\": \"cell_lo\",\n          \"type\": \"u64\",\n          \"offset\": 0\n        },\n        {\n          \"name\": \"cell_hi\",\n          \"type\": \"u64\",\n          \"offset\": 8\n        },\n        {\n          \"name\": \"class\",\n          \"type\": \"u32\",\n          \"offset\": 16\n        },\n        {\n          \"name\": \"fs_dev\",\n          \"type\": \"u32\",\n          \"offset\": 20\n        }\n      ]\n    }\n  ],\n  \"requirements\": {\n    \"min_kernel\": \"5.7\",\n    \"programs\": [\n      {\n        \"name\": \"lsm\",\n        \"min_kernel\": \"5.7\"\n      }\n    ],\n    \"maps\": [\n      {\n        \"name\": \"hash\",\n        \"min_kernel\": \"3.19\"\n      }\n    ],\n    \"helpers\": [\n      {\n        \"name\": \"bpf_get_current_cgroup_id\",\n        \"min_kernel\": \"4.18\"\n      },\n      {\n        \"name\": \"bpf_map_lookup_elem\",\n        \"min_kernel\": \"3.19\"\n      }\n    ],\n    \"permissions\": [\n      \"bpf_program_load\",\n      \"lsm_admin\"\n    ],\n    \"features\": [\n      \"bpf_lsm\"\n    ]\n  }\n}\n"
 
 func CapabilityManifest() (capability.Manifest, error) {
 	var manifest capability.Manifest
@@ -23,8 +24,26 @@ func CapabilityManifest() (capability.Manifest, error) {
 	return manifest, nil
 }
 
+type CellScopeVal struct {
+	CellLo uint64
+	CellHi uint64
+	Class  uint32
+	FsDev  uint32
+}
+
+var _ [24 - int(unsafe.Sizeof(CellScopeVal{}))]byte
+var _ [int(unsafe.Sizeof(CellScopeVal{})) - 24]byte
+var _ [-int(unsafe.Offsetof(CellScopeVal{}.CellLo))]byte
+var _ [8 - int(unsafe.Offsetof(CellScopeVal{}.CellHi))]byte
+var _ [int(unsafe.Offsetof(CellScopeVal{}.CellHi)) - 8]byte
+var _ [16 - int(unsafe.Offsetof(CellScopeVal{}.Class))]byte
+var _ [int(unsafe.Offsetof(CellScopeVal{}.Class)) - 16]byte
+var _ [20 - int(unsafe.Offsetof(CellScopeVal{}.FsDev))]byte
+var _ [int(unsafe.Offsetof(CellScopeVal{}.FsDev)) - 20]byte
+
 type Objects struct {
-	DenyExec *ebpf.Program `ebpf:"DenyExec"`
+	CellScope *ebpf.Map     `ebpf:"CellScope"`
+	DenyExec  *ebpf.Program `ebpf:"DenyExec"`
 }
 
 type LoadOptions struct {
@@ -58,10 +77,65 @@ func (o *Objects) Close() error {
 		return nil
 	}
 	var err error
+	if o.CellScope != nil {
+		err = errors.Join(err, o.CellScope.Close())
+	}
 	if o.DenyExec != nil {
 		err = errors.Join(err, o.DenyExec.Close())
 	}
 	return err
+}
+
+func (o *Objects) LookupCellScope(key uint64) (CellScopeVal, bool, error) {
+	var value CellScopeVal
+	if o == nil || o.CellScope == nil {
+		return value, false, fmt.Errorf("CellScope map is not loaded")
+	}
+	if err := o.CellScope.Lookup(key, &value); err != nil {
+		if errors.Is(err, ebpf.ErrKeyNotExist) {
+			return value, false, nil
+		}
+		return value, false, err
+	}
+	return value, true, nil
+}
+
+func (o *Objects) UpdateCellScope(key uint64, value CellScopeVal) error {
+	if o == nil || o.CellScope == nil {
+		return fmt.Errorf("CellScope map is not loaded")
+	}
+	return o.CellScope.Update(key, value, ebpf.UpdateAny)
+}
+
+func (o *Objects) ForEachCellScope(handle func(key uint64, value CellScopeVal) error) error {
+	if o == nil || o.CellScope == nil {
+		return fmt.Errorf("CellScope map is not loaded")
+	}
+	iter := o.CellScope.Iterate()
+	for {
+		var key uint64
+		var value CellScopeVal
+		if !iter.Next(&key, &value) {
+			break
+		}
+		if err := handle(key, value); err != nil {
+			return err
+		}
+	}
+	return iter.Err()
+}
+
+func (o *Objects) DeleteCellScope(key uint64) error {
+	if o == nil || o.CellScope == nil {
+		return fmt.Errorf("CellScope map is not loaded")
+	}
+	if err := o.CellScope.Delete(key); err != nil {
+		if errors.Is(err, ebpf.ErrKeyNotExist) {
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 func (o *Objects) AttachDenyExec() (link.Link, error) {

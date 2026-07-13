@@ -243,11 +243,60 @@ func TestLSMCompileSmoke(t *testing.T) {
 	srcDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(srcDir, "lsm.hzn"), []byte(`package probes
 
-capability FileOpenObserve danger observe = "kernel.file.open.observe"
+capability FileOpenBlock danger block = "kernel.file.open.block"
+capability ExecObserve danger observe = "kernel.process.exec.observe"
+capability MkdirObserve danger observe = "kernel.file.mkdir.observe"
 
-@capability(FileOpenObserve)
+type CellScopeVal struct { class u32 }
+type Event struct { path [256]u8 }
+@max_entries(16)
+map CellScope hash[u64, CellScopeVal]
+map Events ringbuf[Event]
+
+@capability(FileOpenBlock)
 @lsm("file_open")
-func AllowFileOpen(ctx lsm.Context) i32 {
+func CheckFileOpen(ctx lsm.Context) i32 {
+    cgroup_id := bpf.current_cgroup_id()
+    scope := CellScope.lookup(cgroup_id)
+    if scope == nil { return lsm.Allow }
+    event := Events.reserve()
+    if event == nil { return lsm.Allow }
+    dev := lsm.file_dev(ctx)
+    ino := lsm.file_ino(ctx)
+    mode := lsm.file_mode(ctx)
+    flags := lsm.file_flags(ctx)
+    if lsm.file_path(ctx, &event.path) != 0 { Events.discard(event); return lsm.Allow }
+    matches := lsm.path_has_prefix(&event.path, "/tmp")
+    Events.discard(event)
+    if dev == 0 && ino == 0 && mode == 0 && flags == 0 && matches { return lsm.Deny }
+    return lsm.Allow
+}
+
+@capability(ExecObserve)
+@lsm("bprm_check_security")
+func ObserveExec(ctx lsm.Context) i32 {
+    event := Events.reserve()
+    if event == nil { return lsm.Allow }
+    dev := lsm.bprm_dev(ctx)
+    ino := lsm.bprm_ino(ctx)
+    if lsm.bprm_filename(ctx, &event.path) != 0 { Events.discard(event); return lsm.Allow }
+    if lsm.bprm_interp(ctx, &event.path) != 0 { Events.discard(event); return lsm.Allow }
+    Events.discard(event)
+    if dev == 0 && ino == 0 { return lsm.Allow }
+    return lsm.Allow
+}
+
+@capability(MkdirObserve)
+@lsm("path_mkdir")
+func ObserveMkdir(ctx lsm.Context) i32 {
+    event := Events.reserve()
+    if event == nil { return lsm.Allow }
+    dev := lsm.path_dev(ctx)
+    parent := lsm.path_parent_ino(ctx)
+    mode := lsm.path_mode(ctx)
+    if lsm.dentry_name(ctx, &event.path) != 0 { Events.discard(event); return lsm.Allow }
+    Events.discard(event)
+    if dev == 0 && parent == 0 && mode == 0 { return lsm.Allow }
     return lsm.Allow
 }
 `), 0o600); err != nil {

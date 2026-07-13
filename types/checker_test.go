@@ -66,6 +66,64 @@ func BlockSMTP(ctx cgroup.Connect) i32 {
 	}
 }
 
+func TestCheckCurrentCgroupHelpers(t *testing.T) {
+	file := parseTestFile(t, `package probes
+
+@lsm("file_open")
+func Scoped(ctx lsm.Context) i32 {
+    id := bpf.current_cgroup_id()
+    parent := bpf.current_ancestor_cgroup_id(1)
+    dev := lsm.file_dev(ctx)
+    mode := lsm.file_mode(ctx)
+    if id == parent { return lsm.Allow }
+    if (dev != 0) && (mode == lsm.FModeWrite) { return lsm.Deny }
+    return lsm.Allow
+}
+`)
+	if diags := Check(file); diag.HasErrors(diags) {
+		t.Fatalf("diagnostics = %#v, want no errors", diags)
+	}
+}
+
+func TestCheckRejectsLSMAccessorHookMismatch(t *testing.T) {
+	tests := []struct {
+		name, hook, expression, code string
+	}{
+		{"family", "bprm_check_security", "lsm.file_dev(ctx)", "HZN1494"},
+		{"d-path", "path_unlink", "lsm.file_path(ctx)", "HZN1495"},
+		{"argv", "bprm_check_security", "lsm.argv(ctx)", "HZN1498"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			file := parseTestFile(t, "package probes\n@lsm(\""+test.hook+"\")\nfunc Gate(ctx lsm.Context) i32 {\n"+test.expression+"\nreturn lsm.Allow\n}\n")
+			diags := Check(file)
+			if !slices.ContainsFunc(diags, func(d diag.Diagnostic) bool { return d.Code == test.code }) {
+				t.Fatalf("diagnostics = %#v, want %s", diags, test.code)
+			}
+		})
+	}
+}
+
+func TestCheckPathPrefixRequiresLiteral(t *testing.T) {
+	file := parseTestFile(t, `package probes
+type Event struct { path [32]u8 }
+map Events ringbuf[Event]
+@lsm("file_open")
+func Gate(ctx lsm.Context) i32 {
+    event := Events.reserve()
+    if event == nil { return lsm.Allow }
+    prefix := "/tmp"
+    lsm.path_has_prefix(&event.path, prefix)
+    Events.discard(event)
+    return lsm.Allow
+}
+`)
+	diags := Check(file)
+	if !slices.ContainsFunc(diags, func(d diag.Diagnostic) bool { return d.Code == "HZN1496" }) {
+		t.Fatalf("diagnostics=%#v, want HZN1496", diags)
+	}
+}
+
 func TestCheckRejectsInvalidCgroupIP4Octet(t *testing.T) {
 	file := parseTestFile(t, `package probes
 

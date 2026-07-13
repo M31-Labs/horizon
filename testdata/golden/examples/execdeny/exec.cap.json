@@ -6,10 +6,27 @@
         "reversibility": "restart",
         "scope": "process"
       },
+      "helper_effects": [
+        {
+          "name": "bpf.current_cgroup_id",
+          "observes": [
+            "task.cgroup_id"
+          ]
+        },
+        {
+          "name": "map.lookup",
+          "observes": [
+            "map:CellScope"
+          ],
+          "resource": "lookup"
+        }
+      ],
       "kind": "source",
       "maps": {
         "events": [],
-        "read": [],
+        "read": [
+          "CellScope"
+        ],
         "write": []
       },
       "name": "kernel.process.exec.deny",
@@ -17,6 +34,22 @@
       "requirements": {
         "features": [
           "bpf_lsm"
+        ],
+        "helpers": [
+          {
+            "min_kernel": "4.18",
+            "name": "bpf_get_current_cgroup_id"
+          },
+          {
+            "min_kernel": "3.19",
+            "name": "bpf_map_lookup_elem"
+          }
+        ],
+        "maps": [
+          {
+            "min_kernel": "3.19",
+            "name": "hash"
+          }
         ],
         "min_kernel": "5.7",
         "permissions": [
@@ -31,6 +64,15 @@
         ]
       },
       "section": "lsm/bprm_check_security"
+    }
+  ],
+  "maps": [
+    {
+      "key": "u64",
+      "kind": "hash",
+      "max_entries": "4096",
+      "name": "CellScope",
+      "value": "CellScopeVal"
     }
   ],
   "package": "probes",
@@ -49,6 +91,22 @@
     "features": [
       "bpf_lsm"
     ],
+    "helpers": [
+      {
+        "min_kernel": "4.18",
+        "name": "bpf_get_current_cgroup_id"
+      },
+      {
+        "min_kernel": "3.19",
+        "name": "bpf_map_lookup_elem"
+      }
+    ],
+    "maps": [
+      {
+        "min_kernel": "3.19",
+        "name": "hash"
+      }
+    ],
     "min_kernel": "5.7",
     "permissions": [
       "bpf_program_load",
@@ -61,5 +119,35 @@
       }
     ]
   },
-  "schema": "m31labs.dev/horizon/capability/v1"
+  "schema": "m31labs.dev/horizon/capability/v1",
+  "types": [
+    {
+      "align": 8,
+      "fields": [
+        {
+          "name": "cell_lo",
+          "offset": 0,
+          "type": "u64"
+        },
+        {
+          "name": "cell_hi",
+          "offset": 8,
+          "type": "u64"
+        },
+        {
+          "name": "class",
+          "offset": 16,
+          "type": "u32"
+        },
+        {
+          "name": "fs_dev",
+          "offset": 20,
+          "type": "u32"
+        }
+      ],
+      "kind": "struct",
+      "name": "CellScopeVal",
+      "size": 24
+    }
+  ]
 }

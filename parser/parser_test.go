@@ -28,6 +28,16 @@ func TestParseExecwatchPackage(t *testing.T) {
 	}
 }
 
+func TestParseStringLiteralCallArgument(t *testing.T) {
+	file, err := ParseSource(SourceFile{Path: "literal.hzn", FileID: "literal.hzn", Bytes: []byte("package p\nfunc f() { value := check(\"/tmp\") }\n")})
+	if err != nil {
+		t.Fatalf("ParseSource: %v", err)
+	}
+	if got := countNamedDescendants(file.Tree.RootNode(), file.Lang, "string_literal"); got != 1 {
+		t.Fatalf("string literal count = %d, want 1; tree: %s", got, file.Tree.RootNode().SExpr(file.Lang))
+	}
+}
+
 func TestParseTypeAlias(t *testing.T) {
 	src := SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
 

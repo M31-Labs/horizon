@@ -9,8 +9,8 @@
     {
       "package": "probes",
       "path": "examples/execdeny/exec.hzn",
-      "sha256": "2a07e86293d8db9ac867674ba84d73f668e013a61426215418d224eb3b5dd318",
-      "size": 188
+      "sha256": "10d183912ac07ae41b1fe3a43c4266f71882ff6eda9c11f1a51d94f10bdb9980",
+      "size": 472
     }
   ],
   "status": "generated",
@@ -22,7 +22,10 @@
     "features": [
       "bpf_lsm"
     ],
-    "map_count": 0,
+    "map_count": 1,
+    "map_kinds": [
+      "hash"
+    ],
     "min_kernel": "5.7",
     "permissions": [
       "bpf_program_load",
@@ -33,6 +36,6 @@
       "lsm"
     ],
     "source_count": 1,
-    "type_count": 0
+    "type_count": 1
   }
 }

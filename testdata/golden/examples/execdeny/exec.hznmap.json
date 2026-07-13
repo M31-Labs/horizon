@@ -8,25 +8,81 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 31
+          "line": 30
+        },
+        "start": {
+          "column": 1,
+          "line": 26
+        }
+      },
+      "node": "helper_wrapper",
+      "section": "lsm/bprm_check_security",
+      "source": {
+        "end": {
+          "column": 41,
+          "line": 18
+        },
+        "end_byte": 355,
+        "file": "examples/execdeny/exec.hzn",
+        "start": {
+          "column": 18,
+          "line": 18
+        },
+        "start_byte": 332
+      }
+    },
+    {
+      "function": "",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 42
         },
         "start": {
           "column": 1,
           "line": 30
         }
       },
-      "node": "return",
-      "section": "lsm/bprm_check_security",
+      "node": "struct",
+      "section": "",
       "source": {
         "end": {
-          "column": 20,
-          "line": 8
+          "column": 2,
+          "line": 10
         },
-        "end_byte": 185,
+        "end_byte": 168,
         "file": "examples/execdeny/exec.hzn",
         "start": {
-          "column": 5,
-          "line": 8
+          "column": 6,
+          "line": 5
+        },
+        "start_byte": 84
+      }
+    },
+    {
+      "function": "",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 49
+        },
+        "start": {
+          "column": 1,
+          "line": 42
+        }
+      },
+      "node": "map",
+      "section": "",
+      "source": {
+        "end": {
+          "column": 38,
+          "line": 13
+        },
+        "end_byte": 226,
+        "file": "examples/execdeny/exec.hzn",
+        "start": {
+          "column": 1,
+          "line": 12
         },
         "start_byte": 170
       }
@@ -36,11 +92,179 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 32
+          "line": 53
         },
         "start": {
           "column": 1,
-          "line": 26
+          "line": 49
+        }
+      },
+      "node": "map_wrapper",
+      "section": "lsm/bprm_check_security",
+      "source": {
+        "end": {
+          "column": 41,
+          "line": 19
+        },
+        "end_byte": 396,
+        "file": "examples/execdeny/exec.hzn",
+        "start": {
+          "column": 14,
+          "line": 19
+        },
+        "start_byte": 369
+      }
+    },
+    {
+      "function": "DenyExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 58
+        },
+        "start": {
+          "column": 1,
+          "line": 57
+        }
+      },
+      "node": "short_var",
+      "section": "lsm/bprm_check_security",
+      "source": {
+        "end": {
+          "column": 41,
+          "line": 18
+        },
+        "end_byte": 355,
+        "file": "examples/execdeny/exec.hzn",
+        "start": {
+          "column": 5,
+          "line": 18
+        },
+        "start_byte": 319
+      }
+    },
+    {
+      "function": "DenyExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 59
+        },
+        "start": {
+          "column": 1,
+          "line": 58
+        }
+      },
+      "node": "short_var",
+      "section": "lsm/bprm_check_security",
+      "source": {
+        "end": {
+          "column": 41,
+          "line": 19
+        },
+        "end_byte": 396,
+        "file": "examples/execdeny/exec.hzn",
+        "start": {
+          "column": 5,
+          "line": 19
+        },
+        "start_byte": 360
+      }
+    },
+    {
+      "function": "DenyExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 61
+        },
+        "start": {
+          "column": 1,
+          "line": 60
+        }
+      },
+      "node": "return",
+      "section": "lsm/bprm_check_security",
+      "source": {
+        "end": {
+          "column": 25,
+          "line": 21
+        },
+        "end_byte": 443,
+        "file": "examples/execdeny/exec.hzn",
+        "start": {
+          "column": 9,
+          "line": 21
+        },
+        "start_byte": 427
+      }
+    },
+    {
+      "function": "DenyExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 62
+        },
+        "start": {
+          "column": 1,
+          "line": 59
+        }
+      },
+      "node": "if",
+      "section": "lsm/bprm_check_security",
+      "source": {
+        "end": {
+          "column": 6,
+          "line": 22
+        },
+        "end_byte": 449,
+        "file": "examples/execdeny/exec.hzn",
+        "start": {
+          "column": 5,
+          "line": 20
+        },
+        "start_byte": 401
+      }
+    },
+    {
+      "function": "DenyExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 63
+        },
+        "start": {
+          "column": 1,
+          "line": 62
+        }
+      },
+      "node": "return",
+      "section": "lsm/bprm_check_security",
+      "source": {
+        "end": {
+          "column": 20,
+          "line": 23
+        },
+        "end_byte": 469,
+        "file": "examples/execdeny/exec.hzn",
+        "start": {
+          "column": 5,
+          "line": 23
+        },
+        "start_byte": 454
+      }
+    },
+    {
+      "function": "DenyExec",
+      "generated": {
+        "end": {
+          "column": 1,
+          "line": 64
+        },
+        "start": {
+          "column": 1,
+          "line": 53
         }
       },
       "node": "function",
@@ -48,15 +272,15 @@
       "source": {
         "end": {
           "column": 2,
-          "line": 9
+          "line": 24
         },
-        "end_byte": 187,
+        "end_byte": 471,
         "file": "examples/execdeny/exec.hzn",
         "start": {
           "column": 1,
-          "line": 5
+          "line": 15
         },
-        "start_byte": 79
+        "start_byte": 228
       }
     }
   ],

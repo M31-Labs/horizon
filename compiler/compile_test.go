@@ -2754,9 +2754,15 @@ func AllowConnect(ctx cgroup.Connect) i32 {
 func TestAnalyzeLSMProgramPasses(t *testing.T) {
 	result := analyzeSource(t, "lsm.hzn", `package probes
 
+type CellScopeVal struct { fs_dev u32 }
+@max_entries(4096)
+map CellScope hash[u64, CellScopeVal]
+
 @capability("kernel.file.open.block")
 @lsm("file_open")
 func DenyFileOpen(ctx lsm.Context) i32 {
+    scope := CellScope.lookup(bpf.current_cgroup_id())
+    if scope == nil { return lsm.Allow }
     return lsm.Deny
 }
 `)

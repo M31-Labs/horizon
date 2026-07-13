@@ -64,7 +64,6 @@ type Outer struct {
     inner Inner
     pid u32
 }
-
 type Inner struct {
     uid u32
 }
@@ -96,6 +95,80 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	}
 	if !strings.Contains(out.Code, "struct hzn_type_Inner inner;") {
 		t.Fatalf("generated C missing nested struct field:\n%s", out.Code)
+	}
+}
+
+func TestEmitCurrentCgroupHelpers(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "scope.hzn"), []byte(`package probes
+
+type CellScopeVal struct { fs_dev u32 }
+@max_entries(4096)
+map CellScope hash[u64, CellScopeVal]
+
+@lsm("file_open")
+func Scoped(ctx lsm.Context) i32 {
+    id := bpf.current_cgroup_id()
+    ancestor := bpf.current_ancestor_cgroup_id(1)
+    scope := CellScope.lookup(id)
+    if scope == nil { return lsm.Allow }
+    dev := lsm.file_dev(ctx)
+    mode := lsm.file_mode(ctx)
+    if id == ancestor { return lsm.Allow }
+    if (dev != 0) && (mode == lsm.FModeWrite) { return lsm.Deny }
+    return lsm.Allow
+}
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := compiler.AnalyzePath(dir)
+	if err != nil || diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("analyze = %v, diagnostics=%#v", err, result.Diagnostics)
+	}
+	out, err := Emit(result.Program)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"bpf_get_current_cgroup_id()", "bpf_get_current_ancestor_cgroup_id(level)", "hzn_current_cgroup_id()", "hzn_current_ancestor_cgroup_id(1)", "hzn_lsm_file_dev(ctx)", "BPF_CORE_READ(file, f_inode, i_sb, s_dev)", "hzn_lsm_file_mode(ctx)", "((__u32)0x2)"} {
+		if !strings.Contains(out.Code, want) {
+			t.Fatalf("generated C missing %q:\n%s", want, out.Code)
+		}
+	}
+}
+
+func TestEmitUnrollsLiteralPathPrefix(t *testing.T) {
+	dir := t.TempDir()
+	source := `package probes
+type Event struct { path [32]u8 }
+map Events ringbuf[Event]
+@lsm("file_open")
+func Prefix(ctx lsm.Context) i32 {
+    event := Events.reserve()
+    if event == nil { return lsm.Allow }
+    matches := lsm.path_has_prefix(&event.path, "/tmp")
+    Events.discard(event)
+    if matches { return lsm.Allow }
+    return lsm.Allow
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "prefix.hzn"), []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := compiler.AnalyzePath(dir)
+	if err != nil || diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("analyze=%v diagnostics=%#v", err, result.Diagnostics)
+	}
+	out, err := Emit(result.Program)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"[0] == 0x2f", "[1] == 0x74", "[2] == 0x6d", "[3] == 0x70"} {
+		if !strings.Contains(out.Code, want) {
+			t.Fatalf("unrolled prefix missing %q:\n%s", want, out.Code)
+		}
+	}
+	if strings.Contains(out.Code, "memcmp") {
+		t.Fatalf("path prefix lowered to runtime memcmp:\n%s", out.Code)
 	}
 }
 

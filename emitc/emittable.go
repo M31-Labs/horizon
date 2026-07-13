@@ -334,6 +334,9 @@ func validateSelectorExpr(env *cEnv, expr *ir.Expr) error {
 		if _, ok := lsmActionC(name); ok {
 			return nil
 		}
+		if _, ok := lsmConstantC(name); ok {
+			return nil
+		}
 		if _, ok := xdpConstantC(name); ok {
 			return nil
 		}
@@ -390,6 +393,21 @@ func validateCallExpr(env *cEnv, expr *ir.Expr) error {
 			}
 			return validateArgs(env, expr.Args)
 		}
+		if root == "lsm" {
+			if err := validateLSMCall(expr, method); err != nil {
+				return err
+			}
+			if method == "path_has_prefix" {
+				if err := validateRequiredExpr(env, &expr.Args[0], "path prefix buffer", expr.Span); err != nil {
+					return err
+				}
+				if expr.Args[1].Kind != "string" {
+					return unsupportedExpr(&expr.Args[1], "non-literal path prefix")
+				}
+				return nil
+			}
+			return validateArgs(env, expr.Args)
+		}
 		if root == "kprobe" {
 			if err := validateKprobeCall(expr, method); err != nil {
 				return err
@@ -414,8 +432,10 @@ func validateCallExpr(env *cEnv, expr *ir.Expr) error {
 
 func validateBPFCall(expr *ir.Expr, method string) error {
 	switch method {
-	case "current_pid", "current_ppid", "current_uid", "ktime_get_ns":
+	case "current_pid", "current_ppid", "current_uid", "ktime_get_ns", "current_cgroup_id":
 		return validateArgCount(expr, "bpf."+method, 0)
+	case "current_ancestor_cgroup_id":
+		return validateArgCount(expr, "bpf.current_ancestor_cgroup_id", 1)
 	case "current_comm":
 		return validateArgCount(expr, "bpf.current_comm", 1)
 	case "probe_read_user_str":
@@ -442,6 +462,19 @@ func validateCgroupCall(expr *ir.Expr, method string) error {
 		return validateArgCount(expr, "cgroup.ip4", 4)
 	default:
 		return unsupportedExpr(expr, "cgroup."+method)
+	}
+}
+
+func validateLSMCall(expr *ir.Expr, method string) error {
+	switch method {
+	case "file_dev", "file_ino", "file_mode", "file_flags", "bprm_dev", "bprm_ino", "path_dev", "path_parent_ino", "path_mode":
+		return validateArgCount(expr, "lsm."+method, 1)
+	case "file_path", "bprm_filename", "bprm_interp", "dentry_name":
+		return validateArgCount(expr, "lsm."+method, 2)
+	case "path_has_prefix":
+		return validateArgCount(expr, "lsm.path_has_prefix", 2)
+	default:
+		return unsupportedExpr(expr, "lsm."+method)
 	}
 }
 

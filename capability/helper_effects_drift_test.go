@@ -38,6 +38,8 @@ import (
 // parser intrinsic surface — without updating this set is a
 // build-breaking regression — that's the whole point of this test.
 var compilerKnownHelperSurface = []string{
+	"bpf.current_ancestor_cgroup_id",
+	"bpf.current_cgroup_id",
 	"bpf.current_comm",
 	"bpf.current_pid",
 	"bpf.current_ppid",
@@ -61,6 +63,20 @@ var compilerKnownHelperSurface = []string{
 	"kprobe.arg4",
 	"kprobe.arg5",
 	"kretprobe.ret",
+	"lsm.bprm_dev",
+	"lsm.bprm_filename",
+	"lsm.bprm_ino",
+	"lsm.bprm_interp",
+	"lsm.dentry_name",
+	"lsm.file_dev",
+	"lsm.file_flags",
+	"lsm.file_ino",
+	"lsm.file_mode",
+	"lsm.file_path",
+	"lsm.path_dev",
+	"lsm.path_has_prefix",
+	"lsm.path_mode",
+	"lsm.path_parent_ino",
 	"map.delete",
 	"map.lookup",
 	"map.update",
@@ -147,6 +163,9 @@ func TestCompilerHelperRequirementsResolvesEveryKnownBPFName(t *testing.T) {
 // TestCompilerHelperRequirementsResolvesEveryKnownBPFName for the
 // rationale on each skipped family.
 func requiresKernelHelperSymbol(name string) bool {
+	if name == "lsm.path_has_prefix" {
+		return false
+	}
 	if isEndiannessIntrinsic(name) {
 		return false
 	}

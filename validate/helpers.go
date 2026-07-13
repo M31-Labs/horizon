@@ -39,6 +39,8 @@ func helperAvailable(name string, kind ir.ProgramKind) bool {
 		return kind == ir.ProgramKprobe
 	case "ktime_get_ns":
 		return knownProgramKind(kind)
+	case "current_cgroup_id", "current_ancestor_cgroup_id":
+		return knownProgramKind(kind)
 	default:
 		return false
 	}

@@ -2,8 +2,23 @@ package probes
 
 capability ExecDeny danger block = "kernel.process.exec.deny"
 
+type CellScopeVal struct {
+    cell_lo u64
+    cell_hi u64
+    class u32
+    fs_dev u32
+}
+
+@max_entries(4096)
+map CellScope hash[u64, CellScopeVal]
+
 @capability(ExecDeny)
 @lsm("bprm_check_security")
 func DenyExec(ctx lsm.Context) i32 {
+    cgroup_id := bpf.current_cgroup_id()
+    scope := CellScope.lookup(cgroup_id)
+    if scope == nil {
+        return lsm.Allow
+    }
     return lsm.Deny
 }

@@ -395,6 +395,7 @@ func defineExpressions(g *grammargen.Grammar) {
 		grammargen.Sym("call_expression"),
 		grammargen.Sym("unary_expression"),
 		grammargen.Sym("selector_expression"),
+		grammargen.Sym("string_literal"),
 		grammargen.Sym("nil_literal"),
 		grammargen.Sym("bool_literal"),
 		grammargen.Sym("number_literal"),
@@ -419,6 +420,7 @@ func defineExpressions(g *grammargen.Grammar) {
 		grammargen.Sym("call_expression"),
 		grammargen.Sym("condition_unary_expression"),
 		grammargen.Sym("selector_expression"),
+		grammargen.Sym("string_literal"),
 		grammargen.Sym("nil_literal"),
 		grammargen.Sym("bool_literal"),
 		grammargen.Sym("number_literal"),
@@ -443,6 +445,7 @@ func defineExpressions(g *grammargen.Grammar) {
 		grammargen.Sym("call_expression"),
 		grammargen.Sym("unary_expression"),
 		grammargen.Sym("selector_expression"),
+		grammargen.Sym("string_literal"),
 		grammargen.Sym("nil_literal"),
 		grammargen.Sym("bool_literal"),
 		grammargen.Sym("number_literal"),
@@ -454,6 +457,7 @@ func defineExpressions(g *grammargen.Grammar) {
 		grammargen.Sym("call_expression"),
 		grammargen.Sym("condition_unary_expression"),
 		grammargen.Sym("selector_expression"),
+		grammargen.Sym("string_literal"),
 		grammargen.Sym("nil_literal"),
 		grammargen.Sym("bool_literal"),
 		grammargen.Sym("number_literal"),
@@ -549,10 +553,6 @@ func defineTokens(g *grammargen.Grammar) {
 	))
 	g.Define("identifier", grammargen.Token(grammargen.Pat(`[A-Za-z_][A-Za-z0-9_]*`)))
 	g.Define("number_literal", grammargen.Token(grammargen.Pat(`0[xX][0-9a-fA-F]+|[0-9]+`)))
-	g.Define("string_literal", grammargen.Token(grammargen.Seq(
-		grammargen.Str(`"`),
-		grammargen.Pat(`[^"]*`),
-		grammargen.Str(`"`),
-	)))
+	g.Define("string_literal", grammargen.Pat(`"[^"]*"`))
 	g.Define("line_comment", grammargen.Token(grammargen.Pat(`//[^\n]*`)))
 }
