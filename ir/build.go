@@ -33,7 +33,7 @@ func FromAST(file ast.File) (Program, []diag.Diagnostic) {
 		case ast.EnumDecl:
 			program.Constants = append(program.Constants, buildEnumConsts(d, aliases)...)
 		case ast.CapabilityDecl:
-			level := DangerLevel(d.Danger)
+			level := dangerLevelFromString(d.Danger)
 			capabilityAliases[d.Name] = capabilityAlias{
 				Name:   d.Value,
 				Danger: level,
@@ -353,13 +353,14 @@ func buildCapabilities(decl ast.FuncDecl, fn Function, maps []Map, capabilityAli
 		if attr.Name != "capability" {
 			continue
 		}
-		name, danger, _ := capabilityArgWithAxes(attr, capabilityAliases)
+		name, danger, declaredAxes := capabilityArgWithAxes(attr, capabilityAliases)
+		declaredLevel := danger
 		floor := moreDangerous(inferDanger(fn), capabilityNameDanger(name))
 		danger = declaredDanger(danger, floor)
-		// Always derive axes from the final (possibly raised) danger level.
-		// Axes from the alias declaration are discarded if danger was raised,
-		// because stale axes would misrepresent the effective capability risk.
 		axes := danger.Axes()
+		if danger == declaredLevel && declaredAxes.Mode != "" {
+			axes = declaredAxes
+		}
 		access := mapAccesses(fn, maps)
 		out = append(out, Capability{
 			Name:    name,
@@ -374,6 +375,23 @@ func buildCapabilities(decl ast.FuncDecl, fn Function, maps []Map, capabilityAli
 		})
 	}
 	return out
+}
+
+func dangerLevelFromString(s string) DangerLevel {
+	if !strings.ContainsRune(s, ',') {
+		return DangerLevel(s)
+	}
+	axes := dangerAxesFromString(s, "")
+	switch axes.Mode {
+	case "observe":
+		return DangerObserve
+	case "mutate":
+		return DangerMutate
+	case "control":
+		return DangerBlock
+	default:
+		return ""
+	}
 }
 
 // dangerAxesFromString computes DangerAxes from a raw danger string. If the
@@ -867,4 +885,3 @@ func functionStatements(fn Function) []Statement {
 	}
 	return out
 }
-

@@ -65,6 +65,25 @@ func TestIsResourceParamTypeClassifiesScalarsAndPointers(t *testing.T) {
 	}
 }
 
+func TestFromASTPreservesExplicitCapabilityAxes(t *testing.T) {
+	file := ast.File{Package: "p", Decls: []ast.Decl{
+		ast.CapabilityDecl{Name: "FileDeny", Value: "kernel.file.open.block", Danger: "control,filesystem,restart"},
+		ast.FuncDecl{
+			Name:   "Gate",
+			Return: ast.TypeRef{Name: "i32"},
+			Attrs:  []ast.Attr{{Name: "capability", Args: []ast.Expr{ast.IdentExpr{Name: "FileDeny"}}}, {Name: "lsm", Args: []ast.Expr{ast.StringExpr{Value: "file_open"}}}},
+		},
+	}}
+	program, _ := FromAST(file)
+	if len(program.Capabilities) != 1 {
+		t.Fatalf("capabilities=%d", len(program.Capabilities))
+	}
+	got := program.Capabilities[0]
+	if got.Danger != DangerBlock || got.Axes.Mode != "control" || got.Axes.Scope != "filesystem" || got.Axes.Reversibility != "restart" {
+		t.Fatalf("capability danger=%q axes=%+v", got.Danger, got.Axes)
+	}
+}
+
 func TestMergeRefreshesCapabilityMapAccessAcrossPrograms(t *testing.T) {
 	merged := Merge(
 		Program{
