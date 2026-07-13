@@ -8,11 +8,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 22
+          "line": 25
         },
         "start": {
           "column": 1,
-          "line": 18
+          "line": 21
         }
       },
       "node": "helper_wrapper",
@@ -36,11 +36,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 26
+          "line": 29
         },
         "start": {
           "column": 1,
-          "line": 22
+          "line": 25
         }
       },
       "node": "helper_wrapper",
@@ -64,11 +64,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 30
+          "line": 33
         },
         "start": {
           "column": 1,
-          "line": 26
+          "line": 29
         }
       },
       "node": "helper_wrapper",
@@ -92,11 +92,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 34
+          "line": 37
         },
         "start": {
           "column": 1,
-          "line": 30
+          "line": 33
         }
       },
       "node": "helper_wrapper",
@@ -120,11 +120,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 46
+          "line": 49
         },
         "start": {
           "column": 1,
-          "line": 34
+          "line": 37
         }
       },
       "node": "struct",
@@ -148,11 +148,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 51
+          "line": 54
         },
         "start": {
           "column": 1,
-          "line": 46
+          "line": 49
         }
       },
       "node": "map",
@@ -176,11 +176,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 55
+          "line": 58
         },
         "start": {
           "column": 1,
-          "line": 51
+          "line": 54
         }
       },
       "node": "map_wrapper",
@@ -204,11 +204,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 59
+          "line": 62
         },
         "start": {
           "column": 1,
-          "line": 55
+          "line": 58
         }
       },
       "node": "map_wrapper",
@@ -232,11 +232,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 64
+          "line": 67
         },
         "start": {
           "column": 1,
-          "line": 63
+          "line": 66
         }
       },
       "node": "short_var",
@@ -260,11 +260,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 66
+          "line": 69
         },
         "start": {
           "column": 1,
-          "line": 65
+          "line": 68
         }
       },
       "node": "return",
@@ -288,11 +288,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 67
+          "line": 70
         },
         "start": {
           "column": 1,
-          "line": 64
+          "line": 67
         }
       },
       "node": "if",
@@ -316,11 +316,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 68
+          "line": 71
         },
         "start": {
           "column": 1,
-          "line": 67
+          "line": 70
         }
       },
       "node": "assign",
@@ -344,11 +344,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 69
+          "line": 72
         },
         "start": {
           "column": 1,
-          "line": 68
+          "line": 71
         }
       },
       "node": "assign",
@@ -372,11 +372,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 70
+          "line": 73
         },
         "start": {
           "column": 1,
-          "line": 69
+          "line": 72
         }
       },
       "node": "assign",
@@ -400,11 +400,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 71
+          "line": 74
         },
         "start": {
           "column": 1,
-          "line": 70
+          "line": 73
         }
       },
       "node": "expr",
@@ -428,11 +428,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 72
+          "line": 75
         },
         "start": {
           "column": 1,
-          "line": 71
+          "line": 74
         }
       },
       "node": "expr",
@@ -456,11 +456,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 73
+          "line": 76
         },
         "start": {
           "column": 1,
-          "line": 72
+          "line": 75
         }
       },
       "node": "return",
@@ -484,11 +484,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 74
+          "line": 77
         },
         "start": {
           "column": 1,
-          "line": 59
+          "line": 62
         }
       },
       "node": "function",

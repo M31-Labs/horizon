@@ -8,11 +8,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 22
+          "line": 25
         },
         "start": {
           "column": 1,
-          "line": 18
+          "line": 21
         }
       },
       "node": "helper_wrapper",
@@ -36,11 +36,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 24
+          "line": 27
         },
         "start": {
           "column": 1,
-          "line": 22
+          "line": 25
         }
       },
       "node": "const",
@@ -64,11 +64,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 30
+          "line": 33
         },
         "start": {
           "column": 1,
-          "line": 24
+          "line": 27
         }
       },
       "node": "struct",
@@ -92,11 +92,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 37
+          "line": 40
         },
         "start": {
           "column": 1,
-          "line": 30
+          "line": 33
         }
       },
       "node": "map",
@@ -120,11 +120,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 41
+          "line": 44
         },
         "start": {
           "column": 1,
-          "line": 37
+          "line": 40
         }
       },
       "node": "map_wrapper",
@@ -148,11 +148,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 45
+          "line": 48
         },
         "start": {
           "column": 1,
-          "line": 41
+          "line": 44
         }
       },
       "node": "map_wrapper",
@@ -176,11 +176,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 50
+          "line": 53
         },
         "start": {
           "column": 1,
-          "line": 49
+          "line": 52
         }
       },
       "node": "short_var",
@@ -204,11 +204,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 51
+          "line": 54
         },
         "start": {
           "column": 1,
-          "line": 50
+          "line": 53
         }
       },
       "node": "short_var",
@@ -232,11 +232,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 54
+          "line": 57
         },
         "start": {
           "column": 1,
-          "line": 53
+          "line": 56
         }
       },
       "node": "return",
@@ -260,11 +260,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 55
+          "line": 58
         },
         "start": {
           "column": 1,
-          "line": 52
+          "line": 55
         }
       },
       "node": "if",
@@ -288,11 +288,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 56
+          "line": 59
         },
         "start": {
           "column": 1,
-          "line": 55
+          "line": 58
         }
       },
       "node": "return",
@@ -316,11 +316,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 57
+          "line": 60
         },
         "start": {
           "column": 1,
-          "line": 51
+          "line": 54
         }
       },
       "node": "if",
@@ -344,11 +344,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 58
+          "line": 61
         },
         "start": {
           "column": 1,
-          "line": 57
+          "line": 60
         }
       },
       "node": "assign",
@@ -372,11 +372,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 59
+          "line": 62
         },
         "start": {
           "column": 1,
-          "line": 58
+          "line": 61
         }
       },
       "node": "return",
@@ -400,11 +400,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 60
+          "line": 63
         },
         "start": {
           "column": 1,
-          "line": 45
+          "line": 48
         }
       },
       "node": "function",

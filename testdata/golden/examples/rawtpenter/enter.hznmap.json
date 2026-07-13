@@ -8,11 +8,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 24
+          "line": 27
         },
         "start": {
           "column": 1,
-          "line": 18
+          "line": 21
         }
       },
       "node": "struct",
@@ -36,11 +36,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 29
+          "line": 32
         },
         "start": {
           "column": 1,
-          "line": 24
+          "line": 27
         }
       },
       "node": "map",
@@ -64,11 +64,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 33
+          "line": 36
         },
         "start": {
           "column": 1,
-          "line": 29
+          "line": 32
         }
       },
       "node": "map_wrapper",
@@ -92,11 +92,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 37
+          "line": 40
         },
         "start": {
           "column": 1,
-          "line": 33
+          "line": 36
         }
       },
       "node": "map_wrapper",
@@ -120,11 +120,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 42
+          "line": 45
         },
         "start": {
           "column": 1,
-          "line": 41
+          "line": 44
         }
       },
       "node": "short_var",
@@ -148,11 +148,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 44
+          "line": 47
         },
         "start": {
           "column": 1,
-          "line": 43
+          "line": 46
         }
       },
       "node": "return",
@@ -176,11 +176,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 45
+          "line": 48
         },
         "start": {
           "column": 1,
-          "line": 42
+          "line": 45
         }
       },
       "node": "if",
@@ -204,11 +204,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 46
+          "line": 49
         },
         "start": {
           "column": 1,
-          "line": 45
+          "line": 48
         }
       },
       "node": "assign",
@@ -232,11 +232,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 47
+          "line": 50
         },
         "start": {
           "column": 1,
-          "line": 46
+          "line": 49
         }
       },
       "node": "expr",
@@ -260,11 +260,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 48
+          "line": 51
         },
         "start": {
           "column": 1,
-          "line": 47
+          "line": 50
         }
       },
       "node": "return",
@@ -288,11 +288,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 49
+          "line": 52
         },
         "start": {
           "column": 1,
-          "line": 37
+          "line": 40
         }
       },
       "node": "function",

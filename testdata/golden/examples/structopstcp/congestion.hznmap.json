@@ -8,11 +8,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 23
+          "line": 26
         },
         "start": {
           "column": 1,
-          "line": 22
+          "line": 25
         }
       },
       "node": "return",
@@ -36,11 +36,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 24
+          "line": 27
         },
         "start": {
           "column": 1,
-          "line": 18
+          "line": 21
         }
       },
       "node": "function",

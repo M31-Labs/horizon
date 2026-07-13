@@ -8,11 +8,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 22
+          "line": 25
         },
         "start": {
           "column": 1,
-          "line": 18
+          "line": 21
         }
       },
       "node": "helper_wrapper",
@@ -36,11 +36,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 26
+          "line": 29
         },
         "start": {
           "column": 1,
-          "line": 22
+          "line": 25
         }
       },
       "node": "helper_wrapper",
@@ -64,11 +64,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 30
+          "line": 33
         },
         "start": {
           "column": 1,
-          "line": 26
+          "line": 29
         }
       },
       "node": "helper_wrapper",
@@ -92,11 +92,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 40
+          "line": 43
         },
         "start": {
           "column": 1,
-          "line": 30
+          "line": 33
         }
       },
       "node": "struct",
@@ -120,11 +120,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 45
+          "line": 48
         },
         "start": {
           "column": 1,
-          "line": 40
+          "line": 43
         }
       },
       "node": "map",
@@ -148,11 +148,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 49
+          "line": 52
         },
         "start": {
           "column": 1,
-          "line": 45
+          "line": 48
         }
       },
       "node": "map_wrapper",
@@ -176,11 +176,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 53
+          "line": 56
         },
         "start": {
           "column": 1,
-          "line": 49
+          "line": 52
         }
       },
       "node": "map_wrapper",
@@ -204,11 +204,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 58
+          "line": 61
         },
         "start": {
           "column": 1,
-          "line": 57
+          "line": 60
         }
       },
       "node": "short_var",
@@ -232,11 +232,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 60
+          "line": 63
         },
         "start": {
           "column": 1,
-          "line": 59
+          "line": 62
         }
       },
       "node": "return",
@@ -260,11 +260,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 61
+          "line": 64
         },
         "start": {
           "column": 1,
-          "line": 58
+          "line": 61
         }
       },
       "node": "if",
@@ -288,11 +288,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 62
+          "line": 65
         },
         "start": {
           "column": 1,
-          "line": 61
+          "line": 64
         }
       },
       "node": "assign",
@@ -316,11 +316,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 63
+          "line": 66
         },
         "start": {
           "column": 1,
-          "line": 62
+          "line": 65
         }
       },
       "node": "assign",
@@ -344,11 +344,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 64
+          "line": 67
         },
         "start": {
           "column": 1,
-          "line": 63
+          "line": 66
         }
       },
       "node": "expr",
@@ -372,11 +372,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 65
+          "line": 68
         },
         "start": {
           "column": 1,
-          "line": 64
+          "line": 67
         }
       },
       "node": "expr",
@@ -400,11 +400,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 66
+          "line": 69
         },
         "start": {
           "column": 1,
-          "line": 65
+          "line": 68
         }
       },
       "node": "return",
@@ -428,11 +428,11 @@
       "generated": {
         "end": {
           "column": 1,
-          "line": 67
+          "line": 70
         },
         "start": {
           "column": 1,
-          "line": 53
+          "line": 56
         }
       },
       "node": "function",
