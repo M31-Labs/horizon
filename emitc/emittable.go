@@ -397,7 +397,7 @@ func validateCallExpr(env *cEnv, expr *ir.Expr) error {
 			if err := validateLSMCall(expr, method); err != nil {
 				return err
 			}
-			if method == "path_has_prefix" {
+			if method == "path_has_prefix" || method == "path_has_suffix" {
 				if err := validateRequiredExpr(env, &expr.Args[0], "path prefix buffer", expr.Span); err != nil {
 					return err
 				}
@@ -458,6 +458,8 @@ func validateCgroupCall(expr *ir.Expr, method string) error {
 	switch method {
 	case "family", "sock_type", "protocol", "dst_port", "dst_ip4", "src_ip4":
 		return validateArgCount(expr, "cgroup."+method, 1)
+	case "dst_ip6":
+		return validateArgCount(expr, "cgroup.dst_ip6", 2)
 	case "ip4":
 		return validateArgCount(expr, "cgroup.ip4", 4)
 	default:
@@ -471,8 +473,8 @@ func validateLSMCall(expr *ir.Expr, method string) error {
 		return validateArgCount(expr, "lsm."+method, 1)
 	case "file_path", "bprm_filename", "bprm_interp", "dentry_name":
 		return validateArgCount(expr, "lsm."+method, 2)
-	case "path_has_prefix":
-		return validateArgCount(expr, "lsm.path_has_prefix", 2)
+	case "path_has_prefix", "path_has_suffix":
+		return validateArgCount(expr, "lsm."+method, 2)
 	default:
 		return unsupportedExpr(expr, "lsm."+method)
 	}

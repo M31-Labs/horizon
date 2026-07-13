@@ -172,6 +172,46 @@ func Prefix(ctx lsm.Context) i32 {
 	}
 }
 
+func TestEmitUnrollsLiteralPathSuffix(t *testing.T) {
+	dir := t.TempDir()
+	source := `package probes
+type Event struct { path [256]u8 }
+type Scope struct { class u32 }
+map Events ringbuf[Event]
+map CellScope hash[u64, Scope]
+@lsm("file_open")
+func Suffix(ctx lsm.Context) i32 {
+    scope := CellScope.lookup(bpf.current_cgroup_id())
+    if scope == nil { return lsm.Allow }
+    event := Events.reserve()
+    if event == nil { return lsm.Allow }
+    matches := lsm.path_has_suffix(&event.path, "/environ")
+    Events.discard(event)
+    if matches { return lsm.Deny }
+    return lsm.Allow
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "suffix.hzn"), []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := compiler.AnalyzePath(dir)
+	if err != nil || diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("analyze=%v diagnostics=%#v", err, result.Diagnostics)
+	}
+	out, err := Emit(result.Program)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"[0] == 0x2f", "[7] == 0x6e", "[8] == 0", "[255] == 0"} {
+		if !strings.Contains(out.Code, want) {
+			t.Fatalf("unrolled suffix missing %q", want)
+		}
+	}
+	if strings.Contains(out.Code, "memcmp") {
+		t.Fatal("path suffix lowered to runtime memcmp")
+	}
+}
+
 func TestEmitSourceMapIncludesDeclarations(t *testing.T) {
 	result, err := compiler.AnalyzePath("../testdata/golden/exec/input.hzn")
 	if err != nil {

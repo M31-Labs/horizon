@@ -565,6 +565,7 @@ var observeVocabulary = map[string]bool{
 	"kernel.socket.protocol":         true,
 	"kernel.socket.dst_port":         true,
 	"kernel.socket.dst_ip4":          true,
+	"kernel.socket.dst_ip6":          true,
 	"kernel.socket.src_ip4":          true,
 	"kernel.network.packet.ethernet": true,
 	"kernel.network.packet.ipv4":     true,

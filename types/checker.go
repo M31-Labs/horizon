@@ -4458,6 +4458,20 @@ func (t exprTyper) cgroupCall(name string, call ast.CallExpr) (valueType, []diag
 	switch name {
 	case "family", "sock_type", "protocol", "dst_ip4", "src_ip4":
 		return t.cgroupConnectFieldCall(name, call, "u32")
+	case "dst_ip6":
+		if len(call.Args) != 2 {
+			return valueType{Name: "i64", Fallible: "cgroup.dst_ip6"}, []diag.Diagnostic{argCountDiagnostic(call.Span, "cgroup.dst_ip6", 2, len(call.Args))}
+		}
+		ctx, diags := t.typeOf(call.Args[0])
+		dst, dstDiags := t.typeOf(call.Args[1])
+		diags = append(diags, dstDiags...)
+		if !assignable(valueType{Name: "cgroup.Connect"}, ctx) {
+			diags = append(diags, diag.Diagnostic{Code: "HZN1457", Severity: diag.SeverityError, Message: "cgroup.dst_ip6 expects cgroup.Connect", Primary: call.Args[0].GetSpan()})
+		}
+		if !dst.Ptr || dst.Ref.Name != "array" || dst.Ref.Len != "16" || dst.Ref.Elem == nil || dst.Ref.Elem.Name != "u8" {
+			diags = append(diags, diag.Diagnostic{Code: "HZN1457", Severity: diag.SeverityError, Message: "cgroup.dst_ip6 expects a pointer to [16]u8", Primary: call.Args[1].GetSpan()})
+		}
+		return valueType{Name: "i64", Fallible: "cgroup.dst_ip6"}, diags
 	case "dst_port":
 		return t.cgroupConnectFieldCall(name, call, "u16")
 	case "ip4":
@@ -4468,7 +4482,7 @@ func (t exprTyper) cgroupCall(name string, call ast.CallExpr) (valueType, []diag
 			Severity: diag.SeverityError,
 			Message:  fmt.Sprintf("unknown cgroup helper cgroup.%s", name),
 			Primary:  call.Span,
-			Suggest:  "use cgroup.family(ctx), cgroup.protocol(ctx), cgroup.dst_port(ctx), cgroup.dst_ip4(ctx), or named actions such as cgroup.Allow",
+			Suggest:  "use cgroup.family(ctx), cgroup.protocol(ctx), cgroup.dst_port(ctx), cgroup.dst_ip4(ctx), cgroup.dst_ip6(ctx, &buf), or named actions such as cgroup.Allow",
 		}}
 	}
 }
@@ -4477,17 +4491,20 @@ func (t exprTyper) lsmCall(name string, call ast.CallExpr) (valueType, []diag.Di
 	if name == "argv" || name == "bprm_argv" {
 		return valueType{}, []diag.Diagnostic{{Code: "HZN1498", Severity: diag.SeverityError, Message: "argv is not readable at bprm_check_security", Primary: call.Span, Suggest: `observe argv at @tracepoint("sched:sched_process_exec")`}}
 	}
-	if name == "path_has_prefix" {
+	if name == "path_has_prefix" || name == "path_has_suffix" {
+		helper := "lsm." + name
 		if len(call.Args) != 2 {
-			return valueType{Name: "bool"}, []diag.Diagnostic{argCountDiagnostic(call.Span, "lsm.path_has_prefix", 2, len(call.Args))}
+			return valueType{Name: "bool"}, []diag.Diagnostic{argCountDiagnostic(call.Span, helper, 2, len(call.Args))}
 		}
 		buffer, diags := t.typeOf(call.Args[0])
 		if !buffer.Ptr || !isU8FixedArray(buffer) {
-			diags = append(diags, diag.Diagnostic{Code: "HZN1496", Severity: diag.SeverityError, Message: "lsm.path_has_prefix expects a pointer to a fixed [N]u8 buffer", Primary: call.Args[0].GetSpan()})
+			diags = append(diags, diag.Diagnostic{Code: "HZN1496", Severity: diag.SeverityError, Message: helper + " expects a pointer to a fixed [N]u8 buffer", Primary: call.Args[0].GetSpan()})
+		} else if name == "path_has_suffix" && buffer.Ref.Len != "256" {
+			diags = append(diags, diag.Diagnostic{Code: "HZN1496", Severity: diag.SeverityError, Message: "lsm.path_has_suffix requires a fixed [256]u8 path buffer", Primary: call.Args[0].GetSpan()})
 		}
 		literal, ok := call.Args[1].(ast.StringExpr)
 		if !ok {
-			diags = append(diags, diag.Diagnostic{Code: "HZN1496", Severity: diag.SeverityError, Message: "unbounded path comparison", Primary: call.Args[1].GetSpan(), Suggest: `use lsm.path_has_prefix(&buf, "literal") with a compile-time literal`})
+			diags = append(diags, diag.Diagnostic{Code: "HZN1496", Severity: diag.SeverityError, Message: "unbounded path comparison", Primary: call.Args[1].GetSpan(), Suggest: `use ` + helper + `(&buf, "literal") with a compile-time literal`})
 			return valueType{Name: "bool"}, diags
 		}
 		if literal.Value == "" {

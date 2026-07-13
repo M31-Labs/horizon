@@ -51,6 +51,7 @@ var compilerKnownHelperSurface = []string{
 	"bpf.ntohs",
 	"bpf.probe_read_user_str",
 	"cgroup.dst_ip4",
+	"cgroup.dst_ip6",
 	"cgroup.dst_port",
 	"cgroup.family",
 	"cgroup.ip4",
@@ -75,6 +76,7 @@ var compilerKnownHelperSurface = []string{
 	"lsm.file_path",
 	"lsm.path_dev",
 	"lsm.path_has_prefix",
+	"lsm.path_has_suffix",
 	"lsm.path_mode",
 	"lsm.path_parent_ino",
 	"map.delete",
@@ -163,7 +165,7 @@ func TestCompilerHelperRequirementsResolvesEveryKnownBPFName(t *testing.T) {
 // TestCompilerHelperRequirementsResolvesEveryKnownBPFName for the
 // rationale on each skipped family.
 func requiresKernelHelperSymbol(name string) bool {
-	if name == "lsm.path_has_prefix" {
+	if name == "lsm.path_has_prefix" || name == "lsm.path_has_suffix" {
 		return false
 	}
 	if isEndiannessIntrinsic(name) {

@@ -961,6 +961,17 @@ static __always_inline %s hzn_cgroup_%s(struct bpf_sock_addr *ctx) {
 `, helper.Type, helper.Name, helper.Body)
 		})
 	}
+	if usage.cgroupHelpers["dst_ip6"] {
+		emitUsageMapped(b, sourceMap, usage.cgroupOrigins["dst_ip6"], "cgroup_context_wrapper", func() {
+			b.WriteString(`
+static __always_inline long hzn_cgroup_dst_ip6(struct bpf_sock_addr *ctx, void *dst, __u32 size) {
+    if (!ctx || !dst || size < 16) return -1;
+    __builtin_memcpy(dst, ctx->user_ip6, 16);
+    return 0;
+}
+`)
+		})
+	}
 }
 
 func emitLSMContextHelpers(b *strings.Builder, sourceMap *ir.SourceMap, usage cUsage) {
@@ -1954,6 +1965,8 @@ func knownCallType(name string) (ir.Type, bool) {
 		return ir.Type{Name: "u16"}, true
 	case "cgroup.family", "cgroup.sock_type", "cgroup.protocol", "cgroup.dst_ip4", "cgroup.src_ip4", "cgroup.ip4":
 		return ir.Type{Name: "u32"}, true
+	case "cgroup.dst_ip6":
+		return ir.Type{Name: "i64"}, true
 	case "cgroup.dst_port":
 		return ir.Type{Name: "u16"}, true
 	case "lsm.file_dev", "lsm.file_ino", "lsm.bprm_dev", "lsm.bprm_ino", "lsm.path_dev", "lsm.path_parent_ino":
@@ -1962,7 +1975,7 @@ func knownCallType(name string) (ir.Type, bool) {
 		return ir.Type{Name: "u32"}, true
 	case "lsm.file_path", "lsm.bprm_filename", "lsm.bprm_interp", "lsm.dentry_name":
 		return ir.Type{Name: "i64"}, true
-	case "lsm.path_has_prefix":
+	case "lsm.path_has_prefix", "lsm.path_has_suffix":
 		return ir.Type{Name: "bool"}, true
 	case "kprobe.arg1", "kprobe.arg2", "kprobe.arg3", "kprobe.arg4", "kprobe.arg5":
 		return ir.Type{Name: "u64"}, true
@@ -2516,6 +2529,10 @@ func (e cExprEmitter) knownCall(expr *ir.Expr, name string) (string, bool) {
 		return e.cgroupContextCall(expr, "dst_port")
 	case "cgroup.dst_ip4":
 		return e.cgroupContextCall(expr, "dst_ip4")
+	case "cgroup.dst_ip6":
+		return e.twoArgCall(expr, func(ctx ir.Expr, dst ir.Expr) string {
+			return fmt.Sprintf("hzn_cgroup_dst_ip6(%s, %s, sizeof(%s))", e.emit(&ctx), e.emit(&dst), sizeofExpr(&dst, e.env))
+		})
 	case "cgroup.src_ip4":
 		return e.cgroupContextCall(expr, "src_ip4")
 	case "cgroup.ip4":
@@ -2530,6 +2547,8 @@ func (e cExprEmitter) knownCall(expr *ir.Expr, name string) (string, bool) {
 		})
 	case "lsm.path_has_prefix":
 		return e.pathHasPrefixCall(expr)
+	case "lsm.path_has_suffix":
+		return e.pathHasSuffixCall(expr)
 	case "kprobe.arg1", "kprobe.arg2", "kprobe.arg3", "kprobe.arg4", "kprobe.arg5":
 		return e.oneArgCall(expr, func(arg ir.Expr) string {
 			return fmt.Sprintf("hzn_%s(%s)", strings.ReplaceAll(name, ".", "_"), e.emit(&arg))
@@ -2589,6 +2608,27 @@ func (e cExprEmitter) pathHasPrefixCall(expr *ir.Expr) (string, bool) {
 		comparisons = append(comparisons, fmt.Sprintf("((const unsigned char *)%s)[%d] == 0x%02x", buffer, index, value))
 	}
 	return "(" + strings.Join(comparisons, " && ") + ")", true
+}
+
+func (e cExprEmitter) pathHasSuffixCall(expr *ir.Expr) (string, bool) {
+	if len(expr.Args) != 2 || expr.Args[1].Kind != "string" {
+		return "", false
+	}
+	buffer := e.emit(&expr.Args[0])
+	bytes := []byte(expr.Args[1].Value)
+	if len(bytes) == 0 || len(bytes) >= 256 {
+		return "false", true
+	}
+	candidates := make([]string, 0, 256-len(bytes))
+	for offset := 0; offset+len(bytes) < 256; offset++ {
+		comparisons := make([]string, 0, len(bytes)+1)
+		for index, value := range bytes {
+			comparisons = append(comparisons, fmt.Sprintf("((const unsigned char *)%s)[%d] == 0x%02x", buffer, offset+index, value))
+		}
+		comparisons = append(comparisons, fmt.Sprintf("((const unsigned char *)%s)[%d] == 0", buffer, offset+len(bytes)))
+		candidates = append(candidates, "("+strings.Join(comparisons, " && ")+")")
+	}
+	return "(" + strings.Join(candidates, " || ") + ")", true
 }
 
 func (e cExprEmitter) args(in []ir.Expr) string {
@@ -2726,7 +2766,7 @@ func cgroupHelperCall(expr *ir.Expr) (string, bool) {
 		return "", false
 	}
 	switch expr.Func.Field {
-	case "family", "sock_type", "protocol", "dst_port", "dst_ip4", "src_ip4", "ip4":
+	case "family", "sock_type", "protocol", "dst_port", "dst_ip4", "dst_ip6", "src_ip4", "ip4":
 		return expr.Func.Field, true
 	default:
 		return "", false
@@ -2738,7 +2778,7 @@ func lsmContextCall(expr *ir.Expr) (string, bool) {
 		return "", false
 	}
 	switch expr.Func.Field {
-	case "file_dev", "file_ino", "file_mode", "file_flags", "file_path", "bprm_dev", "bprm_ino", "bprm_filename", "bprm_interp", "path_dev", "path_parent_ino", "dentry_name", "path_mode", "path_has_prefix":
+	case "file_dev", "file_ino", "file_mode", "file_flags", "file_path", "bprm_dev", "bprm_ino", "bprm_filename", "bprm_interp", "path_dev", "path_parent_ino", "dentry_name", "path_mode", "path_has_prefix", "path_has_suffix":
 		return expr.Func.Field, true
 	default:
 		return "", false
