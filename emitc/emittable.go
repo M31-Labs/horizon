@@ -458,8 +458,8 @@ func validateCgroupCall(expr *ir.Expr, method string) error {
 	switch method {
 	case "family", "sock_type", "protocol", "dst_port", "dst_ip4", "src_ip4":
 		return validateArgCount(expr, "cgroup."+method, 1)
-	case "dst_ip6":
-		return validateArgCount(expr, "cgroup.dst_ip6", 2)
+	case "dst_ip6", "dst_ip6_word":
+		return validateArgCount(expr, "cgroup."+method, 2)
 	case "ip4":
 		return validateArgCount(expr, "cgroup.ip4", 4)
 	default:

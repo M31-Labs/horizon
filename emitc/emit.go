@@ -972,6 +972,15 @@ static __always_inline long hzn_cgroup_dst_ip6(struct bpf_sock_addr *ctx, void *
 `)
 		})
 	}
+	if usage.cgroupHelpers["dst_ip6_word"] {
+		emitUsageMapped(b, sourceMap, usage.cgroupOrigins["dst_ip6_word"], "cgroup_context_wrapper", func() {
+			b.WriteString(`
+static __always_inline __u32 hzn_cgroup_dst_ip6_word(struct bpf_sock_addr *ctx, __u32 index) {
+    return index < 4 ? ctx->user_ip6[index] : 0;
+}
+`)
+		})
+	}
 }
 
 func emitLSMContextHelpers(b *strings.Builder, sourceMap *ir.SourceMap, usage cUsage) {
@@ -1967,6 +1976,8 @@ func knownCallType(name string) (ir.Type, bool) {
 		return ir.Type{Name: "u32"}, true
 	case "cgroup.dst_ip6":
 		return ir.Type{Name: "i64"}, true
+	case "cgroup.dst_ip6_word":
+		return ir.Type{Name: "u32"}, true
 	case "cgroup.dst_port":
 		return ir.Type{Name: "u16"}, true
 	case "lsm.file_dev", "lsm.file_ino", "lsm.bprm_dev", "lsm.bprm_ino", "lsm.path_dev", "lsm.path_parent_ino":
@@ -2533,6 +2544,10 @@ func (e cExprEmitter) knownCall(expr *ir.Expr, name string) (string, bool) {
 		return e.twoArgCall(expr, func(ctx ir.Expr, dst ir.Expr) string {
 			return fmt.Sprintf("hzn_cgroup_dst_ip6(%s, %s, sizeof(%s))", e.emit(&ctx), e.emit(&dst), sizeofExpr(&dst, e.env))
 		})
+	case "cgroup.dst_ip6_word":
+		return e.twoArgCall(expr, func(ctx ir.Expr, index ir.Expr) string {
+			return fmt.Sprintf("hzn_cgroup_dst_ip6_word(%s, %s)", e.emit(&ctx), e.emit(&index))
+		})
 	case "cgroup.src_ip4":
 		return e.cgroupContextCall(expr, "src_ip4")
 	case "cgroup.ip4":
@@ -2766,7 +2781,7 @@ func cgroupHelperCall(expr *ir.Expr) (string, bool) {
 		return "", false
 	}
 	switch expr.Func.Field {
-	case "family", "sock_type", "protocol", "dst_port", "dst_ip4", "dst_ip6", "src_ip4", "ip4":
+	case "family", "sock_type", "protocol", "dst_port", "dst_ip4", "dst_ip6", "dst_ip6_word", "src_ip4", "ip4":
 		return expr.Func.Field, true
 	default:
 		return "", false

@@ -92,6 +92,12 @@
       "introduced": "v0.4.0"
     },
     {
+      "name": "cgroup.dst_ip6_word",
+      "kernel_symbol": "bpf_sock_addr.user_ip6",
+      "observes": ["kernel.socket.dst_ip6"],
+      "introduced": "v0.4.0"
+    },
+    {
       "name": "cgroup.dst_port",
       "kernel_symbol": "bpf_sock_addr_user_port",
       "observes": ["kernel.socket.dst_port"],

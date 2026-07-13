@@ -32,6 +32,7 @@ var expectedHelperNames = []string{
 	"bpf.probe_read_user_str",
 	"cgroup.dst_ip4",
 	"cgroup.dst_ip6",
+	"cgroup.dst_ip6_word",
 	"cgroup.dst_port",
 	"cgroup.family",
 	"cgroup.ip4",

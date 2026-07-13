@@ -4468,10 +4468,25 @@ func (t exprTyper) cgroupCall(name string, call ast.CallExpr) (valueType, []diag
 		if !assignable(valueType{Name: "cgroup.Connect"}, ctx) {
 			diags = append(diags, diag.Diagnostic{Code: "HZN1457", Severity: diag.SeverityError, Message: "cgroup.dst_ip6 expects cgroup.Connect", Primary: call.Args[0].GetSpan()})
 		}
-		if !dst.Ptr || dst.Ref.Name != "array" || dst.Ref.Len != "16" || dst.Ref.Elem == nil || dst.Ref.Elem.Name != "u8" {
+		if !dst.Ptr || !isU8FixedArray(dst) || dst.Ref.Len != "16" {
 			diags = append(diags, diag.Diagnostic{Code: "HZN1457", Severity: diag.SeverityError, Message: "cgroup.dst_ip6 expects a pointer to [16]u8", Primary: call.Args[1].GetSpan()})
 		}
 		return valueType{Name: "i64", Fallible: "cgroup.dst_ip6"}, diags
+	case "dst_ip6_word":
+		if len(call.Args) != 2 {
+			return valueType{Name: "u32"}, []diag.Diagnostic{argCountDiagnostic(call.Span, "cgroup.dst_ip6_word", 2, len(call.Args))}
+		}
+		ctx, diags := t.typeOf(call.Args[0])
+		if !assignable(valueType{Name: "cgroup.Connect"}, ctx) {
+			diags = append(diags, diag.Diagnostic{Code: "HZN1457", Severity: diag.SeverityError, Message: "cgroup.dst_ip6_word expects cgroup.Connect", Primary: call.Args[0].GetSpan()})
+		}
+		index, indexDiags := t.typeOf(call.Args[1])
+		diags = append(diags, indexDiags...)
+		literalIndex, ok := literalInt(index.IntLiteral)
+		if !ok || literalIndex < 0 || literalIndex > 3 {
+			diags = append(diags, diag.Diagnostic{Code: "HZN1457", Severity: diag.SeverityError, Message: "cgroup.dst_ip6_word index must be a literal from 0 through 3", Primary: call.Args[1].GetSpan()})
+		}
+		return valueType{Name: "u32"}, diags
 	case "dst_port":
 		return t.cgroupConnectFieldCall(name, call, "u16")
 	case "ip4":
