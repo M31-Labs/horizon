@@ -198,6 +198,24 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	}
 }
 
+func TestBuildCapabilityDangerAxes(t *testing.T) {
+	parsed, err := parser.ParseSource(parser.SourceFile{Path: "inline.hzn", Bytes: []byte(`package probes
+
+capability FileDeny danger "control,filesystem,restart" = "kernel.file.open.block"
+`)})
+	if err != nil {
+		t.Fatalf("ParseSource: %v", err)
+	}
+	file, err := Build(parsed)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	decl := file.Decls[0].(CapabilityDecl)
+	if decl.Danger != "control,filesystem,restart" {
+		t.Fatalf("danger = %q", decl.Danger)
+	}
+}
+
 func TestBuildBoundedForClause(t *testing.T) {
 	parsed, err := parser.ParseSource(parser.SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
 

@@ -110,6 +110,20 @@ func F(ctx xdp.Context) i32 {
 	}
 }
 
+func TestParseCapabilityDangerAxes(t *testing.T) {
+	src := SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
+
+capability FileDeny danger "control,filesystem,restart" = "kernel.file.open.block"
+`)}
+	file, err := ParseSource(src)
+	if err != nil {
+		t.Fatalf("ParseSource: %v", err)
+	}
+	if file.Tree.RootNode().HasError() {
+		t.Fatalf("danger axes did not parse: %s", file.Tree.RootNode().SExpr(file.Lang))
+	}
+}
+
 func TestParseStatements(t *testing.T) {
 	src := SourceFile{Path: "inline.hzn", Bytes: []byte(`package p
 

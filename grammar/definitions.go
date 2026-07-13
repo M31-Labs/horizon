@@ -138,7 +138,10 @@ func defineDeclarations(g *grammargen.Grammar) {
 		grammargen.Field("name", grammargen.Sym("identifier")),
 		grammargen.Optional(grammargen.Seq(
 			grammargen.Str("danger"),
-			grammargen.Field("danger", grammargen.Sym("identifier")),
+			grammargen.Field("danger", grammargen.Choice(
+				grammargen.Sym("identifier"),
+				grammargen.Sym("string_literal"),
+			)),
 		)),
 		grammargen.Str("="),
 		grammargen.Field("value", grammargen.Sym("string_literal")),

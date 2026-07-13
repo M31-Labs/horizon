@@ -297,7 +297,7 @@ func buildCapabilityDecl(parsed *parser.File, n *gotreesitter.Node) CapabilityDe
 	return CapabilityDecl{
 		Name:   text(parsed, n.ChildByFieldName("name", parsed.Lang)),
 		Value:  strings.Trim(text(parsed, n.ChildByFieldName("value", parsed.Lang)), `"`),
-		Danger: text(parsed, n.ChildByFieldName("danger", parsed.Lang)),
+		Danger: strings.Trim(text(parsed, n.ChildByFieldName("danger", parsed.Lang)), `"`),
 		Span:   spanForNode(parsed.Source.FileID, n),
 	}
 }
