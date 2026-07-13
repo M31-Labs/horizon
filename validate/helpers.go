@@ -34,7 +34,7 @@ func AnalyzeHelpers(program ir.Program, sites Sites) []diag.Diagnostic {
 func helperAvailable(name string, kind ir.ProgramKind) bool {
 	switch name {
 	case "current_pid", "current_ppid", "current_uid", "current_comm":
-		return isTracingProgram(kind)
+		return isTaskContextProgram(kind)
 	case "probe_read_user_str":
 		return kind == ir.ProgramKprobe
 	case "ktime_get_ns":
@@ -44,6 +44,10 @@ func helperAvailable(name string, kind ir.ProgramKind) bool {
 	default:
 		return false
 	}
+}
+
+func isTaskContextProgram(kind ir.ProgramKind) bool {
+	return isTracingProgram(kind) || kind == ir.ProgramLSM || kind == ir.ProgramCgroup
 }
 
 func knownProgramKind(kind ir.ProgramKind) bool {

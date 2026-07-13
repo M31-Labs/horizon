@@ -2579,6 +2579,41 @@ func Pass(ctx xdp.Context) i32 {
 	}
 }
 
+func TestAnalyzeAllowsTaskIdentityHelpersInLSMAndCgroupPrograms(t *testing.T) {
+	result := analyzeSource(t, "task-context.hzn", `package probes
+
+type Event struct { comm [16]u8 }
+map Events ringbuf[Event]
+
+@lsm("file_open")
+func OnFile(ctx lsm.Context) i32 {
+    event := Events.reserve()
+    if event == nil { return lsm.Allow }
+    bpf.current_pid()
+    bpf.current_ppid()
+    bpf.current_uid()
+    bpf.current_comm(&event.comm)
+    Events.discard(event)
+    return lsm.Allow
+}
+
+@cgroup("connect4")
+func OnConnect(ctx cgroup.Connect) i32 {
+    event := Events.reserve()
+    if event == nil { return cgroup.Allow }
+    bpf.current_pid()
+    bpf.current_ppid()
+    bpf.current_uid()
+    bpf.current_comm(&event.comm)
+    Events.discard(event)
+    return cgroup.Allow
+}
+`)
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+}
+
 func TestAnalyzeRejectsKernelTimeHelperArgs(t *testing.T) {
 	result := analyzeSource(t, "time.hzn", `package probes
 

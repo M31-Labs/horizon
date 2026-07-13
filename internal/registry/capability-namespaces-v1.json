@@ -89,9 +89,16 @@
     {
       "namespace": "kernel.network.connect",
       "attach_surface": "cgroup",
-      "attach_strings": ["connect4", "connect6"],
+      "attach_strings": ["connect4"],
       "allowed_danger_leaves": ["observe", "deny", "allow", "block"],
       "introduced": "v0.1.0"
+    },
+    {
+      "namespace": "kernel.network.connect6",
+      "attach_surface": "cgroup",
+      "attach_strings": ["connect6"],
+      "allowed_danger_leaves": ["observe", "deny", "allow", "block"],
+      "introduced": "v0.4.0"
     },
     {
       "namespace": "kernel.network.tcp.connect",
