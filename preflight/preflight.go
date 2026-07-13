@@ -3,7 +3,9 @@
 package preflight
 
 import (
+	"compress/gzip"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -38,7 +40,7 @@ func Check(options Options) Report {
 	report.CgroupV2 = regularFile(options.Root, "/sys/fs/cgroup/cgroup.controllers")
 	lsms := read(options.Root, "/sys/kernel/security/lsm")
 	report.BPFLSMEnabled = listContains(lsms, "bpf")
-	config := read(options.Root, "/proc/config.gz")
+	config := readGzip(options.Root, "/proc/config.gz")
 	if config == "" {
 		config = read(options.Root, "/boot/config-"+release)
 	}
@@ -63,6 +65,24 @@ func Check(options Options) Report {
 		report.EnforcementRung = "R0-lower-walls-only"
 	}
 	return report
+}
+
+func readGzip(root, path string) string {
+	file, err := os.Open(probePath(root, path))
+	if err != nil {
+		return ""
+	}
+	defer file.Close()
+	reader, err := gzip.NewReader(file)
+	if err != nil {
+		return ""
+	}
+	defer reader.Close()
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		return ""
+	}
+	return string(data)
 }
 
 func (r Report) Ready() bool { return r.EnforcementRung == "R1-bpf-lsm" }

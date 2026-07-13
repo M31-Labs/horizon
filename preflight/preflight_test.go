@@ -1,6 +1,7 @@
 package preflight
 
 import (
+	"compress/gzip"
 	"os"
 	"path/filepath"
 	"testing"
@@ -20,6 +21,35 @@ func TestCheckReportsRungAndMissingPrerequisites(t *testing.T) {
 	missing := Check(Options{Root: t.TempDir(), KernelRelease: "5.4.0"})
 	if missing.Ready() || missing.EnforcementRung != "R0-lower-walls-only" || len(missing.Issues) < 4 {
 		t.Fatalf("missing report=%+v", missing)
+	}
+}
+
+func TestCheckReadsCompressedProcConfig(t *testing.T) {
+	root := t.TempDir()
+	writeProbe(t, root, "sys/kernel/btf/vmlinux", "btf")
+	writeProbe(t, root, "sys/fs/cgroup/cgroup.controllers", "cpu memory")
+	writeProbe(t, root, "sys/kernel/security/lsm", "lockdown,capability,bpf")
+	name := filepath.Join(root, "proc/config.gz")
+	if err := os.MkdirAll(filepath.Dir(name), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.Create(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer := gzip.NewWriter(file)
+	if _, err := writer.Write([]byte("CONFIG_BPF_LSM=y\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	report := Check(Options{Root: root, KernelRelease: "6.12.0"})
+	if !report.Ready() || !report.BPFLSMCompiled {
+		t.Fatalf("compressed config report=%+v", report)
 	}
 }
 
