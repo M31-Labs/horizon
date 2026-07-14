@@ -1050,7 +1050,7 @@ static __always_inline long hzn_lsm_file_path(void *ctx, void *dst, __u32 size) 
 			continue
 		}
 		emitUsageMapped(b, sourceMap, usage.lsmOrigins[helper.name], "lsm_context_wrapper", func() {
-			fmt.Fprintf(b, "\nstatic __always_inline long hzn_lsm_%s(void *ctx, void *dst, __u32 size) {\n    %s;\n    const void *src = object ? BPF_CORE_READ(object, %s) : 0;\n    return src ? bpf_probe_read_kernel_str(dst, size, src) : -1;\n}\n", helper.name, helper.object, helper.field)
+			fmt.Fprintf(b, "\nstatic __always_inline long hzn_lsm_%s(void *ctx, void *dst, __u32 size) {\n    %s;\n    const void *src = object ? BPF_CORE_READ(object, %s) : 0;\n    if (!src) return -1;\n    long copied = bpf_probe_read_kernel_str(dst, size, src);\n    return copied > 0 && (__u64)copied < size ? 0 : -1;\n}\n", helper.name, helper.object, helper.field)
 		})
 	}
 }

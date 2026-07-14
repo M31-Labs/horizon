@@ -122,6 +122,7 @@ func Scoped(ctx lsm.Context) i32 {
 	if (dev != 0) && (parent != 0) && (mode == lsm.FModeWrite) { return lsm.Deny }
     return lsm.Allow
 }
+
 `), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -134,6 +135,51 @@ func Scoped(ctx lsm.Context) i32 {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"bpf_get_current_cgroup_id()", "bpf_get_current_ancestor_cgroup_id(level)", "hzn_current_cgroup_id()", "hzn_current_ancestor_cgroup_id(1)", "hzn_lsm_file_dev(ctx)", "BPF_CORE_READ(file, f_inode, i_sb, s_dev)", "hzn_lsm_file_parent_ino(ctx)", "hzn_lsm_file_mode(ctx)", "hzn_lsm_file_is_proc_other(ctx)", "struct proc_inode___hzn", "((__u32)0x2)"} {
+		if !strings.Contains(out.Code, want) {
+			t.Fatalf("generated C missing %q:\n%s", want, out.Code)
+		}
+	}
+}
+
+func TestEmitLSMStringAccessorRejectsTruncation(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "exec.hzn")
+	if err := os.WriteFile(path, []byte(`package probes
+
+import lsm "m31labs.dev/horizon/runtime/lsm"
+
+type Event struct { path [256]u8 }
+map Events ringbuf[Event]
+
+@lsm("bprm_check_security")
+func GateExec(ctx lsm.Context) i32 {
+    event := Events.reserve()
+    if event == nil { return lsm.Allow }
+    if lsm.bprm_filename(ctx, &event.path) != 0 {
+        Events.discard(event)
+        return lsm.Allow
+    }
+    Events.submit(event)
+    return lsm.Allow
+}
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := compiler.AnalyzePath(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diag.HasErrors(result.Diagnostics) {
+		t.Fatalf("diagnostics = %#v", result.Diagnostics)
+	}
+	out, err := Emit(result.Program)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"long copied = bpf_probe_read_kernel_str(dst, size, src);",
+		"return copied > 0 && (__u64)copied < size ? 0 : -1;",
+	} {
 		if !strings.Contains(out.Code, want) {
 			t.Fatalf("generated C missing %q:\n%s", want, out.Code)
 		}
