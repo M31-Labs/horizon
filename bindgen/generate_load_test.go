@@ -74,6 +74,11 @@ func TestGeneratedObjectsCloseSurvivesNilFields_FixtureMatchesGenerator(t *testi
 	if err != nil {
 		t.Fatalf("Generate: %v", err)
 	}
+	if os.Getenv("UPDATE_GOLDEN") == "1" {
+		if err := os.WriteFile("testdata/generated/openwatch/bindings.go", []byte(generated), 0o644); err != nil {
+			t.Fatalf("update fixture: %v", err)
+		}
+	}
 
 	fixtureBytes, err := os.ReadFile("testdata/generated/openwatch/bindings.go")
 	if err != nil {

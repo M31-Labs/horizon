@@ -2,6 +2,7 @@ package compiler_test
 
 import (
 	"encoding/json"
+	"os"
 	"testing"
 
 	"m31labs.dev/horizon/bindgen"
@@ -46,6 +47,12 @@ func TestExecGoldenArtifacts(t *testing.T) {
 
 func compareGolden(t *testing.T, path string, got string) {
 	t.Helper()
+	if *updateGolden {
+		if err := os.WriteFile(path, []byte(got), 0o644); err != nil {
+			t.Fatalf("update %s: %v", path, err)
+		}
+		return
+	}
 	want := testutil.ReadGolden(t, path)
 	got = testutil.NormalizeGolden(got)
 	want = testutil.NormalizeGolden(want)

@@ -394,7 +394,7 @@ func OnExec(ctx tracepoint.Exec) i32 {
 	if strings.Contains(bindings, "ShouldCount *ebpf.Program") || strings.Contains(bindings, "NormalizePid *ebpf.Program") {
 		t.Fatalf("bindings expose helper functions as programs:\n%s", bindings)
 	}
-	if !strings.Contains(bindings, "OnExec *ebpf.Program") {
+	if !strings.Contains(bindings, "*ebpf.Program `ebpf:\"OnExec\"`") {
 		t.Fatalf("bindings missing entrypoint program:\n%s", bindings)
 	}
 }

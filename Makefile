@@ -105,7 +105,7 @@ bindings-smoke:
 	done
 
 golden-update:
-	go test ./compiler -run TestGoldenExamplesWorkbench -update-golden -v
+	go test ./compiler -run 'Test(GoldenExamplesWorkbench|ExecGoldenArtifacts)' -update-golden -v
 
 verifier-fixtures-update:
 	go test ./verifier -run TestVerifierCatalogFixtures -update-fixtures -v

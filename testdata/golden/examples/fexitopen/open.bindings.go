@@ -37,6 +37,7 @@ var _ [int(unsafe.Sizeof(FexitOpenEvent{})) - 4]byte
 var _ [-int(unsafe.Offsetof(FexitOpenEvent{}.Pid))]byte
 
 type Objects struct {
+	collection       *ebpf.Collection
 	FexitOpenEvents  *ebpf.Map     `ebpf:"FexitOpenEvents"`
 	OnFileOpenReturn *ebpf.Program `ebpf:"OnFileOpenReturn"`
 }
@@ -44,6 +45,7 @@ type Objects struct {
 type LoadOptions struct {
 	Collection    *ebpf.CollectionOptions
 	RemoveMemlock bool
+	Programs      []string
 }
 
 func LoadObjects(path string) (*Objects, error) {
@@ -60,6 +62,32 @@ func LoadObjectsWithOptions(path string, opts LoadOptions) (*Objects, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load %s: %w", path, err)
 	}
+	if len(opts.Programs) != 0 {
+		wanted := make(map[string]bool, len(opts.Programs))
+		for _, name := range opts.Programs {
+			if spec.Programs[name] == nil {
+				return nil, fmt.Errorf("select eBPF program %q: not found", name)
+			}
+			wanted[name] = true
+		}
+		for name := range spec.Programs {
+			if !wanted[name] {
+				delete(spec.Programs, name)
+			}
+		}
+		collectionOptions := ebpf.CollectionOptions{}
+		if opts.Collection != nil {
+			collectionOptions = *opts.Collection
+		}
+		collection, err := ebpf.NewCollectionWithOptions(spec, collectionOptions)
+		if err != nil {
+			return nil, fmt.Errorf("load selected eBPF objects: %w", err)
+		}
+		objects := &Objects{collection: collection}
+		objects.FexitOpenEvents = collection.Maps["FexitOpenEvents"]
+		objects.OnFileOpenReturn = collection.Programs["OnFileOpenReturn"]
+		return objects, nil
+	}
 	var objects Objects
 	if err := spec.LoadAndAssign(&objects, opts.Collection); err != nil {
 		return nil, fmt.Errorf("load eBPF objects: %w", err)
@@ -70,6 +98,9 @@ func LoadObjectsWithOptions(path string, opts LoadOptions) (*Objects, error) {
 func (o *Objects) Close() error {
 	if o == nil {
 		return nil
+	}
+	if o.collection != nil {
+		return o.collection.Close()
 	}
 	var err error
 	if o.FexitOpenEvents != nil {
