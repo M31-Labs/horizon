@@ -94,6 +94,7 @@ var allowedHelperObserveTokens = map[string]bool{
 	"task.uid":                       true,
 	"task.gid":                       true,
 	"task.comm":                      true,
+	"task.argv":                      true,
 	"task.real_parent.tgid":          true,
 	"kernel.time.monotonic":          true,
 	"userspace.string":               true,
@@ -136,6 +137,9 @@ var allowedHelperObserveTokens = map[string]bool{
 // covers the capability surface already.
 var allowedHelperRequiresTokens = map[string]bool{
 	"task_struct.real_parent": true,
+	"task_struct.mm":          true,
+	"mm_struct.arg_start":     true,
+	"mm_struct.arg_end":       true,
 }
 
 // allowedHelperResourceVerbs enumerates the closed verb vocabulary.

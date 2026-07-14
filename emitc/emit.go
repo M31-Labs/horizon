@@ -888,6 +888,29 @@ static __always_inline long hzn_current_comm(void *dst, __u32 size) {
 		})
 	}
 
+	if usage.helpers["current_argv"] {
+		emitUsageMapped(b, sourceMap, usage.helperOrigins["current_argv"], "helper_wrapper", func() {
+			b.WriteString(`
+static __always_inline long hzn_current_argv(void *dst, __u32 size) {
+    struct task_struct *task = (struct task_struct *)bpf_get_current_task();
+    struct mm_struct *mm = 0;
+    unsigned long start = 0;
+    unsigned long end = 0;
+    if (!task || !dst || size == 0) return -1;
+    mm = BPF_CORE_READ(task, mm);
+    if (!mm) return -1;
+    start = BPF_CORE_READ(mm, arg_start);
+    end = BPF_CORE_READ(mm, arg_end);
+    if (start == 0 || end <= start) return -1;
+    unsigned long span = end - start;
+    __u32 copy = span < size ? (__u32)span : size;
+    if (bpf_probe_read_user(dst, copy, (const void *)start) != 0) return -1;
+    return (long)span;
+}
+`)
+		})
+	}
+
 	if usage.helpers["probe_read_user_str"] {
 		emitUsageMapped(b, sourceMap, usage.helperOrigins["probe_read_user_str"], "helper_wrapper", func() {
 			b.WriteString(`
@@ -1958,7 +1981,7 @@ func knownCallType(name string) (ir.Type, bool) {
 		return ir.Type{Name: "u32"}, true
 	case "bpf.ktime_get_ns", "bpf.current_cgroup_id", "bpf.current_ancestor_cgroup_id":
 		return ir.Type{Name: "u64"}, true
-	case "bpf.current_comm":
+	case "bpf.current_comm", "bpf.current_argv":
 		return ir.Type{Name: "i64"}, true
 	case "bpf.probe_read_user_str":
 		return ir.Type{Name: "i64"}, true
@@ -2506,6 +2529,10 @@ func (e cExprEmitter) knownCall(expr *ir.Expr, name string) (string, bool) {
 		return e.oneArgCall(expr, func(arg ir.Expr) string {
 			return fmt.Sprintf("hzn_current_comm(%s, sizeof(%s))", e.emit(&arg), sizeofExpr(&arg, e.env))
 		})
+	case "bpf.current_argv":
+		return e.oneArgCall(expr, func(arg ir.Expr) string {
+			return fmt.Sprintf("hzn_current_argv(%s, sizeof(%s))", e.emit(&arg), sizeofExpr(&arg, e.env))
+		})
 	case "bpf.probe_read_user_str":
 		return e.twoArgCall(expr, func(dst ir.Expr, unsafePtr ir.Expr) string {
 			return fmt.Sprintf("hzn_probe_read_user_str(%s, sizeof(%s), (const void *)(long)%s)", e.emit(&dst), sizeofExpr(&dst, e.env), e.emit(&unsafePtr))
@@ -2736,6 +2763,8 @@ func helperWrapperCall(expr *ir.Expr) (string, bool) {
 		return "current_ancestor_cgroup_id", true
 	case "bpf.current_comm":
 		return "current_comm", true
+	case "bpf.current_argv":
+		return "current_argv", true
 	case "bpf.probe_read_user_str":
 		return "probe_read_user_str", true
 	default:

@@ -19,6 +19,7 @@ import (
 // contract pinned to one another.
 var expectedHelperNames = []string{
 	"bpf.current_ancestor_cgroup_id",
+	"bpf.current_argv",
 	"bpf.current_cgroup_id",
 	"bpf.current_comm",
 	"bpf.current_pid",
@@ -125,6 +126,7 @@ var (
 		"task.uid":                       true,
 		"task.gid":                       true,
 		"task.comm":                      true,
+		"task.argv":                      true,
 		"task.real_parent.tgid":          true,
 		"kernel.time.monotonic":          true,
 		"userspace.string":               true,
@@ -162,6 +164,9 @@ var (
 	}
 	allowedRequiresTokens = map[string]bool{
 		"task_struct.real_parent": true,
+		"task_struct.mm":          true,
+		"mm_struct.arg_start":     true,
+		"mm_struct.arg_end":       true,
 	}
 	resourceTokenPattern = regexp.MustCompile(`^(map|ringbuf):(\$|[A-Za-z_][A-Za-z0-9_]*)$`)
 )

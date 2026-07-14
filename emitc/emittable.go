@@ -436,8 +436,8 @@ func validateBPFCall(expr *ir.Expr, method string) error {
 		return validateArgCount(expr, "bpf."+method, 0)
 	case "current_ancestor_cgroup_id":
 		return validateArgCount(expr, "bpf.current_ancestor_cgroup_id", 1)
-	case "current_comm":
-		return validateArgCount(expr, "bpf.current_comm", 1)
+	case "current_comm", "current_argv":
+		return validateArgCount(expr, "bpf."+method, 1)
 	case "probe_read_user_str":
 		return validateArgCount(expr, "bpf.probe_read_user_str", 2)
 	default:

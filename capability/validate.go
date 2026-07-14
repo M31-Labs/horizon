@@ -550,6 +550,7 @@ var observeVocabulary = map[string]bool{
 	"task.uid":                       true,
 	"task.gid":                       true,
 	"task.comm":                      true,
+	"task.argv":                      true,
 	"task.real_parent.tgid":          true,
 	"kernel.time.monotonic":          true,
 	"userspace.string":               true,

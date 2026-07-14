@@ -39,6 +39,7 @@ import (
 // build-breaking regression — that's the whole point of this test.
 var compilerKnownHelperSurface = []string{
 	"bpf.current_ancestor_cgroup_id",
+	"bpf.current_argv",
 	"bpf.current_cgroup_id",
 	"bpf.current_comm",
 	"bpf.current_pid",

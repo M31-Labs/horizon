@@ -35,6 +35,8 @@ func helperAvailable(name string, kind ir.ProgramKind) bool {
 	switch name {
 	case "current_pid", "current_ppid", "current_uid", "current_comm":
 		return isTaskContextProgram(kind)
+	case "current_argv":
+		return kind == ir.ProgramTracepoint
 	case "probe_read_user_str":
 		return kind == ir.ProgramKprobe
 	case "ktime_get_ns":

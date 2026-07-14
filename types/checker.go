@@ -4740,6 +4740,15 @@ func (t exprTyper) helperCall(name string, call ast.CallExpr) (valueType, []diag
 			})
 		}
 		return valueType{Void: true}, diags
+	case "current_argv":
+		if len(call.Args) != 1 {
+			return valueType{Name: "i64"}, []diag.Diagnostic{argCountDiagnostic(call.Span, "bpf.current_argv", 1, len(call.Args))}
+		}
+		arg, diags := t.typeOf(call.Args[0])
+		if !arg.Ptr || !isU8FixedArray(arg) {
+			diags = append(diags, diag.Diagnostic{Code: "HZN1500", Severity: diag.SeverityError, Message: "bpf.current_argv expects a pointer to a fixed [N]u8 buffer", Primary: call.Span})
+		}
+		return valueType{Name: "i64"}, diags
 	case "probe_read_user_str":
 		if len(call.Args) != 2 {
 			return valueType{Name: "i64", Fallible: "bpf.probe_read_user_str"}, []diag.Diagnostic{argCountDiagnostic(call.Span, "bpf.probe_read_user_str", 2, len(call.Args))}

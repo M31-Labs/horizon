@@ -9,6 +9,13 @@
       "introduced": "v0.1.0"
     },
     {
+      "name": "bpf.current_argv",
+      "kernel_symbol": "bpf_get_current_task",
+      "observes": ["task.argv"],
+      "requires": ["task_struct.mm", "mm_struct.arg_start", "mm_struct.arg_end"],
+      "introduced": "v0.4.1"
+    },
+    {
       "name": "bpf.current_ancestor_cgroup_id",
       "kernel_symbol": "bpf_get_current_ancestor_cgroup_id",
       "observes": ["task.cgroup_id"],

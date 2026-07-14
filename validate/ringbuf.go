@@ -815,7 +815,7 @@ func helperWriteBase(expr *ir.Expr) (string, bool) {
 		return "", false
 	}
 	switch method {
-	case "current_comm", "probe_read_user_str":
+	case "current_comm", "current_argv", "probe_read_user_str":
 		return addressSelectorBase(&expr.Args[0])
 	default:
 		return "", false
@@ -868,7 +868,6 @@ func selectorBase(expr *ir.Expr) (string, bool) {
 		return "", false
 	}
 }
-
 
 func branchAlwaysReturns(stmts []ir.Statement) bool {
 	if len(stmts) == 0 {
