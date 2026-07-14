@@ -433,7 +433,8 @@ func (g *generator) emitClose() {
 		return nil
 	}
 	if o.collection != nil {
-		return o.collection.Close()
+		o.collection.Close()
+		return nil
 	}
 	var err error
 `)
