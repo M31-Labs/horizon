@@ -30,15 +30,19 @@ func DefaultFlags() []string {
 // filename are therefore independent of the directory used for the build.
 func reproducibleFlags(input string) []string {
 	dir := filepath.Clean(filepath.Dir(input))
-	if absolute, err := filepath.Abs(dir); err == nil {
-		dir = absolute
+	dirs := []string{dir}
+	if absolute, err := filepath.Abs(dir); err == nil && absolute != dir {
+		dirs = append(dirs, absolute)
 	}
-	return []string{
-		"-fdebug-compilation-dir=.",
-		"-fdebug-prefix-map=" + dir + "=.",
-		"-ffile-prefix-map=" + dir + "=.",
-		"-fmacro-prefix-map=" + dir + "=.",
+	flags := []string{"-fdebug-compilation-dir=."}
+	for _, sourceDir := range dirs {
+		flags = append(flags,
+			"-fdebug-prefix-map="+sourceDir+"=.",
+			"-ffile-prefix-map="+sourceDir+"=.",
+			"-fmacro-prefix-map="+sourceDir+"=.",
+		)
 	}
+	return flags
 }
 
 func TargetArchDefine(goarch string) string {

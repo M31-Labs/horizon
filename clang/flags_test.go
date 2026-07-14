@@ -50,6 +50,20 @@ func TestReproducibleFlagsRemapInputDirectory(t *testing.T) {
 	}
 }
 
+func TestReproducibleFlagsRemapRelativeAndAbsoluteDirectories(t *testing.T) {
+	input := filepath.Join("build", "program.bpf.c")
+	absolute, err := filepath.Abs("build")
+	if err != nil {
+		t.Fatal(err)
+	}
+	flags := reproducibleFlags(input)
+	for _, dir := range []string{"build", absolute} {
+		if want := "-fdebug-prefix-map=" + dir + "=."; !slices.Contains(flags, want) {
+			t.Fatalf("reproducibleFlags() = %#v, want %q", flags, want)
+		}
+	}
+}
+
 func TestTargetArchDefine(t *testing.T) {
 	tests := map[string]string{
 		"amd64":   "__TARGET_ARCH_x86",
