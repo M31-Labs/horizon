@@ -367,7 +367,7 @@ func compilerHelperRequirements(name string) []string {
 		return []string{"bpf_get_current_cgroup_id"}
 	case "bpf.current_ancestor_cgroup_id":
 		return []string{"bpf_get_current_ancestor_cgroup_id"}
-	case "lsm.file_dev", "lsm.file_ino", "lsm.file_mode", "lsm.file_flags", "lsm.file_is_proc_other", "lsm.bprm_dev", "lsm.bprm_ino", "lsm.path_dev", "lsm.path_parent_ino", "lsm.path_mode":
+	case "lsm.file_dev", "lsm.file_ino", "lsm.file_parent_ino", "lsm.file_mode", "lsm.file_flags", "lsm.file_is_proc_other", "lsm.bprm_dev", "lsm.bprm_ino", "lsm.path_dev", "lsm.path_parent_ino", "lsm.path_mode":
 		return []string{"bpf_probe_read_kernel"}
 	case "lsm.bprm_filename", "lsm.bprm_interp", "lsm.dentry_name":
 		return []string{"bpf_probe_read_kernel_str"}

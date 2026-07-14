@@ -1014,6 +1014,7 @@ func emitLSMContextHelpers(b *strings.Builder, sourceMap *ir.SourceMap, usage cU
 	for _, helper := range []helperDef{
 		{"file_dev", "__u64", "struct file *file = (struct file *)(unsigned long)((__u64 *)ctx)[0]; return file ? (__u64)BPF_CORE_READ(file, f_inode, i_sb, s_dev) : 0;"},
 		{"file_ino", "__u64", "struct file *file = (struct file *)(unsigned long)((__u64 *)ctx)[0]; return file ? (__u64)BPF_CORE_READ(file, f_inode, i_ino) : 0;"},
+		{"file_parent_ino", "__u64", "struct file *file = (struct file *)(unsigned long)((__u64 *)ctx)[0]; return file ? (__u64)BPF_CORE_READ(file, f_path.dentry, d_parent, d_inode, i_ino) : 0;"},
 		{"file_mode", "__u32", "struct file *file = (struct file *)(unsigned long)((__u64 *)ctx)[0]; return file ? (__u32)BPF_CORE_READ(file, f_mode) : 0;"},
 		{"file_flags", "__u32", "struct file *file = (struct file *)(unsigned long)((__u64 *)ctx)[0]; return file ? (__u32)BPF_CORE_READ(file, f_flags) : 0;"},
 		{"file_is_proc_other", "__u32", "struct file *file = (struct file *)(unsigned long)((__u64 *)ctx)[0]; if (!file) return 0; struct inode *inode = BPF_CORE_READ(file, f_inode); struct super_block *sb = inode ? BPF_CORE_READ(inode, i_sb) : 0; if (!sb || BPF_CORE_READ(sb, s_magic) != 0x9fa0) return 0; struct proc_inode___hzn *proc = container_of(inode, struct proc_inode___hzn, vfs_inode); struct pid *target = BPF_CORE_READ(proc, pid); struct task_struct *task = (struct task_struct *)bpf_get_current_task(); struct task_struct *leader = task ? BPF_CORE_READ(task, group_leader) : 0; struct pid *current = leader ? BPF_CORE_READ(leader, thread_pid) : 0; return target && current && target != current;"},
@@ -2007,7 +2008,7 @@ func knownCallType(name string) (ir.Type, bool) {
 		return ir.Type{Name: "u32"}, true
 	case "cgroup.dst_port":
 		return ir.Type{Name: "u16"}, true
-	case "lsm.file_dev", "lsm.file_ino", "lsm.bprm_dev", "lsm.bprm_ino", "lsm.path_dev", "lsm.path_parent_ino":
+	case "lsm.file_dev", "lsm.file_ino", "lsm.file_parent_ino", "lsm.bprm_dev", "lsm.bprm_ino", "lsm.path_dev", "lsm.path_parent_ino":
 		return ir.Type{Name: "u64"}, true
 	case "lsm.file_mode", "lsm.file_flags", "lsm.path_mode":
 		return ir.Type{Name: "u32"}, true
@@ -2585,7 +2586,7 @@ func (e cExprEmitter) knownCall(expr *ir.Expr, name string) (string, bool) {
 		return e.cgroupContextCall(expr, "src_ip4")
 	case "cgroup.ip4":
 		return e.ip4Call(expr)
-	case "lsm.file_dev", "lsm.file_ino", "lsm.file_mode", "lsm.file_flags", "lsm.file_is_proc_other", "lsm.bprm_dev", "lsm.bprm_ino", "lsm.path_dev", "lsm.path_parent_ino", "lsm.path_mode":
+	case "lsm.file_dev", "lsm.file_ino", "lsm.file_parent_ino", "lsm.file_mode", "lsm.file_flags", "lsm.file_is_proc_other", "lsm.bprm_dev", "lsm.bprm_ino", "lsm.path_dev", "lsm.path_parent_ino", "lsm.path_mode":
 		helper := strings.TrimPrefix(name, "lsm.")
 		return e.oneArgCall(expr, func(arg ir.Expr) string { return fmt.Sprintf("hzn_lsm_%s(%s)", helper, e.emit(&arg)) })
 	case "lsm.file_path", "lsm.bprm_filename", "lsm.bprm_interp", "lsm.dentry_name":
@@ -2828,7 +2829,7 @@ func lsmContextCall(expr *ir.Expr) (string, bool) {
 		return "", false
 	}
 	switch expr.Func.Field {
-	case "file_dev", "file_ino", "file_mode", "file_flags", "file_is_proc_other", "file_path", "bprm_dev", "bprm_ino", "bprm_filename", "bprm_interp", "path_dev", "path_parent_ino", "dentry_name", "path_mode", "path_has_prefix", "path_has_suffix":
+	case "file_dev", "file_ino", "file_parent_ino", "file_mode", "file_flags", "file_is_proc_other", "file_path", "bprm_dev", "bprm_ino", "bprm_filename", "bprm_interp", "path_dev", "path_parent_ino", "dentry_name", "path_mode", "path_has_prefix", "path_has_suffix":
 		return expr.Func.Field, true
 	default:
 		return "", false

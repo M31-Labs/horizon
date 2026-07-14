@@ -118,6 +118,7 @@ var allowedHelperObserveTokens = map[string]bool{
 	"kernel.network.packet.udp":      true,
 	"kernel.file.path":               true,
 	"kernel.file.inode":              true,
+	"kernel.file.parent_inode":       true,
 	"kernel.file.dev":                true,
 	"kernel.file.mode":               true,
 	"kernel.file.flags":              true,

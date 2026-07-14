@@ -239,6 +239,12 @@
       "introduced": "v0.4.0"
     },
     {
+      "name": "lsm.file_parent_ino",
+      "kernel_symbol": "BPF_CORE_READ",
+      "observes": ["kernel.file.parent_inode"],
+      "introduced": "v0.4.2"
+    },
+    {
       "name": "lsm.file_path",
       "kernel_symbol": "bpf_d_path",
       "observes": ["kernel.file.path"],

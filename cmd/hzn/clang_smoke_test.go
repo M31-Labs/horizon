@@ -263,13 +263,14 @@ func CheckFileOpen(ctx lsm.Context) i32 {
     if event == nil { return lsm.Allow }
     dev := lsm.file_dev(ctx)
     ino := lsm.file_ino(ctx)
+	parent := lsm.file_parent_ino(ctx)
     mode := lsm.file_mode(ctx)
     flags := lsm.file_flags(ctx)
 	other := lsm.file_is_proc_other(ctx)
     if lsm.file_path(ctx, &event.path) != 0 { Events.discard(event); return lsm.Allow }
     matches := lsm.path_has_prefix(&event.path, "/tmp")
     Events.discard(event)
-	if dev == 0 && ino == 0 && mode == 0 && flags == 0 && matches && other { return lsm.Deny }
+	if dev == 0 && ino == 0 && parent == 0 && mode == 0 && flags == 0 && matches && other { return lsm.Deny }
     return lsm.Allow
 }
 

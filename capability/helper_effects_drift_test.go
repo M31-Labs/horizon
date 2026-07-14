@@ -74,6 +74,7 @@ var compilerKnownHelperSurface = []string{
 	"lsm.file_dev",
 	"lsm.file_flags",
 	"lsm.file_ino",
+	"lsm.file_parent_ino",
 	"lsm.file_is_proc_other",
 	"lsm.file_mode",
 	"lsm.file_path",

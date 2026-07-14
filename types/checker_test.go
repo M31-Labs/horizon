@@ -74,11 +74,12 @@ func Scoped(ctx lsm.Context) i32 {
     id := bpf.current_cgroup_id()
     parent := bpf.current_ancestor_cgroup_id(1)
     dev := lsm.file_dev(ctx)
+	parent_ino := lsm.file_parent_ino(ctx)
     mode := lsm.file_mode(ctx)
 	other := lsm.file_is_proc_other(ctx)
     if id == parent { return lsm.Allow }
 	if other { return lsm.Deny }
-	if (dev != 0) && (mode == lsm.FModeWrite) { return lsm.Deny }
+	if (dev != 0) && (parent_ino != 0) && (mode == lsm.FModeWrite) { return lsm.Deny }
     return lsm.Allow
 }
 `)

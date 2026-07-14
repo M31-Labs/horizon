@@ -114,11 +114,12 @@ func Scoped(ctx lsm.Context) i32 {
     scope := CellScope.lookup(id)
     if scope == nil { return lsm.Allow }
     dev := lsm.file_dev(ctx)
+	parent := lsm.file_parent_ino(ctx)
     mode := lsm.file_mode(ctx)
 	other := lsm.file_is_proc_other(ctx)
     if id == ancestor { return lsm.Allow }
 	if other { return lsm.Deny }
-	if (dev != 0) && (mode == lsm.FModeWrite) { return lsm.Deny }
+	if (dev != 0) && (parent != 0) && (mode == lsm.FModeWrite) { return lsm.Deny }
     return lsm.Allow
 }
 `), 0o600); err != nil {
@@ -132,7 +133,7 @@ func Scoped(ctx lsm.Context) i32 {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"bpf_get_current_cgroup_id()", "bpf_get_current_ancestor_cgroup_id(level)", "hzn_current_cgroup_id()", "hzn_current_ancestor_cgroup_id(1)", "hzn_lsm_file_dev(ctx)", "BPF_CORE_READ(file, f_inode, i_sb, s_dev)", "hzn_lsm_file_mode(ctx)", "hzn_lsm_file_is_proc_other(ctx)", "struct proc_inode___hzn", "((__u32)0x2)"} {
+	for _, want := range []string{"bpf_get_current_cgroup_id()", "bpf_get_current_ancestor_cgroup_id(level)", "hzn_current_cgroup_id()", "hzn_current_ancestor_cgroup_id(1)", "hzn_lsm_file_dev(ctx)", "BPF_CORE_READ(file, f_inode, i_sb, s_dev)", "hzn_lsm_file_parent_ino(ctx)", "hzn_lsm_file_mode(ctx)", "hzn_lsm_file_is_proc_other(ctx)", "struct proc_inode___hzn", "((__u32)0x2)"} {
 		if !strings.Contains(out.Code, want) {
 			t.Fatalf("generated C missing %q:\n%s", want, out.Code)
 		}
