@@ -577,6 +577,7 @@ var observeVocabulary = map[string]bool{
 	"kernel.file.dev":                true,
 	"kernel.file.mode":               true,
 	"kernel.file.flags":              true,
+	"kernel.proc.target_pid":         true,
 	"kernel.bprm.filename":           true,
 	"kernel.bprm.interp":             true,
 	"kernel.bprm.inode":              true,

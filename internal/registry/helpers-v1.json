@@ -226,6 +226,13 @@
       "introduced": "v0.4.0"
     },
     {
+      "name": "lsm.file_is_proc_other",
+      "kernel_symbol": "BPF_CORE_READ",
+      "observes": ["kernel.proc.target_pid", "task.tgid"],
+      "requires": ["proc_inode.pid", "proc_inode.vfs_inode", "task_struct.group_leader", "task_struct.thread_pid"],
+      "introduced": "v0.4.2"
+    },
+    {
       "name": "lsm.file_mode",
       "kernel_symbol": "BPF_CORE_READ",
       "observes": ["kernel.file.mode"],

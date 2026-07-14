@@ -54,6 +54,7 @@ var expectedHelperNames = []string{
 	"lsm.file_dev",
 	"lsm.file_flags",
 	"lsm.file_ino",
+	"lsm.file_is_proc_other",
 	"lsm.file_mode",
 	"lsm.file_path",
 	"lsm.path_dev",
@@ -153,6 +154,7 @@ var (
 		"kernel.file.dev":                true,
 		"kernel.file.mode":               true,
 		"kernel.file.flags":              true,
+		"kernel.proc.target_pid":         true,
 		"kernel.bprm.filename":           true,
 		"kernel.bprm.interp":             true,
 		"kernel.bprm.inode":              true,
@@ -163,10 +165,14 @@ var (
 		"kernel.path.mode":               true,
 	}
 	allowedRequiresTokens = map[string]bool{
-		"task_struct.real_parent": true,
-		"task_struct.mm":          true,
-		"mm_struct.arg_start":     true,
-		"mm_struct.arg_end":       true,
+		"task_struct.real_parent":  true,
+		"task_struct.mm":           true,
+		"mm_struct.arg_start":      true,
+		"mm_struct.arg_end":        true,
+		"proc_inode.pid":           true,
+		"proc_inode.vfs_inode":     true,
+		"task_struct.group_leader": true,
+		"task_struct.thread_pid":   true,
 	}
 	resourceTokenPattern = regexp.MustCompile(`^(map|ringbuf):(\$|[A-Za-z_][A-Za-z0-9_]*)$`)
 )

@@ -469,7 +469,7 @@ func validateCgroupCall(expr *ir.Expr, method string) error {
 
 func validateLSMCall(expr *ir.Expr, method string) error {
 	switch method {
-	case "file_dev", "file_ino", "file_mode", "file_flags", "bprm_dev", "bprm_ino", "path_dev", "path_parent_ino", "path_mode":
+	case "file_dev", "file_ino", "file_mode", "file_flags", "file_is_proc_other", "bprm_dev", "bprm_ino", "path_dev", "path_parent_ino", "path_mode":
 		return validateArgCount(expr, "lsm."+method, 1)
 	case "file_path", "bprm_filename", "bprm_interp", "dentry_name":
 		return validateArgCount(expr, "lsm."+method, 2)

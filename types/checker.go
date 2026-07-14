@@ -4581,7 +4581,7 @@ func lsmHookFamily(hook string) string {
 
 func lsmAccessorFamily(name string) string {
 	switch name {
-	case "file_dev", "file_ino", "file_mode", "file_flags", "file_path":
+	case "file_dev", "file_ino", "file_mode", "file_flags", "file_is_proc_other", "file_path":
 		return "file"
 	case "bprm_dev", "bprm_ino", "bprm_filename", "bprm_interp":
 		return "exec"
@@ -4594,6 +4594,8 @@ func lsmAccessorFamily(name string) string {
 
 func lsmAccessorResult(name string) string {
 	switch name {
+	case "file_is_proc_other":
+		return "bool"
 	case "file_mode", "file_flags", "path_mode":
 		return "u32"
 	default:

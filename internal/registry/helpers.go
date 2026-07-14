@@ -121,6 +121,7 @@ var allowedHelperObserveTokens = map[string]bool{
 	"kernel.file.dev":                true,
 	"kernel.file.mode":               true,
 	"kernel.file.flags":              true,
+	"kernel.proc.target_pid":         true,
 	"kernel.bprm.filename":           true,
 	"kernel.bprm.interp":             true,
 	"kernel.bprm.inode":              true,
@@ -136,10 +137,14 @@ var allowedHelperObserveTokens = map[string]bool{
 // out of scope; the existing Capability.Requirements.Permissions field
 // covers the capability surface already.
 var allowedHelperRequiresTokens = map[string]bool{
-	"task_struct.real_parent": true,
-	"task_struct.mm":          true,
-	"mm_struct.arg_start":     true,
-	"mm_struct.arg_end":       true,
+	"task_struct.real_parent":  true,
+	"task_struct.mm":           true,
+	"mm_struct.arg_start":      true,
+	"mm_struct.arg_end":        true,
+	"proc_inode.pid":           true,
+	"proc_inode.vfs_inode":     true,
+	"task_struct.group_leader": true,
+	"task_struct.thread_pid":   true,
 }
 
 // allowedHelperResourceVerbs enumerates the closed verb vocabulary.
