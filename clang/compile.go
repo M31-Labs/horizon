@@ -6,7 +6,8 @@ import (
 )
 
 func Compile(ctx context.Context, input string, output string, opts Options) error {
-	args := append(DefaultFlags(), opts.Flags...)
+	args := append(DefaultFlags(), reproducibleFlags(input)...)
+	args = append(args, opts.Flags...)
 	args = append(args, "-c", input, "-o", output)
 	cmd := exec.CommandContext(ctx, opts.ClangPathOrDefault(), args...)
 	if out, err := cmd.CombinedOutput(); err != nil {

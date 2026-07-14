@@ -1,8 +1,10 @@
 package clang
 
 import (
+	"path/filepath"
 	"runtime"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -22,6 +24,29 @@ func TestDefaultFlagsDefineHostTargetArchWhenKnown(t *testing.T) {
 	}
 	if want := "-D" + define; !slices.Contains(DefaultFlags(), want) {
 		t.Fatalf("DefaultFlags() = %#v, want %s", DefaultFlags(), want)
+	}
+}
+
+func TestReproducibleFlagsRemapInputDirectory(t *testing.T) {
+	input := filepath.Join(t.TempDir(), "nested", "program.bpf.c")
+	dir, err := filepath.Abs(filepath.Dir(input))
+	if err != nil {
+		t.Fatal(err)
+	}
+	flags := reproducibleFlags(input)
+	for _, prefix := range []string{
+		"-fdebug-prefix-map=",
+		"-ffile-prefix-map=",
+		"-fmacro-prefix-map=",
+	} {
+		if want := prefix + dir + "=."; !slices.Contains(flags, want) {
+			t.Fatalf("reproducibleFlags() = %#v, want %q", flags, want)
+		}
+	}
+	for _, flag := range flags {
+		if strings.Contains(flag, filepath.Base(input)) {
+			t.Fatalf("reproducibleFlags() = %#v, filename must remain stable", flags)
+		}
 	}
 }
 
